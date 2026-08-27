@@ -12,6 +12,9 @@ next-env.d.ts
 # production
 dist/
 
+# typescript incremental build cache
+*.tsbuildinfo
+
 # local database (SQLite lives on a mounted volume in production)
 data/
 *.db
@@ -27,6 +30,9 @@ data/
 
 # testing
 coverage/
+
+# demo verification screenshots — regenerate with `pnpm demo:verify`
+demo/screenshots/
 
 # misc
 .DS_Store
