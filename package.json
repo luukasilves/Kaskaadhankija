@@ -1,0 +1,49 @@
+{
+  "name": "kaskaadhankija",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx src/db/migrate.ts",
+    "db:seed": "tsx src/db/seed.ts",
+    "db:studio": "drizzle-kit studio"
+  },
+  "dependencies": {
+    "@date-fns/tz": "^1.4.1",
+    "better-sqlite3": "^13.0.3",
+    "date-fns": "^4.1.0",
+    "drizzle-orm": "^0.45.2",
+    "next": "^15.5.4",
+    "nodemailer": "^9.0.5",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "zod": "^4.1.13"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "esbuild"
+    ]
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.16",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.18.9",
+    "@types/nodemailer": "^7.0.4",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.1",
+    "drizzle-kit": "^0.31.6",
+    "tailwindcss": "^4.1.16",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}
