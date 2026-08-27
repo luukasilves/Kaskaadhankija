@@ -1,0 +1,1004 @@
+<!doctype html>
+<html lang="et">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex, nofollow" />
+<meta name="description" content="Tööseisundis näidis kaskaad-minihanke protsessist raamlepingu „Eesti.ai koolitajate tellimine“ alusel." />
+<title>Kaskaadhankija — kaskaad-minihanke näidis</title>
+<style>
+/* Kaskaadhankija demo — self-contained styles, inlined into the single HTML file. */
+
+:root {
+  --bg: #f4f6f9;
+  --surface: #ffffff;
+  --surface-alt: #f9fafc;
+  --border: #dde3ea;
+  --border-strong: #c3ccd7;
+  --text: #1b2430;
+  --muted: #5d6875;
+  --primary: #14507d;
+  --primary-hover: #0f3f63;
+  --primary-soft: #e7f0f7;
+  --success: #1a6f47;
+  --success-soft: #e3f3ea;
+  --warning: #96560a;
+  --warning-soft: #fbeedc;
+  --danger: #a52a21;
+  --danger-soft: #fbe8e6;
+  --info: #14507d;
+  --info-soft: #e7f0f7;
+  --neutral: #5d6875;
+  --neutral-soft: #eef1f5;
+  --demo: #7a3ea3;
+  --demo-soft: #f3e9fa;
+  --shadow: 0 1px 2px rgba(20, 36, 54, 0.06), 0 4px 12px rgba(20, 36, 54, 0.05);
+  --radius: 10px;
+  --radius-sm: 6px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #10151c;
+    --surface: #171e27;
+    --surface-alt: #1d2531;
+    --border: #2b3542;
+    --border-strong: #3b4757;
+    --text: #e7ecf2;
+    --muted: #9aa6b4;
+    --primary: #6aa9d8;
+    --primary-hover: #8bbde4;
+    --primary-soft: #1a2b3a;
+    --success: #6cc79b;
+    --success-soft: #16301f;
+    --warning: #e0a763;
+    --warning-soft: #33260f;
+    --danger: #ef8177;
+    --danger-soft: #35191a;
+    --info: #6aa9d8;
+    --info-soft: #1a2b3a;
+    --neutral: #9aa6b4;
+    --neutral-soft: #222b37;
+    --demo: #c295e0;
+    --demo-soft: #2a1c36;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 4px 14px rgba(0, 0, 0, 0.3);
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3 { margin: 0; font-weight: 650; letter-spacing: -0.01em; }
+h1 { font-size: 21px; }
+h2 { font-size: 16px; }
+h3 { font-size: 14px; }
+p { margin: 0 0 10px; }
+a { color: var(--primary); }
+
+/* ---------------- top bar ---------------- */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 10px 20px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 40;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: -0.01em;
+}
+
+.demo-badge {
+  background: var(--demo-soft);
+  color: var(--demo);
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 1px 9px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.topbar-spacer { flex: 1 1 auto; }
+
+.clock {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 5px 10px;
+}
+
+.clock-label { color: var(--muted); font-size: 12px; }
+.clock-value { font-variant-numeric: tabular-nums; font-weight: 650; }
+
+/* ---------------- layout ---------------- */
+
+.layout {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  align-items: start;
+  gap: 0;
+}
+
+.layout.with-mailbox { grid-template-columns: 200px minmax(0, 1fr) 380px; }
+
+.sidenav {
+  padding: 16px 12px;
+  border-right: 1px solid var(--border);
+  position: sticky;
+  top: 57px;
+  align-self: start;
+}
+
+.sidenav a {
+  display: block;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 550;
+  cursor: pointer;
+}
+.sidenav a:hover { background: var(--surface-alt); }
+.sidenav a.active { background: var(--primary-soft); color: var(--primary); }
+.sidenav .nav-count { float: right; color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
+
+main { padding: 22px 24px 60px; min-width: 0; }
+
+.page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+.page-head .subtitle { color: var(--muted); margin: 3px 0 0; }
+
+/* ---------------- cards ---------------- */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  margin-bottom: 16px;
+}
+.card-head {
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.card-body { padding: 16px; }
+.card-body.tight { padding: 0; }
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.stat {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 13px 15px;
+  box-shadow: var(--shadow);
+}
+.stat-value { font-size: 25px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.15; }
+.stat-label { color: var(--muted); font-size: 12px; margin-top: 2px; }
+
+.intro {
+  background: var(--primary-soft);
+  border: 1px solid var(--primary);
+  border-radius: var(--radius);
+  padding: 15px 17px;
+  margin-bottom: 18px;
+}
+.intro h2 { margin-bottom: 7px; }
+.intro ol { margin: 8px 0 0; padding-left: 20px; }
+.intro li { margin-bottom: 4px; }
+
+/* ---------------- tables ---------------- */
+
+table { width: 100%; border-collapse: collapse; }
+.table-wrap { overflow-x: auto; }
+th, td { text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); font-weight: 650; white-space: nowrap; }
+tbody tr:last-child td { border-bottom: none; }
+tbody tr.clickable { cursor: pointer; }
+tbody tr.clickable:hover { background: var(--surface-alt); }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+td.nowrap, th.nowrap { white-space: nowrap; }
+
+.muted { color: var(--muted); }
+.small { font-size: 12.5px; }
+.mono { font-variant-numeric: tabular-nums; }
+.strong { font-weight: 650; }
+
+/* ---------------- badges + buttons ---------------- */
+
+.badge {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.badge-neutral { background: var(--neutral-soft); color: var(--neutral); }
+.badge-info { background: var(--info-soft); color: var(--info); }
+.badge-success { background: var(--success-soft); color: var(--success); }
+.badge-warning { background: var(--warning-soft); color: var(--warning); }
+.badge-danger { background: var(--danger-soft); color: var(--danger); }
+
+.rank-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: var(--neutral-soft);
+  color: var(--text);
+  font-weight: 700;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+button, .btn {
+  font: inherit;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  padding: 6px 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+button:hover, .btn:hover { background: var(--surface-alt); }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+button.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+button.primary:hover { background: var(--primary-hover); }
+button.success { background: var(--success); border-color: var(--success); color: #fff; }
+button.danger { background: var(--surface); border-color: var(--danger); color: var(--danger); }
+button.danger:hover { background: var(--danger-soft); }
+button.small { padding: 3px 9px; font-size: 12.5px; }
+button.link { border: none; background: none; color: var(--primary); padding: 0; text-decoration: underline; }
+
+.btn-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+/* ---------------- forms ---------------- */
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+}
+.field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.field.full { grid-column: 1 / -1; }
+label { font-weight: 600; font-size: 12.5px; }
+input, select, textarea {
+  font: inherit;
+  padding: 7px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  width: 100%;
+  min-width: 0;
+}
+input:focus, select:focus, textarea:focus { outline: 2px solid var(--primary); outline-offset: -1px; }
+textarea { resize: vertical; min-height: 66px; }
+.hint { color: var(--muted); font-size: 12px; }
+.error-text { color: var(--danger); font-weight: 600; }
+
+/* ---------------- cascade timeline ---------------- */
+
+.timeline { list-style: none; margin: 0; padding: 0; }
+.timeline-item {
+  position: relative;
+  padding: 0 0 18px 30px;
+  border-left: 2px solid var(--border);
+  margin-left: 9px;
+}
+.timeline-item:last-child { border-left-color: transparent; padding-bottom: 0; }
+.timeline-dot {
+  position: absolute;
+  left: -9px;
+  top: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 3px solid var(--surface);
+  background: var(--neutral);
+}
+.timeline-dot.info { background: var(--info); }
+.timeline-dot.success { background: var(--success); }
+.timeline-dot.warning { background: var(--warning); }
+.timeline-dot.danger { background: var(--danger); }
+.timeline-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.timeline-meta { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+.timeline-note {
+  margin-top: 6px;
+  padding: 7px 11px;
+  background: var(--surface-alt);
+  border-left: 3px solid var(--border-strong);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  font-size: 13px;
+}
+.run-divider {
+  margin: 4px 0 14px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* ---------------- mailbox ---------------- */
+
+.mailbox {
+  border-left: 1px solid var(--border);
+  background: var(--surface-alt);
+  padding: 16px 14px 60px;
+  position: sticky;
+  top: 57px;
+  align-self: start;
+  max-height: calc(100vh - 57px);
+  overflow-y: auto;
+}
+.mailbox-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; gap: 8px; }
+.mailbox-hint { color: var(--muted); font-size: 12px; margin-bottom: 12px; }
+
+.mail {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+.mail.actionable { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-soft); }
+.mail-head { padding: 9px 12px; border-bottom: 1px solid var(--border); cursor: pointer; }
+.mail-to { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; }
+.mail-subject { font-weight: 650; margin-top: 2px; font-size: 13px; }
+.mail-body { padding: 12px; font-size: 13px; border-top: 1px solid var(--border); background: var(--surface); }
+.mail-body :where(p, table) { max-width: 100%; }
+.mail-actions { padding: 10px 12px; background: var(--primary-soft); display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* ---------------- modal ---------------- */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 32, 0.55);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 16px;
+  overflow-y: auto;
+  z-index: 100;
+}
+.modal {
+  background: var(--surface);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  width: 100%;
+  max-width: 640px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+}
+.modal-head { padding: 15px 18px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.modal-body { padding: 18px; }
+.modal-foot { padding: 13px 18px; border-top: 1px solid var(--border); display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+
+/* the simulated partner-facing offer page */
+.offer-page { max-width: 560px; }
+.offer-page .offer-banner {
+  background: var(--demo-soft);
+  color: var(--demo);
+  padding: 8px 18px;
+  font-size: 12px;
+  font-weight: 650;
+  border-bottom: 1px solid var(--border);
+}
+.detail-list { display: grid; grid-template-columns: auto 1fr; gap: 6px 18px; margin: 0; }
+.detail-list dt { color: var(--muted); }
+.detail-list dd { margin: 0; font-weight: 600; }
+
+.radio-row { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 6px; }
+.radio-row input { width: auto; margin-top: 4px; }
+.radio-row label { font-weight: 500; }
+
+.empty { padding: 26px 16px; text-align: center; color: var(--muted); }
+
+.warning-banner {
+  background: var(--warning-soft);
+  border: 1px solid var(--warning);
+  color: var(--warning);
+  border-radius: var(--radius);
+  padding: 11px 14px;
+  margin-bottom: 14px;
+  font-weight: 600;
+}
+.danger-banner {
+  background: var(--danger-soft);
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  border-radius: var(--radius);
+  padding: 11px 14px;
+  margin-bottom: 14px;
+  font-weight: 600;
+}
+
+.toast {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--text);
+  color: var(--bg);
+  padding: 10px 18px;
+  border-radius: var(--radius);
+  font-weight: 600;
+  z-index: 200;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  max-width: min(560px, calc(100vw - 32px));
+}
+
+.footnote {
+  color: var(--muted);
+  font-size: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+  margin-top: 26px;
+}
+
+@media (max-width: 1180px) {
+  .layout.with-mailbox { grid-template-columns: 200px minmax(0, 1fr); }
+  .mailbox {
+    grid-column: 1 / -1;
+    position: static;
+    max-height: none;
+    border-left: none;
+    border-top: 1px solid var(--border);
+  }
+}
+
+@media (max-width: 760px) {
+  .layout, .layout.with-mailbox { grid-template-columns: 1fr; }
+  .sidenav {
+    position: static;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    gap: 4px;
+    overflow-x: auto;
+    padding: 8px;
+  }
+  .sidenav a { white-space: nowrap; }
+  .sidenav .nav-count { display: none; }
+  main { padding: 16px 14px 50px; }
+}
+
+</style>
+</head>
+<body>
+<div id="app"></div>
+<noscript>
+  <div style="max-width:640px;margin:60px auto;padding:0 20px;font-family:system-ui,sans-serif">
+    <h1>Kaskaadhankija — näidis</h1>
+    <p>See näidis vajab töötamiseks JavaScripti. Palun luba JavaScript ja laadi leht uuesti.</p>
+  </div>
+</noscript>
+<script>
+"use strict";(()=>{var ae="Europe/Tallinn",It=["2026-01-01","2026-02-24","2026-04-03","2026-04-05","2026-05-01","2026-05-24","2026-06-23","2026-06-24","2026-08-20","2026-12-24","2026-12-25","2026-12-26","2027-01-01","2027-02-24","2027-03-26","2027-03-28","2027-05-01","2027-05-16","2027-06-23","2027-06-24","2027-08-20","2027-12-24","2027-12-25","2027-12-26","2028-01-01","2028-02-24","2028-04-14","2028-04-16","2028-05-01","2028-06-04","2028-06-23","2028-06-24","2028-08-20","2028-12-24","2028-12-25","2028-12-26"],St=new Set(It),At=new Intl.DateTimeFormat("en-CA",{timeZone:ae,year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hour12:!1});function ge(t){let e={};for(let n of At.formatToParts(t))e[n.type]=n.value;let a=Number(e.hour)%24;return{year:Number(e.year),month:Number(e.month),day:Number(e.day),hour:a,minute:Number(e.minute)}}function Me(t){let e=ge(t),a=Date.UTC(e.year,e.month-1,e.day,e.hour,e.minute),n=Math.floor(t.getTime()/6e4)*6e4;return a-n}function wt(t,e,a,n,r){let s=Date.UTC(t,e-1,a,n,r),i=Me(new Date(s)),d=Me(new Date(s-i));return new Date(s-d)}function Ot(t,e,a){let n=String(e).padStart(2,"0"),r=String(a).padStart(2,"0");return`${t}-${n}-${r}`}function Lt(t,e,a){let n=new Date(Date.UTC(t,e-1,a+1));return{year:n.getUTCFullYear(),month:n.getUTCMonth()+1,day:n.getUTCDate()}}function Nt(t,e,a){let n=new Date(Date.UTC(t,e-1,a)).getUTCDay();return n===0||n===6?!1:!St.has(Ot(t,e,a))}function fe(t,e,a="17:00"){if(!Number.isInteger(e)||e<1)throw new Error(`addWorkingDays: n must be a positive integer, got ${e}`);let n=ge(t),r={year:n.year,month:n.month,day:n.day},s=0;for(let E=0;s<e&&E<400;E++)r=Lt(r.year,r.month,r.day),Nt(r.year,r.month,r.day)&&s++;if(s<e)throw new Error("addWorkingDays: could not find enough working days");let[i,d]=a.split(":"),c=Number(i),k=Number(d??"0");if(!Number.isFinite(c)||!Number.isFinite(k))throw new Error(`addWorkingDays: invalid localTime ${a}`);return wt(r.year,r.month,r.day,c,k)}var $a=new Intl.DateTimeFormat("et-EE",{timeZone:ae,day:"2-digit",month:"2-digit",year:"numeric"}),Re=new Intl.DateTimeFormat("et-EE",{timeZone:ae,day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit",hour12:!1}),Pt=new Intl.NumberFormat("et-EE",{style:"currency",currency:"EUR",maximumFractionDigits:0}),Dt=new Intl.NumberFormat("et-EE",{style:"currency",currency:"EUR",minimumFractionDigits:2,maximumFractionDigits:2});function Y(t){let e=Re.formatToParts(t),a=n=>e.find(r=>r.type===n)?.value??"";return`${a("day")}.${a("month")}.${a("year")} kell ${a("hour")}:${a("minute")}`}function x(t){let e=Re.formatToParts(t),a=n=>e.find(r=>r.type===n)?.value??"";return`${a("day")}.${a("month")}.${a("year")} ${a("hour")}:${a("minute")}`}function P(t){let[e,a,n]=t.split("-");return!e||!a||!n?t:`${n}.${a}.${e}`}function G(t){return Pt.format(t)}function ne(t){return Dt.format(t)}function Z(t,e){let a=e-t;if(a<=0)return"t\xE4htaeg m\xF6\xF6dunud";let n=Math.floor(a/6e4),r=Math.floor(n/1440),s=Math.floor(n%1440/60),i=n%60;return r>0?`j\xE4\xE4nud ${r} ${_t(r,"p\xE4ev","p\xE4eva")} ${s} h`:s>0?`j\xE4\xE4nud ${s} h ${i} min`:`j\xE4\xE4nud ${i} min`}function _t(t,e,a){return t===1?e:a}function ke(t,e){let a=e-t;return a>0&&a<=864e5}function Ce(t,e,a="strict"){let n=t.filter(s=>s.isActive&&!e.has(s.lotPartnerId));return n.length===0?null:[...n].sort((s,i)=>a==="rotation"&&s.assignedCount!==i.assignedCount?s.assignedCount-i.assignedCount:s.rank-i.rank)[0].lotPartnerId}function ve(t,e="strict"){return[...t].filter(a=>a.isActive).sort((a,n)=>e==="rotation"&&a.assignedCount!==n.assignedCount?a.assignedCount-n.assignedCount:a.rank-n.rank)}var Ke={draft:"Ettevalmistus",cascading:"Kaskaad k\xE4ib",assigned:"M\xE4\xE4ratud",failed:"Partnerit ei leitud",cancelled:"T\xFChistatud",completed:"L\xF5petatud"},be={pending:"Ootab vastust",accepted:"Vastu v\xF5etud",declined:"Loobus",expired:"T\xE4htaeg m\xF6\xF6dus",skipped:"Vahele j\xE4etud",cancelled:"T\xFChistatud"},z={no_capacity:"Koolitajad on h\xF5ivatud",date_conflict:"Kuup\xE4ev ei sobi",location_unsuitable:"Asukoht ei sobi",other:"Muu p\xF5hjus"},F={tootuba_1:"T\xF6\xF6tuba 1",tootuba_2:"T\xF6\xF6tuba 2",suursundmus:"Suurs\xFCndmus",muu:"Muu formaat"},V={et:"Eesti keel",ru:"Vene keel",en:"Inglise keel"},Fe=["Harju maakond","Hiiu maakond","Ida-Viru maakond","J\xF5geva maakond","J\xE4rva maakond","L\xE4\xE4ne maakond","L\xE4\xE4ne-Viru maakond","P\xF5lva maakond","P\xE4rnu maakond","Rapla maakond","Saare maakond","Tartu maakond","Valga maakond","Viljandi maakond","V\xF5ru maakond","Veebip\xF5hine"];function Ve(t){return t==="draft"}var He={draft:"neutral",cascading:"info",assigned:"success",failed:"danger",cancelled:"neutral",completed:"success"},he={pending:"info",accepted:"success",declined:"warning",expired:"warning",skipped:"neutral",cancelled:"neutral"};var Ue="raamleping \u201EEesti.ai koolitajate tellimine\u201C (riigihanke viitenumber 10567384)",Mt="Eesti.ai koolitusprogrammi tellimiskeskkond<br />Riigikantselei";function m(t){return t.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;")}function H(t){return`<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1c2530;max-width:640px">${t}<p style="margin-top:28px;color:#5a6673;font-size:13px">${Mt}</p></div>`}function Be(t){let e=[["Koolituse formaat",t.workshopType],["Kuup\xE4ev",t.eventDates],["Asukoht",t.location],["Osalejate arv",String(t.participantCount)],["Keel",t.language],["Hinnanguline maksumus",t.estimatedValue]];return t.extraNotes.trim()&&e.push(["Lisainfo",t.extraNotes]),`<table style="border-collapse:collapse;margin:18px 0">${e.map(([n,r])=>`<tr><td style="padding:6px 16px 6px 0;color:#5a6673;vertical-align:top;white-space:nowrap">${m(n)}</td><td style="padding:6px 0;font-weight:600">${m(r)}</td></tr>`).join("")}</table>`}function re(t,e){return`<p style="margin:26px 0"><a href="${m(t)}" style="background:#14507d;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:6px;font-weight:600;display:inline-block">${m(e)}</a></p>`}function $e(t){let e=`Koolitustellimus ${t.orderNumber} \u2014 palume vastust hiljemalt ${t.deadlineText}`,a=H(`
+<p>Lugupeetud ${m(t.contactName)}</p>
+<p>Riigikantselei esitab ${Ue} alusel, hankeosas <strong>${m(t.lotCode)} \u2014 ${m(t.lotName)}</strong>, ettev\xF5ttele ${m(t.partnerName)} j\xE4rgmise koolitustellimuse.</p>
+<p style="margin-bottom:0"><strong>${m(t.orderNumber)} \u2014 ${m(t.orderTitle)}</strong></p>
+${Be(t.summary)}
+<p>Palume tellimuse vastu v\xF5tta v\xF5i sellest loobuda hiljemalt <strong>${m(t.deadlineText)}</strong>.</p>
+${re(t.offerUrl,"Ava tellimus ja vasta")}
+<p style="color:#5a6673;font-size:13px">Link on isiklik ja \xFChekordne. Kui te t\xE4htajaks ei vasta, loetakse tellimus tagasi l\xFCkatuks ja see esitatakse raamlepingu j\xE4rjestuses j\xE4rgmisele partnerile.</p>`);return{subject:e,bodyHtml:a}}function We(t){return{subject:`Kinnitus: koolitustellimus ${t.orderNumber} on kinnitatud`,bodyHtml:H(`
+<p>Lugupeetud ${m(t.contactName)}</p>
+<p>Kinnitame, et koolitustellimus <strong>${m(t.orderNumber)} \u2014 ${m(t.orderTitle)}</strong> on ${Ue} alusel kinnitatud ettev\xF5ttele ${m(t.partnerName)}.</p>
+${Be(t.summary)}
+<p>Tellimuse korraldusliku poole osas on kontaktisik ${m(t.buyerContact)}.</p>`)}}function Je(t){return{subject:`${t.orderNumber} m\xE4\xE4ratud \u2014 ${t.partnerName}`,bodyHtml:H(`
+<p>Koolitustellimus <strong>${m(t.orderNumber)} \u2014 ${m(t.orderTitle)}</strong> on vastu v\xF5etud.</p>
+<p>Partner: <strong>${m(t.partnerName)}</strong><br />${m(t.detail)}</p>
+${re(t.orderUrl,"Ava tellimus")}`)}}function qe(t){return{subject:`${t.orderNumber} \u2014 ${t.partnerName} loobus`,bodyHtml:H(`
+<p>Koolitustellimuse <strong>${m(t.orderNumber)} \u2014 ${m(t.orderTitle)}</strong> puhul loobus partner <strong>${m(t.partnerName)}</strong>.</p>
+<p>${m(t.detail)}</p>
+${re(t.orderUrl,"Ava tellimus")}`)}}function Ye(t){return{subject:`${t.orderNumber} \u2014 partnerit ei leitud`,bodyHtml:H(`
+<p>Koolitustellimuse <strong>${m(t.orderNumber)} \u2014 ${m(t.orderTitle)}</strong> kaskaad on ammendunud: hankeosas ${m(t.lotName)} ei v\xF5tnud tellimust vastu \xFCkski raamlepingu partner (${t.attemptCount} p\xF6\xF6rdumist).</p>
+<p>V\xF5imalikud j\xE4rgmised sammud: muuda tellimuse tingimusi ja k\xE4ivita kaskaad uuesti, v\xF5i m\xE4\xE4ra t\xE4itja k\xE4sitsi koos p\xF5hjendusega.</p>
+${re(t.orderUrl,"Ava tellimus")}`)}}function ye(t){return{subject:`Koolitustellimus ${t.orderNumber} on t\xFChistatud`,bodyHtml:H(`
+<p>Lugupeetud ${m(t.contactName)}</p>
+<p>Teatame, et koolitustellimus <strong>${m(t.orderNumber)} \u2014 ${m(t.orderTitle)}</strong> on tellija poolt t\xFChistatud ja ootab teie vastust enam ei vaja.</p>
+${t.reason.trim()?`<p>P\xF5hjus: ${m(t.reason)}</p>`:""}`)}}var j="Mari Tamm (Riigikantselei)",Ge=0;function U(t){Ge+=1;let e=Math.random().toString(36).slice(2,8);return`${t}_${Ge.toString(36)}${e}`}function Ze(){return`${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`}var Q=864e5;function se(t){return new Date(t).toISOString().slice(0,10)}function ie(t){let e=t;for(let a=0;a<7;a++){let n=new Date(e).getUTCDay();if(n!==0&&n!==6)return e;e+=Q}return e}function Te(t){let e=[{id:"lot_1",code:"OSA-1",name:"Koolitused ruumirendiga",description:"T\xF6\xF6tubade l\xE4biviimine koolitaja pakutud ruumides koos vajaliku tehnika ja ruumiteenustega.",responseDeadlineWorkingDays:3,deadlineLocalTime:"17:00",rankingMode:"strict",allowSkip:!0,isActive:!0},{id:"lot_2",code:"OSA-2",name:"Koolitused ruumirendita",description:"T\xF6\xF6tubade l\xE4biviimine tellija m\xE4\xE4ratud asukohas. Koolitaja vastutab sisu ja l\xE4biviimise eest, ruumi ei paku.",responseDeadlineWorkingDays:3,deadlineLocalTime:"17:00",rankingMode:"strict",allowSkip:!0,isActive:!0},{id:"lot_3",code:"OSA-3",name:"Veebikoolitused",description:"T\xF6\xF6tubade ettevalmistamine ja l\xE4biviimine digikeskkonnas (Teams, Zoom v\xF5i muu kokkulepitud platvorm).",responseDeadlineWorkingDays:2,deadlineLocalTime:"17:00",rankingMode:"strict",allowSkip:!0,isActive:!0},{id:"lot_4",code:"OSA-4",name:"Suurs\xFCndmused",description:"Suurema osalejate arvuga s\xFCndmuste korraldamine ja l\xE4biviimine (ettekanne, loeng, kaasloome v\xF5i h\xE4katon), sh tehniline koordineerimine, modereerimine, registreerimine ja logistika.",responseDeadlineWorkingDays:5,deadlineLocalTime:"17:00",rankingMode:"rotation",allowSkip:!0,isActive:!0}],a=[{id:"p_1",name:"Tehisaru Koolitus O\xDC",regCode:"10000001",isActive:!0},{id:"p_2",name:"AI Akadeemia O\xDC",regCode:"10000002",isActive:!0},{id:"p_3",name:"Digioskus MT\xDC",regCode:"80000003",isActive:!0},{id:"p_4",name:"Nutikoolitus O\xDC",regCode:"10000004",isActive:!0},{id:"p_5",name:"E-\xF5ppe Ekspert O\xDC",regCode:"10000005",isActive:!0}],n={p_1:{name:"Jaan Kask",email:"jaan.kask@tehisaru-naidis.ee"},p_2:{name:"Liis M\xE4gi",email:"liis.magi@ai-akadeemia-naidis.ee"},p_3:{name:"Peeter Saar",email:"peeter.saar@digioskus-naidis.ee"},p_4:{name:"Kadri Lepik",email:"kadri.lepik@nutikoolitus-naidis.ee"},p_5:{name:"Toomas Rand",email:"toomas.rand@eoppe-naidis.ee"}},r={lot_1:["p_1","p_2","p_4","p_5"],lot_2:["p_2","p_3","p_1"],lot_3:["p_5","p_1","p_2","p_3"],lot_4:["p_3","p_4","p_2"]},s={lot_1:1450,lot_2:980,lot_3:760,lot_4:4800},i=[];for(let[d,c]of Object.entries(r))c.forEach((k,E)=>{let I=n[k];i.push({id:`lp_${d}_${k}`,lotId:d,partnerId:k,rank:E+1,contactName:I.name,contactEmail:I.email,unitPriceEur:s[d]+E*65,isActive:!0})});return{version:1,clockOffsetMs:0,lots:e,partners:a,lotPartners:i,orders:[],offers:[],audit:[],emails:[],nextAuditId:1,introDismissed:!1}}function ze(t){return{soon:se(ie(t+12*Q)),mid:se(ie(t+21*Q)),later:se(ie(t+34*Q)),latest:se(ie(t+47*Q))}}var Qe="kaskaadhankija.demo.v1",xe="eesti.ai-tellimused@naidis.riigikantselei.ee",je="Eesti.ai tellimismeeskond",Ie="https://kaskaadhankija.naidis",l=Te(Date.now());function v(){return Date.now()+l.clockOffsetMs}function Se(){return l.clockOffsetMs}function Ae(t){l.clockOffsetMs+=Math.max(0,t);let e=le();return b(),e}function Xe(){let t=l.offers.filter(a=>a.status==="pending"&&a.deadlineAt!==null).map(a=>a.deadlineAt).sort((a,n)=>a-n)[0];if(t===void 0)return 0;let e=t-v()+6e4;return Ae(Math.max(6e4,e))}function b(){try{localStorage.setItem(Qe,JSON.stringify(l))}catch{}}function _(){return l}function we(){l=Te(Date.now()),Ut(),b()}function et(){let t=null;try{let e=localStorage.getItem(Qe);if(e){let a=JSON.parse(e);a&&a.version===1&&(t=a)}}catch{t=null}t?(l=t,le(),b()):we()}function tt(){l.introDismissed=!0,b()}function T(t){return l.lots.find(e=>e.id===t)}function Ct(t){return l.partners.find(e=>e.id===t)}function w(t){return l.lotPartners.find(e=>e.id===t)}function h(t){return l.orders.find(e=>e.id===t)}function at(t){return l.offers.find(e=>e.id===t)}function oe(t){return l.offers.find(e=>e.token===t)}function O(t){return l.lotPartners.filter(e=>e.lotId===t).sort((e,a)=>e.rank-a.rank)}function g(t){let e=w(t);return e?Ct(e.partnerId)?.name??"tundmatu partner":"tundmatu partner"}function nt(t){return l.offers.filter(e=>e.orderId===t).sort((e,a)=>e.runNo-a.runNo||e.roundNo-a.roundNo)}function A(t){return l.offers.find(e=>e.orderId===t&&e.status==="pending")}function rt(){return l.offers.filter(t=>t.status==="pending").sort((t,e)=>(t.deadlineAt??0)-(e.deadlineAt??0))}function M(t){return l.orders.filter(e=>e.status===t)}function Oe(){return[...l.orders].sort((t,e)=>e.createdAt-t.createdAt)}function st(t){return l.audit.filter(e=>e.orderId===t).sort((e,a)=>e.id-a.id)}function it(){return[...l.audit].sort((t,e)=>e.id-t.id)}function ot(){return[...l.emails].sort((t,e)=>e.sentAt-t.sentAt)}function R(t){return l.orders.filter(e=>e.assignedLotPartnerId===t&&(e.status==="assigned"||e.status==="completed")).length}function dt(t){return l.orders.filter(e=>e.assignedLotPartnerId===t&&(e.status==="assigned"||e.status==="completed")).reduce((e,a)=>e+a.estimatedValueEur,0)}function lt(t){let e=l.offers.filter(a=>a.lotPartnerId===t);return{declined:e.filter(a=>a.status==="declined").length,expired:e.filter(a=>a.status==="expired").length,skipped:e.filter(a=>a.status==="skipped").length}}function $(t){return`KH-${t.orderYear}-${String(t.orderSeq).padStart(4,"0")}`}function y(t){l.audit.push({id:l.nextAuditId++,occurredAt:t.at,actorType:t.actorType,actorLabel:t.actorLabel,eventType:t.eventType,summary:t.summary,orderId:t.orderId??null,offerId:t.offerId??null,lotId:t.lotId??null,payload:t.payload??null})}function D(t,e,a,n,r,s,i,d){l.emails.push({id:U("em"),template:e,toEmail:a,toName:n,subject:r.subject,bodyHtml:r.bodyHtml,orderId:s,offerId:i,sentAt:t,internal:d})}function Le(t){let e=t.eventEnd?`${P(t.eventStart)} \u2013 ${P(t.eventEnd)}`:P(t.eventStart),a=t.locationText.trim()?`${t.county} \u2014 ${t.locationText}`:t.county;return{workshopType:F[t.workshopType],eventDates:e,location:a,participantCount:t.participantCount,language:V[t.language],estimatedValue:G(t.estimatedValueEur),extraNotes:t.extraNotes}}function Ee(t){return`${Ie}/orders/${t.id}`}function Kt(t){let e=l.orders.filter(a=>a.orderYear===t).map(a=>a.orderSeq);return e.length===0?1:Math.max(...e)+1}function B(t,e=v()){let a=new Date(e).getFullYear(),n={id:U("ord"),orderYear:a,orderSeq:Kt(a),...t,status:"draft",currentRun:0,snapshot:null,assignedLotPartnerId:null,assignedAt:null,createdAt:e,createdBy:j};return l.orders.push(n),y({at:e,actorType:"user",actorLabel:j,eventType:"order.created",summary:`Tellimus ${$(n)} loodud`,orderId:n.id,lotId:n.lotId,payload:{title:n.title,hankeosa:T(n.lotId)?.code}}),b(),n}function ut(t,e){let a=h(t);if(!a)throw new Error("Tellimust ei leitud");if(a.status!=="draft")throw new Error("Kaskaadi ajal ei saa tellimust muuta. Katkesta kaskaad, seej\xE4rel muuda.");let n={...a};Object.assign(a,e),y({at:v(),actorType:"user",actorLabel:j,eventType:"order.updated",summary:`Tellimust ${$(a)} muudeti`,orderId:a.id,lotId:a.lotId,payload:{enne:{title:n.title,eventStart:n.eventStart},parast:e}}),b()}function Ft(t){return O(t).map(e=>({lotPartnerId:e.id,rank:e.rank,isActive:e.isActive,assignedCount:R(e.id)}))}function Vt(t,e){return new Set(l.offers.filter(a=>a.orderId===t&&a.runNo===e).map(a=>a.lotPartnerId))}function Ne(t,e){let a=l.offers.filter(n=>n.orderId===t&&n.runNo===e).map(n=>n.roundNo);return a.length===0?1:Math.max(...a)+1}function Ht(t,e,a){let n=t.snapshot;if(!n)throw new Error("Kaskaadi konfiguratsioon puudub");let r=w(e),s=T(t.lotId);if(!r||!s)throw new Error("Hankeosa v\xF5i partnerit ei leitud");let i=fe(new Date(a),n.responseDeadlineWorkingDays,n.deadlineLocalTime).getTime(),d={id:U("off"),orderId:t.id,lotPartnerId:e,runNo:t.currentRun,roundNo:Ne(t.id,t.currentRun),token:Ze(),status:"pending",isManual:!1,sentAt:a,deadlineAt:i,respondedAt:null,declineReasonCode:null,declineReasonText:"",skipJustification:"",createdAt:a};l.offers.push(d);let c=g(e),k=$e({orderNumber:$(t),orderTitle:t.title,lotCode:s.code,lotName:s.name,contactName:r.contactName,partnerName:c,deadlineText:Y(i),offerUrl:`${Ie}/offer/${d.token}`,summary:Le(t)});return D(a,"offer",r.contactEmail,r.contactName,k,t.id,d.id,!1),y({at:a,actorType:"system",actorLabel:"Kaskaad",eventType:"offer.sent",summary:`Pakkumus saadetud: ${c} (koht ${r.rank}), t\xE4htaeg ${x(i)}`,orderId:t.id,offerId:d.id,lotId:t.lotId,payload:{partner:c,koht:r.rank,voor:d.roundNo,kaskaadiRing:d.runNo}}),d}function de(t,e){let a=t.snapshot;if(!a)return;let n=Ce(Ft(t.lotId),Vt(t.id,t.currentRun),a.rankingMode);if(n){Ht(t,n,e);return}t.status="failed";let r=l.offers.filter(i=>i.orderId===t.id&&i.runNo===t.currentRun).length;y({at:e,actorType:"system",actorLabel:"Kaskaad",eventType:"cascade.exhausted",summary:`Kaskaad ammendunud \u2014 \xFCkski partner ei v\xF5tnud tellimust vastu (${r} p\xF6\xF6rdumist)`,orderId:t.id,lotId:t.lotId,payload:{poordumisi:r}});let s=T(t.lotId);D(e,"exhausted_team",xe,je,Ye({orderNumber:$(t),orderTitle:t.title,lotName:s?`${s.code} \u2014 ${s.name}`:t.lotId,attemptCount:r,orderUrl:Ee(t)}),t.id,null,!0)}function ee(t,e=[]){let a=h(t);if(!a)throw new Error("Tellimust ei leitud");if(a.status!=="draft"&&a.status!=="failed")throw new Error("Kaskaadi saab k\xE4ivitada ainult ettevalmistuses v\xF5i eba\xF5nnestunud tellimusel");let n=T(a.lotId);if(!n)throw new Error("Hankeosa puudub");if(O(a.lotId).filter(i=>i.isActive).length===0)throw new Error("Hankeosal puuduvad aktiivsed raamlepingu partnerid");let s=v();a.currentRun+=1,a.snapshot={responseDeadlineWorkingDays:n.responseDeadlineWorkingDays,deadlineLocalTime:n.deadlineLocalTime,rankingMode:n.rankingMode},a.status="cascading",y({at:s,actorType:"user",actorLabel:j,eventType:"cascade.started",summary:`Kaskaad k\xE4ivitatud (ring ${a.currentRun}): vastamist\xE4htaeg ${n.responseDeadlineWorkingDays} t\xF6\xF6p\xE4eva, j\xE4rjestus ${n.rankingMode==="strict"?"range":"rotatsioon"}`,orderId:a.id,lotId:a.lotId,payload:{...a.snapshot,ring:a.currentRun}});for(let i of e){if(!i.justification.trim())continue;let d=w(i.lotPartnerId);if(!d||!d.isActive)continue;let c={id:U("off"),orderId:a.id,lotPartnerId:i.lotPartnerId,runNo:a.currentRun,roundNo:Ne(a.id,a.currentRun),token:"",status:"skipped",isManual:!1,sentAt:null,deadlineAt:null,respondedAt:s,declineReasonCode:null,declineReasonText:"",skipJustification:i.justification.trim(),createdAt:s};l.offers.push(c),y({at:s,actorType:"user",actorLabel:j,eventType:"offer.skipped",summary:`${g(i.lotPartnerId)} (koht ${d.rank}) j\xE4eti vahele: ${c.skipJustification}`,orderId:a.id,offerId:c.id,lotId:a.lotId,payload:{pohjendus:c.skipJustification,koht:d.rank}})}de(a,s),b()}function W(t,e,a=null,n=""){let r=oe(t);if(!r||!t)return{ok:!1,reason:"not_found"};let s=h(r.orderId);if(!s)return{ok:!1,reason:"not_found"};if(r.status!=="pending")return{ok:!1,reason:r.status==="cancelled"?"cancelled":"already_responded"};if(s.status!=="cascading")return{ok:!1,reason:"cancelled"};let i=v();if(r.deadlineAt!==null&&i>r.deadlineAt)return ct(r,s,i),b(),{ok:!1,reason:"expired"};let d=w(r.lotPartnerId),c=g(r.lotPartnerId);if(e==="accept")return r.status="accepted",r.respondedAt=i,s.status="assigned",s.assignedLotPartnerId=r.lotPartnerId,s.assignedAt=i,y({at:i,actorType:"partner",actorLabel:`${c} (partner)`,eventType:"offer.accepted",summary:`${c} v\xF5ttis tellimuse vastu`,orderId:s.id,offerId:r.id,lotId:s.lotId,payload:{koht:d?.rank,voor:r.roundNo}}),d&&D(i,"accepted_partner",d.contactEmail,d.contactName,We({orderNumber:$(s),orderTitle:s.title,partnerName:c,contactName:d.contactName,buyerContact:j,summary:Le(s)}),s.id,r.id,!1),D(i,"accepted_team",xe,je,Je({orderNumber:$(s),orderTitle:s.title,partnerName:c,detail:`Vastus saadud ${x(i)}. J\xE4rjestuses koht ${d?.rank??"?"}, kaskaadi voor ${r.roundNo}.`,orderUrl:Ee(s)}),s.id,r.id,!0),b(),{ok:!0,action:"accepted"};r.status="declined",r.respondedAt=i,r.declineReasonCode=a,r.declineReasonText=n.trim();let k=a?z[a]:"p\xF5hjust ei m\xE4rgitud";y({at:i,actorType:"partner",actorLabel:`${c} (partner)`,eventType:"offer.declined",summary:`${c} loobus: ${k}${r.declineReasonText?` \u2014 ${r.declineReasonText}`:""}`,orderId:s.id,offerId:r.id,lotId:s.lotId,payload:{pohjus:a,selgitus:r.declineReasonText,koht:d?.rank}}),de(s,i);let E=A(s.id),I=E?g(E.lotPartnerId):null;return D(i,"declined_team",xe,je,qe({orderNumber:$(s),orderTitle:s.title,partnerName:c,detail:`P\xF5hjus: ${k}${r.declineReasonText?` (${r.declineReasonText})`:""}. ${I?`Tellimus esitati j\xE4rgmisele partnerile: ${I}.`:"J\xE4rjestuses rohkem partnereid ei ole."}`,orderUrl:Ee(s)}),s.id,r.id,!0),b(),{ok:!0,action:"declined"}}function ct(t,e,a){t.status="expired",t.respondedAt=null,y({at:a,actorType:"system",actorLabel:"T\xE4htaja j\xE4lgija",eventType:"offer.expired",summary:`${g(t.lotPartnerId)} ei vastanud t\xE4htajaks (${x(t.deadlineAt??a)})`,orderId:e.id,offerId:t.id,lotId:e.lotId,payload:{tahtaeg:t.deadlineAt}}),de(e,a)}function le(){let t=0;for(let e=0;e<50;e++){let a=v(),n=l.offers.filter(r=>r.status==="pending"&&r.deadlineAt!==null&&r.deadlineAt<a);if(n.length===0)break;for(let r of n){let s=h(r.orderId);if(!s||s.status!=="cascading"){r.status="cancelled";continue}ct(r,s,Math.max(r.deadlineAt??a,0)),t+=1}}return t}function mt(t,e){let a=h(t);if(!a)throw new Error("Tellimust ei leitud");let n=A(t);if(!n)throw new Error("Ootel pakkumus puudub");if(!e.trim())throw new Error("Vahelej\xE4tmine n\xF5uab p\xF5hjendust");let r=v();n.status="skipped",n.respondedAt=r,n.skipJustification=e.trim(),y({at:r,actorType:"user",actorLabel:j,eventType:"offer.skipped",summary:`${g(n.lotPartnerId)} j\xE4eti vahele: ${n.skipJustification}`,orderId:a.id,offerId:n.id,lotId:a.lotId,payload:{pohjendus:n.skipJustification}}),de(a,r),b()}function pt(t){let e=h(t);if(!e)throw new Error("Tellimust ei leitud");if(e.status!=="cascading")throw new Error("Kaskaad ei ole k\xE4imas");let a=v(),n=A(t);if(n){n.status="cancelled",n.respondedAt=a;let r=w(n.lotPartnerId);r&&D(a,"cancelled_partner",r.contactEmail,r.contactName,ye({orderNumber:$(e),orderTitle:e.title,contactName:r.contactName,reason:"Tellija katkestas kaskaadi tingimuste muutmiseks."}),e.id,n.id,!1)}e.status="draft",y({at:a,actorType:"user",actorLabel:j,eventType:"cascade.aborted",summary:"Kaskaad katkestati, tellimus viidi tagasi ettevalmistusse",orderId:e.id,offerId:n?.id??null,lotId:e.lotId}),b()}function gt(t,e,a){let n=h(t);if(!n)throw new Error("Tellimust ei leitud");if(n.status==="assigned"||n.status==="completed"||n.status==="cancelled")throw new Error("Tellimus on juba l\xF5petatud v\xF5i m\xE4\xE4ratud");if(!a.trim())throw new Error("K\xE4sitsi m\xE4\xE4ramine n\xF5uab p\xF5hjendust");let r=v(),s=A(t);s&&(s.status="cancelled",s.respondedAt=r),n.currentRun===0&&(n.currentRun=1);let i={id:U("off"),orderId:n.id,lotPartnerId:e,runNo:n.currentRun,roundNo:Ne(n.id,n.currentRun),token:"",status:"accepted",isManual:!0,sentAt:null,deadlineAt:null,respondedAt:r,declineReasonCode:null,declineReasonText:"",skipJustification:a.trim(),createdAt:r};l.offers.push(i),n.status="assigned",n.assignedLotPartnerId=e,n.assignedAt=r,y({at:r,actorType:"user",actorLabel:j,eventType:"order.assigned_manually",summary:`M\xE4\xE4ratud k\xE4sitsi: ${g(e)} \u2014 ${a.trim()}`,orderId:n.id,offerId:i.id,lotId:n.lotId,payload:{pohjendus:a.trim()}}),b()}function ft(t,e){let a=h(t);if(!a)throw new Error("Tellimust ei leitud");if(a.status==="cancelled"||a.status==="completed")return;let n=v(),r=A(t);if(r){r.status="cancelled",r.respondedAt=n;let s=w(r.lotPartnerId);s&&D(n,"cancelled_partner",s.contactEmail,s.contactName,ye({orderNumber:$(a),orderTitle:a.title,contactName:s.contactName,reason:e}),a.id,r.id,!1)}a.status="cancelled",y({at:n,actorType:"user",actorLabel:j,eventType:"order.cancelled",summary:`Tellimus t\xFChistatud${e.trim()?`: ${e.trim()}`:""}`,orderId:a.id,lotId:a.lotId}),b()}function kt(t){let e=h(t);if(!e)throw new Error("Tellimust ei leitud");if(e.status!=="assigned")throw new Error("L\xF5petada saab ainult m\xE4\xE4ratud tellimuse");e.status="completed",y({at:v(),actorType:"user",actorLabel:j,eventType:"order.completed",summary:"Tellimus m\xE4rgiti l\xF5petatuks",orderId:e.id,lotId:e.lotId}),b()}function vt(t){let e=h(t),a=e?A(t):void 0;if(!e||!a||!e.snapshot)throw new Error("Ootel pakkumus puudub");let n=v(),r=w(a.lotPartnerId),s=T(e.lotId);if(!r||!s)throw new Error("Partnerit v\xF5i hankeosa ei leitud");a.sentAt=n,a.deadlineAt=fe(new Date(n),e.snapshot.responseDeadlineWorkingDays,e.snapshot.deadlineLocalTime).getTime(),D(n,"offer",r.contactEmail,r.contactName,$e({orderNumber:$(e),orderTitle:e.title,lotCode:s.code,lotName:s.name,contactName:r.contactName,partnerName:g(a.lotPartnerId),deadlineText:Y(a.deadlineAt),offerUrl:`${Ie}/offer/${a.token}`,summary:Le(e)}),e.id,a.id,!1),y({at:n,actorType:"user",actorLabel:j,eventType:"offer.resent",summary:`Pakkumus saadeti uuesti, uus t\xE4htaeg ${x(a.deadlineAt)}`,orderId:e.id,offerId:a.id,lotId:e.lotId}),b()}function bt(t,e){let a=T(t);if(!a)throw new Error("Hankeosa ei leitud");let n={responseDeadlineWorkingDays:a.responseDeadlineWorkingDays,deadlineLocalTime:a.deadlineLocalTime,rankingMode:a.rankingMode,allowSkip:a.allowSkip};Object.assign(a,e),y({at:v(),actorType:"user",actorLabel:j,eventType:"lot.config_changed",summary:`${a.code} kaskaadi seaded muudetud (${e.responseDeadlineWorkingDays} t\xF6\xF6p\xE4eva, ${e.rankingMode==="strict"?"range j\xE4rjestus":"rotatsioon"})`,lotId:a.id,payload:{enne:n,parast:e}}),b()}function ht(t,e){let a=w(t);if(!a)return;let n=O(a.lotId),s=n.findIndex(c=>c.id===t)+e;if(s<0||s>=n.length)return;let i=n[s],d=a.rank;a.rank=i.rank,i.rank=d,y({at:v(),actorType:"user",actorLabel:j,eventType:"partner.rank_changed",summary:`${g(a.id)}: koht ${d} \u2192 ${a.rank} (${T(a.lotId)?.code})`,lotId:a.lotId,payload:{partner:g(a.id),enne:d,parast:a.rank}}),b()}function $t(t){let e=w(t);e&&(e.isActive=!e.isActive,y({at:v(),actorType:"user",actorLabel:j,eventType:"partner.rank_changed",summary:`${g(e.id)} ${e.isActive?"aktiveeritud":"deaktiveeritud"} hankeosas ${T(e.lotId)?.code}`,lotId:e.lotId}),b())}var X=864e5;function Ut(){let t=ze(Date.now()),e=l.clockOffsetMs,a=(n,r)=>{l.clockOffsetMs=e-n,r()};a(11*X,()=>{let n=B({lotId:"lot_1",title:"T\xF6\xF6tuba 1 Tallinna linnavalitsuse teenistujatele",workshopType:"tootuba_1",eventStart:t.mid,eventEnd:null,county:"Harju maakond",locationText:"Koolitaja pakutud ruumid kesklinnas",participantCount:28,language:"et",estimatedValueEur:1450,extraNotes:"Osalejad on valdavalt AI-t\xF6\xF6riistadega varem kokku puutunud."});ee(n.id)}),a(9*X,()=>{let n=l.orders[0],r=A(n.id);r&&W(r.token,"decline","no_capacity","Koolitajad on sel perioodil h\xF5ivatud.")}),a(8*X,()=>{let n=l.orders[0],r=A(n.id);r&&W(r.token,"accept")}),a(6*X,()=>{let n=B({lotId:"lot_4",title:"Eesti.ai kaasloomep\xE4ev avaliku sektori juhtidele",workshopType:"suursundmus",eventStart:t.latest,eventEnd:null,county:"Tartu maakond",locationText:"Tartu, t\xE4psustatakse kokkuleppel",participantCount:180,language:"et",estimatedValueEur:4800,extraNotes:"Vajalik modereerimine, registreerimine ja tehniline koordineerimine."});ee(n.id);let r=A(n.id);r&&W(r.token,"accept")}),a(1*X,()=>{let n=B({lotId:"lot_3",title:"T\xF6\xF6tuba 2 veebis Sotsiaalkindlustusameti spetsialistidele",workshopType:"tootuba_2",eventStart:t.soon,eventEnd:null,county:"Veebip\xF5hine",locationText:"MS Teams",participantCount:45,language:"et",estimatedValueEur:760,extraNotes:"Vajalik salvestus ja j\xE4relvaatamise v\xF5imalus."});ee(n.id)}),l.clockOffsetMs=e,B({lotId:"lot_2",title:"T\xF6\xF6tuba 1 P\xE4rnu haridusasutuste t\xF6\xF6tajatele",workshopType:"tootuba_1",eventStart:t.later,eventEnd:null,county:"P\xE4rnu maakond",locationText:"P\xE4rnu Kesklinna kool, tellija ruumid",participantCount:32,language:"et",estimatedValueEur:980,extraNotes:""}),l.clockOffsetMs=e,l.introDismissed=!1}var N={name:"dashboard"},p=null,te=new Set,ue=null,Pe=null,K=null,Wt=()=>document.getElementById("app");function o(t){return String(t??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;")}function S(t){ue=t,Pe!==null&&window.clearTimeout(Pe),Pe=window.setTimeout(()=>{ue=null,f()},4e3)}function J(t){N=t,p=null,K=null,window.scrollTo({top:0}),f()}function ce(t,e){return`<span class="badge badge-${e}">${o(t)}</span>`}function yt(t){return ce(Ke[t],He[t])}function Jt(t){let e=t.isManual?"M\xE4\xE4ratud k\xE4sitsi":be[t.status];return ce(e,he[t.status])}function me(t){return t?`${t.code} \u2014 ${t.name}`:"\u2014"}function _e(t){return t.eventEnd?`${P(t.eventStart)} \u2013 ${P(t.eventEnd)}`:P(t.eventStart)}function u(t){return Object.entries(t).map(([e,a])=>`data-${e}="${o(a)}"`).join(" ")}function qt(){let t=v(),e=Math.round(Se()/864e5),a=Math.abs(Se())>6e4;return`
+<header class="topbar">
+  <div class="brand">Kaskaadhankija <span class="demo-badge">N\xC4IDIS</span></div>
+  <div class="topbar-spacer"></div>
+  <div class="clock">
+    <span class="clock-label">N\xE4idise aeg</span>
+    <span class="clock-value">${o(x(t))}</span>
+    ${a?`<span class="badge badge-warning">${e>=0?"+":""}${e} p</span>`:""}
+    <button class="small" ${u({act:"clock",ms:String(36e5)})} title="Keri aega 1 tund edasi">+1 h</button>
+    <button class="small" ${u({act:"clock",ms:String(864e5)})} title="Keri aega 1 \xF6\xF6p\xE4ev edasi">+1 p\xE4ev</button>
+    <button class="small primary" ${u({act:"clock-deadline"})} title="Keri aega kuni j\xE4rgmise vastamist\xE4htaja m\xF6\xF6dumiseni">J\xE4rgmise t\xE4htajani</button>
+  </div>
+  <button ${u({act:"reset"})} title="Kustuta k\xF5ik n\xE4idise andmed ja alusta algusest">L\xE4htesta n\xE4idis</button>
+</header>`}function Yt(){let t={cascading:M("cascading").length,orders:Oe().length,failed:M("failed").length},e=(a,n,r,s="")=>`<a class="${N.name===a||a==="orders"&&N.name==="order"?"active":""}" ${u({act:"nav",view:a})}>${o(n)}${r!==void 0?`<span class="nav-count">${r}</span>`:""}${s}</a>`;return`
+<nav class="sidenav">
+  ${e("dashboard","T\xF6\xF6laud",t.cascading||void 0)}
+  ${e("orders","Tellimused",t.orders)}
+  ${e("lots","Hankeosad")}
+  ${e("partners","Partnerid")}
+  ${e("audit","Auditilogi")}
+  ${t.failed>0?`<div class="small" style="margin-top:10px;padding:0 10px;color:var(--danger);font-weight:650">${t.failed} tellimus(t) ilma partnerita</div>`:""}
+</nav>`}function Gt(){return _().introDismissed?"":`
+<div class="intro">
+  <h2>Kuidas seda n\xE4idist kasutada</h2>
+  <p class="small">See on <strong>t\xF6\xF6seisundis n\xE4idis</strong> kaskaadi-minihanke protsessist raamlepingu \u201EEesti.ai koolitajate tellimine\u201C alusel. Kogu kaskaadiloogika, vastamist\xE4htaegade arvutus (t\xF6\xF6p\xE4evad ja riigip\xFChad) ning auditij\xE4lg t\xF6\xF6tavad p\xE4riselt. Simuleeritud on kaks asja: e-kirjad kuvatakse paremal <strong>partneri postkastis</strong> p\xE4ris saatmise asemel, ja aja saab <strong>edasi kerida</strong>, et n\xE4ha t\xE4htaja m\xF6\xF6dumist.</p>
+  <ol class="small">
+    <li>Ava paremal postkastis ootel pakkumus ja vajuta <em>Ava partneri vaates</em> \u2014 n\xE4ed t\xE4pselt seda lehte, mida n\xE4eb koolitaja.</li>
+    <li>Loobu tellimusest \u2014 kaskaad liigub automaatselt j\xE4rjestuses j\xE4rgmisele partnerile ja saadab talle uue pakkumuse.</li>
+    <li>V\xF5i vajuta \xFClal <em>J\xE4rgmise t\xE4htajani</em> \u2014 pakkumus aegub vastuseta ja kaskaad liigub edasi ise.</li>
+  </ol>
+  <div class="btn-row" style="margin-top:10px">
+    <button class="small" ${u({act:"dismiss-intro"})}>Sain aru, peida see</button>
+  </div>
+</div>`}function Zt(){let t=v(),e=rt(),a=M("failed"),n=[["Ettevalmistuses",M("draft").length],["Kaskaad k\xE4ib",M("cascading").length],["M\xE4\xE4ratud",M("assigned").length],["Partnerit ei leitud",a.length]],r=e.map(s=>{let i=h(s.orderId);if(!i)return"";let d=w(s.lotPartnerId),c=s.deadlineAt!==null&&ke(t,s.deadlineAt);return`
+<tr class="clickable" ${u({act:"open-order",id:i.id})}>
+  <td class="nowrap strong">${o($(i))}</td>
+  <td>${o(i.title)}</td>
+  <td class="nowrap">${o(g(s.lotPartnerId))} <span class="rank-chip">${d?.rank??"?"}</span></td>
+  <td class="nowrap mono">${s.deadlineAt?o(x(s.deadlineAt)):"\u2014"}</td>
+  <td class="nowrap ${c?"error-text":"muted"}">${s.deadlineAt?o(Z(t,s.deadlineAt)):"\u2014"}</td>
+</tr>`}).join("");return`
+${Gt()}
+<div class="page-head">
+  <div>
+    <h1>T\xF6\xF6laud</h1>
+    <p class="subtitle">Raamleping \u201EEesti.ai koolitajate tellimine\u201C \xB7 riigihanke viitenumber 10567384</p>
+  </div>
+  <button class="primary" ${u({act:"new-order"})}>Uus koolitustellimus</button>
+</div>
+
+${a.length>0?`<div class="danger-banner">${a.length} tellimuse kaskaad on ammendunud \u2014 \xFCkski partner ei v\xF5tnud tellimust vastu. Muuda tingimusi ja k\xE4ivita uuesti v\xF5i m\xE4\xE4ra t\xE4itja k\xE4sitsi.</div>`:""}
+
+<div class="stat-grid">
+  ${n.map(([s,i])=>`<div class="stat"><div class="stat-value">${i}</div><div class="stat-label">${o(s)}</div></div>`).join("")}
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>Ootel pakkumused</h2><span class="muted small">${e.length} tk</span></div>
+  <div class="card-body tight">
+    ${e.length===0?'<div class="empty">\xDCkski pakkumus ei oota praegu vastust.</div>':`<div class="table-wrap"><table>
+            <thead><tr><th>Number</th><th>Tellimus</th><th>Partner</th><th>Vastamist\xE4htaeg</th><th>Aega j\xE4\xE4nud</th></tr></thead>
+            <tbody>${r}</tbody></table></div>`}
+  </div>
+</div>
+
+${zt()}`}function zt(){return`
+<div class="card">
+  <div class="card-head"><h2>Partnerite koormus</h2><span class="muted small">mahu tasakaalustamiseks</span></div>
+  <div class="card-body">${_().lots.map(e=>{let a=O(e.id).map(n=>{let r=lt(n.id),s=R(n.id),i=dt(n.id);return`
+<tr>
+  <td class="nowrap"><span class="rank-chip">${n.rank}</span></td>
+  <td>${o(g(n.id))}${n.isActive?"":' <span class="badge badge-neutral">passiivne</span>'}</td>
+  <td class="num">${s}</td>
+  <td class="num nowrap">${o(G(i))}</td>
+  <td class="num muted">${r.declined}</td>
+  <td class="num muted">${r.expired}</td>
+  <td class="num muted">${r.skipped}</td>
+</tr>`}).join("");return`
+<h3 style="margin:14px 0 6px">${o(me(e))} <span class="muted small" style="font-weight:500">\xB7 ${e.rankingMode==="strict"?"range j\xE4rjestus":"rotatsioon"}</span></h3>
+<div class="table-wrap"><table>
+  <thead><tr><th>Koht</th><th>Partner</th><th class="num">M\xE4\xE4ratud</th><th class="num">Maksumus</th><th class="num">Loobus</th><th class="num">Aegus</th><th class="num">Vahele</th></tr></thead>
+  <tbody>${a}</tbody>
+</table></div>`}).join("")}</div>
+</div>`}function Qt(){let t=Oe(),e=t.map(a=>{let n=T(a.lotId),r=a.assignedLotPartnerId?g(a.assignedLotPartnerId):"\u2014";return`
+<tr class="clickable" ${u({act:"open-order",id:a.id})}>
+  <td class="nowrap strong">${o($(a))}</td>
+  <td>${o(a.title)}</td>
+  <td class="nowrap small">${o(n?.code??"\u2014")}</td>
+  <td class="nowrap">${yt(a.status)}</td>
+  <td class="nowrap mono small">${o(_e(a))}</td>
+  <td class="small">${o(r)}</td>
+  <td class="num nowrap small">${o(G(a.estimatedValueEur))}</td>
+</tr>`}).join("");return`
+<div class="page-head">
+  <div><h1>Tellimused</h1><p class="subtitle">${t.length} koolitustellimust</p></div>
+  <button class="primary" ${u({act:"new-order"})}>Uus koolitustellimus</button>
+</div>
+<div class="card"><div class="card-body tight">
+  ${t.length===0?'<div class="empty">Tellimusi ei ole. Alusta uue koolitustellimuse loomisest.</div>':`<div class="table-wrap"><table>
+          <thead><tr><th>Number</th><th>Tellimus</th><th>Osa</th><th>Olek</th><th>Toimumine</th><th>T\xE4itja</th><th class="num">Maksumus</th></tr></thead>
+          <tbody>${e}</tbody></table></div>`}
+</div></div>`}function Xt(t){let e=h(t);if(!e)return'<div class="empty">Tellimust ei leitud.</div>';let a=T(e.lotId),n=nt(e.id),r=A(e.id),s=v(),i=[];e.status==="draft"&&(i.push(`<button class="primary" ${u({act:"open-start",id:e.id})}>Alusta kaskaadi</button>`),i.push(`<button ${u({act:"edit-order",id:e.id})}>Muuda</button>`)),e.status==="cascading"&&(a?.allowSkip&&i.push(`<button ${u({act:"open-skip",id:e.id})}>J\xE4ta partner vahele</button>`),i.push(`<button ${u({act:"resend",id:e.id})}>Saada pakkumus uuesti</button>`),i.push(`<button ${u({act:"abort",id:e.id})}>Katkesta kaskaad</button>`)),e.status==="failed"&&i.push(`<button class="primary" ${u({act:"open-start",id:e.id})}>K\xE4ivita kaskaad uuesti</button>`),e.status!=="assigned"&&e.status!=="completed"&&e.status!=="cancelled"&&i.push(`<button ${u({act:"open-manual",id:e.id})}>M\xE4\xE4ra k\xE4sitsi</button>`),e.status==="assigned"&&i.push(`<button class="success" ${u({act:"complete",id:e.id})}>M\xE4rgi l\xF5petatuks</button>`),e.status!=="cancelled"&&e.status!=="completed"&&i.push(`<button class="danger" ${u({act:"open-cancel",id:e.id})}>T\xFChista tellimus</button>`);let d=[["Hankeosa",me(a)],["Formaat",F[e.workshopType]],["Toimumine",_e(e)],["Asukoht",e.locationText.trim()?`${e.county} \u2014 ${e.locationText}`:e.county],["Osalejaid",String(e.participantCount)],["Keel",V[e.language]],["Hinnanguline maksumus",ne(e.estimatedValueEur)],["Loodud",`${x(e.createdAt)} \xB7 ${e.createdBy}`]];return e.assignedLotPartnerId&&e.assignedAt&&d.push(["T\xE4itja",`${g(e.assignedLotPartnerId)} (${x(e.assignedAt)})`]),e.snapshot&&d.push(["Kaskaadi seaded",`${e.snapshot.responseDeadlineWorkingDays} t\xF6\xF6p\xE4eva kell ${e.snapshot.deadlineLocalTime} \xB7 ${e.snapshot.rankingMode==="strict"?"range j\xE4rjestus":"rotatsioon"} \xB7 ring ${e.currentRun}`]),`
+<div class="page-head">
+  <div>
+    <div class="btn-row"><button class="link" ${u({act:"nav",view:"orders"})}>\u2190 Tellimused</button></div>
+    <h1 style="margin-top:6px">${o($(e))} \u2014 ${o(e.title)}</h1>
+    <p class="subtitle">${yt(e.status)}
+      ${r&&r.deadlineAt?` <span class="${ke(s,r.deadlineAt)?"error-text":"muted"}">Ootab vastust: ${o(g(r.lotPartnerId))}, ${o(Z(s,r.deadlineAt))}</span>`:""}
+    </p>
+  </div>
+</div>
+
+${!Ve(e.status)&&e.status==="cascading"?'<div class="warning-banner">Kaskaadi ajal ei saa tellimuse sisu muuta \u2014 partnerile saadetud e-kiri peab vastama salvestatud tellimusele. Muutmiseks katkesta kaskaad.</div>':""}
+
+<div class="btn-row" style="margin-bottom:16px">${i.join("")}</div>
+
+<div class="card">
+  <div class="card-head"><h2>Tellimuse andmed</h2></div>
+  <div class="card-body">
+    <dl class="detail-list">
+      ${d.map(([c,k])=>`<dt>${o(c)}</dt><dd>${o(k)}</dd>`).join("")}
+    </dl>
+    ${e.extraNotes.trim()?`<p class="small" style="margin-top:12px"><span class="muted">Lisainfo:</span> ${o(e.extraNotes)}</p>`:""}
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>Kaskaadi k\xE4ik</h2><span class="muted small">auditij\xE4lg p\xF6\xF6rdumiste kaupa</span></div>
+  <div class="card-body">${ea(e,n)}</div>
+</div>
+
+${ta(e.id)}`}function ea(t,e){if(e.length===0)return`
+<p class="muted">Kaskaadi ei ole veel k\xE4ivitatud. K\xE4ivitamisel esitatakse tellimus j\xE4rjestuses esimesele partnerile:</p>
+<ol class="small" style="margin:8px 0 0;padding-left:22px">
+  ${ve(O(t.lotId).map(d=>({lotPartnerId:d.id,rank:d.rank,isActive:d.isActive,assignedCount:R(d.id)})),T(t.lotId)?.rankingMode??"strict").map(d=>`<li>${o(g(d.lotPartnerId))}</li>`).join("")}
+</ol>`;let a=v(),n=-1,r=e.map(i=>{let d=w(i.lotPartnerId),c=he[i.status],k=[];i.sentAt&&k.push(`saadetud ${x(i.sentAt)}`),i.deadlineAt&&k.push(`t\xE4htaeg ${x(i.deadlineAt)}`),i.respondedAt&&k.push(`vastus ${x(i.respondedAt)}`),i.status==="pending"&&i.deadlineAt&&k.push(Z(a,i.deadlineAt));let E="";if(i.status==="declined"){let pe=i.declineReasonCode?z[i.declineReasonCode]:"p\xF5hjust ei m\xE4rgitud";E=`<div class="timeline-note"><strong>Loobumise p\xF5hjus:</strong> ${o(pe)}${i.declineReasonText?` \u2014 ${o(i.declineReasonText)}`:""}</div>`}else i.status==="skipped"?E=`<div class="timeline-note"><strong>Vahelej\xE4tmise p\xF5hjendus:</strong> ${o(i.skipJustification)}</div>`:i.isManual&&(E=`<div class="timeline-note"><strong>K\xE4sitsi m\xE4\xE4ramise p\xF5hjendus:</strong> ${o(i.skipJustification)}</div>`);let I=i.runNo!==n?`<div class="run-divider">Kaskaadi ring ${i.runNo}</div>`:"";n=i.runNo;let q=i.status==="pending"?`<button class="small primary" ${u({act:"open-offer",token:i.token})}>Ava partneri vaates</button>`:"";return`${I}
+<li class="timeline-item">
+  <span class="timeline-dot ${c}"></span>
+  <div class="timeline-head">
+    <span class="rank-chip">${d?.rank??"?"}</span>
+    <strong>${o(g(i.lotPartnerId))}</strong>
+    ${Jt(i)}
+    ${q}
+  </div>
+  <div class="timeline-meta">P\xF6\xF6rdumine ${i.roundNo}${k.length?` \xB7 ${o(k.join(" \xB7 "))}`:""}</div>
+  ${E}
+</li>`}).join(""),s=t.status==="failed"?'<li class="timeline-item"><span class="timeline-dot danger"></span><div class="timeline-head"><strong>Kaskaad ammendunud</strong></div><div class="timeline-meta">J\xE4rjestuses rohkem partnereid ei olnud.</div></li>':"";return`<ul class="timeline">${r}${s}</ul>`}function ta(t){let e=st(t);return`
+<div class="card">
+  <div class="card-head"><h2>S\xFCndmuste logi</h2><span class="muted small">${e.length} kannet</span></div>
+  <div class="card-body tight">
+    <div class="table-wrap"><table>
+      <thead><tr><th>Aeg</th><th>Osaleja</th><th>S\xFCndmus</th><th>Kirjeldus</th></tr></thead>
+      <tbody>${e.map(a=>`<tr>
+            <td class="nowrap mono small">${o(x(a.occurredAt))}</td>
+            <td class="small nowrap">${o(a.actorLabel)}</td>
+            <td class="small nowrap"><code>${o(a.eventType)}</code></td>
+            <td class="small">${o(a.summary)}</td>
+          </tr>`).join("")}</tbody>
+    </table></div>
+  </div>
+</div>`}function aa(t){let e=t?h(t):null,a=_().lots.filter(s=>s.isActive),n=new Date(v()).toISOString().slice(0,10),r={lotId:e?.lotId??a[0]?.id??"",title:e?.title??"",workshopType:e?.workshopType??"tootuba_1",eventStart:e?.eventStart??n,eventEnd:e?.eventEnd??"",county:e?.county??"Harju maakond",locationText:e?.locationText??"",participantCount:e?.participantCount??25,language:e?.language??"et",estimatedValueEur:e?.estimatedValueEur??0,extraNotes:e?.extraNotes??""};return`
+<div class="page-head">
+  <div>
+    <div class="btn-row"><button class="link" ${u({act:e?"open-order":"nav",view:"orders",id:e?.id??""})}>\u2190 Tagasi</button></div>
+    <h1 style="margin-top:6px">${e?"Muuda tellimust":"Uus koolitustellimus"}</h1>
+    <p class="subtitle">${e?o($(e)):"Tellimus luuakse ettevalmistuse olekus \u2014 kaskaad k\xE4ivitatakse eraldi."}</p>
+  </div>
+</div>
+
+${K?`<div class="danger-banner">${o(K)}</div>`:""}
+
+<form class="card" id="order-form" ${u({formact:"save-order",id:e?.id??""})}>
+  <div class="card-body">
+    <div class="form-grid">
+      <div class="field full">
+        <label for="f-title">Tellimuse nimetus</label>
+        <input id="f-title" name="title" required maxlength="160" value="${o(r.title)}" placeholder="nt T\xF6\xF6tuba 1 Tartu linnavalitsuse teenistujatele" />
+      </div>
+      <div class="field">
+        <label for="f-lot">Hankeosa</label>
+        <select id="f-lot" name="lotId">
+          ${a.map(s=>`<option value="${o(s.id)}" ${s.id===r.lotId?"selected":""}>${o(me(s))}</option>`).join("")}
+        </select>
+      </div>
+      <div class="field">
+        <label for="f-type">Formaat</label>
+        <select id="f-type" name="workshopType">
+          ${Object.entries(F).map(([s,i])=>`<option value="${o(s)}" ${s===r.workshopType?"selected":""}>${o(i)}</option>`).join("")}
+        </select>
+      </div>
+      <div class="field">
+        <label for="f-start">Toimumise kuup\xE4ev</label>
+        <input id="f-start" name="eventStart" type="date" required value="${o(r.eventStart)}" />
+      </div>
+      <div class="field">
+        <label for="f-end">L\xF5ppkuup\xE4ev <span class="muted">(kui mitmep\xE4evane)</span></label>
+        <input id="f-end" name="eventEnd" type="date" value="${o(r.eventEnd)}" />
+      </div>
+      <div class="field">
+        <label for="f-county">Maakond</label>
+        <select id="f-county" name="county">
+          ${Fe.map(s=>`<option value="${o(s)}" ${s===r.county?"selected":""}>${o(s)}</option>`).join("")}
+        </select>
+      </div>
+      <div class="field">
+        <label for="f-location">Asukoht v\xF5i platvorm</label>
+        <input id="f-location" name="locationText" maxlength="160" value="${o(r.locationText)}" placeholder="nt tellija ruumid, MS Teams" />
+      </div>
+      <div class="field">
+        <label for="f-count">Osalejate arv</label>
+        <input id="f-count" name="participantCount" type="number" min="1" max="2000" required value="${o(r.participantCount)}" />
+      </div>
+      <div class="field">
+        <label for="f-lang">Keel</label>
+        <select id="f-lang" name="language">
+          ${Object.entries(V).map(([s,i])=>`<option value="${o(s)}" ${s===r.language?"selected":""}>${o(i)}</option>`).join("")}
+        </select>
+      </div>
+      <div class="field">
+        <label for="f-value">Hinnanguline maksumus (\u20AC)</label>
+        <input id="f-value" name="estimatedValueEur" type="number" min="0" step="0.01" required value="${o(r.estimatedValueEur)}" />
+        <span class="hint">Raamlepingu \xFChikhinna alusel. N\xE4idises eelt\xE4idetakse hankeosa esimese partneri hinnaga.</span>
+      </div>
+      <div class="field full">
+        <label for="f-notes">Lisainfo partnerile</label>
+        <textarea id="f-notes" name="extraNotes" maxlength="600" placeholder="Osalejate taust, erisoovid, tehnilised n\xF5uded">${o(r.extraNotes)}</textarea>
+      </div>
+    </div>
+  </div>
+  <div class="modal-foot">
+    <button type="button" ${u({act:e?"open-order":"nav",view:"orders",id:e?.id??""})}>Loobu</button>
+    <button type="submit" class="primary">${e?"Salvesta muudatused":"Loo tellimus"}</button>
+  </div>
+</form>`}function na(){return`
+<div class="page-head">
+  <div><h1>Hankeosad</h1><p class="subtitle">Kaskaadi seaded on hankeosa kaupa \u2014 t\xE4psed tingimused tuleb enne kasutuselev\xF5ttu raamlepingu alusdokumentidega kokku viia.</p></div>
+</div>
+<div class="card"><div class="card-body tight"><div class="table-wrap"><table>
+  <thead><tr><th>Kood</th><th>Nimetus</th><th class="num">Partnereid</th><th>Vastamist\xE4htaeg</th><th>J\xE4rjestus</th></tr></thead>
+  <tbody>${_().lots.map(e=>{let a=O(e.id);return`
+<tr class="clickable" ${u({act:"open-lot",id:e.id})}>
+  <td class="nowrap strong">${o(e.code)}</td>
+  <td>${o(e.name)}</td>
+  <td class="num">${a.filter(n=>n.isActive).length}</td>
+  <td class="nowrap small">${e.responseDeadlineWorkingDays} t\xF6\xF6p\xE4eva, kell ${o(e.deadlineLocalTime)}</td>
+  <td class="nowrap small">${e.rankingMode==="strict"?"Range j\xE4rjestus":"Rotatsioon"}</td>
+</tr>`}).join("")}</tbody>
+</table></div></div></div>`}function ra(t){let e=T(t);if(!e)return'<div class="empty">Hankeosa ei leitud.</div>';let a=O(e.id),n=a.map((r,s)=>`
+<tr>
+  <td class="nowrap"><span class="rank-chip">${r.rank}</span></td>
+  <td>
+    <div class="strong">${o(g(r.id))}</div>
+    <div class="muted small">${o(r.contactName)} \xB7 ${o(r.contactEmail)}</div>
+  </td>
+  <td class="num nowrap">${o(ne(r.unitPriceEur))}</td>
+  <td class="num">${R(r.id)}</td>
+  <td class="nowrap">${r.isActive?ce("Aktiivne","success"):ce("Passiivne","neutral")}</td>
+  <td class="nowrap">
+    <div class="btn-row">
+      <button class="small" ${u({act:"move-partner",id:r.id,dir:"-1"})} ${s===0?"disabled":""} title="T\xF5sta j\xE4rjestuses \xFClespoole">\u2191</button>
+      <button class="small" ${u({act:"move-partner",id:r.id,dir:"1"})} ${s===a.length-1?"disabled":""} title="Vii j\xE4rjestuses allapoole">\u2193</button>
+      <button class="small" ${u({act:"toggle-partner",id:r.id})}>${r.isActive?"Deaktiveeri":"Aktiveeri"}</button>
+    </div>
+  </td>
+</tr>`).join("");return`
+<div class="page-head">
+  <div>
+    <div class="btn-row"><button class="link" ${u({act:"nav",view:"lots"})}>\u2190 Hankeosad</button></div>
+    <h1 style="margin-top:6px">${o(e.code)} \u2014 ${o(e.name)}</h1>
+    <p class="subtitle">${o(e.description)}</p>
+  </div>
+</div>
+
+<form class="card" id="lot-form" ${u({formact:"save-lot",id:e.id})}>
+  <div class="card-head"><h2>Kaskaadi seaded</h2></div>
+  <div class="card-body">
+    <div class="form-grid">
+      <div class="field">
+        <label for="l-days">Vastamist\xE4htaeg (t\xF6\xF6p\xE4evades)</label>
+        <input id="l-days" name="responseDeadlineWorkingDays" type="number" min="1" max="20" required value="${e.responseDeadlineWorkingDays}" />
+        <span class="hint">Saatmise p\xE4ev ei l\xE4he arvesse. N\xE4dalavahetused ja riigip\xFChad j\xE4etakse vahele.</span>
+      </div>
+      <div class="field">
+        <label for="l-time">T\xE4htaja kellaaeg (Tallinna aeg)</label>
+        <input id="l-time" name="deadlineLocalTime" type="time" required value="${o(e.deadlineLocalTime)}" />
+      </div>
+      <div class="field">
+        <label for="l-mode">J\xE4rjestuse reegel</label>
+        <select id="l-mode" name="rankingMode">
+          <option value="strict" ${e.rankingMode==="strict"?"selected":""}>Range j\xE4rjestus (alati madalaim vaba koht)</option>
+          <option value="rotation" ${e.rankingMode==="rotation"?"selected":""}>Rotatsioon (eelistab v\xE4iksema koormusega partnerit)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="l-skip">Vahelej\xE4tmine lubatud</label>
+        <select id="l-skip" name="allowSkip">
+          <option value="yes" ${e.allowSkip?"selected":""}>Jah \u2014 p\xF5hjendus on alati kohustuslik</option>
+          <option value="no" ${e.allowSkip?"":"selected"}>Ei</option>
+        </select>
+      </div>
+    </div>
+    <p class="hint" style="margin-top:12px">K\xE4imasolevaid kaskaade need muudatused ei m\xF5juta: iga tellimus kasutab k\xE4ivitamise hetkel salvestatud seadeid.</p>
+  </div>
+  <div class="modal-foot"><button type="submit" class="primary">Salvesta seaded</button></div>
+</form>
+
+<div class="card">
+  <div class="card-head"><h2>Raamlepingu partnerid j\xE4rjestuses</h2><span class="muted small">j\xE4rjestus p\xE4rineb hanke hindamistulemustest</span></div>
+  <div class="card-body tight"><div class="table-wrap"><table>
+    <thead><tr><th>Koht</th><th>Partner ja kontakt</th><th class="num">\xDChikhind</th><th class="num">M\xE4\xE4ratud</th><th>Olek</th><th></th></tr></thead>
+    <tbody>${n}</tbody>
+  </table></div></div>
+</div>`}function sa(){return`
+<div class="page-head">
+  <div><h1>Partnerid</h1><p class="subtitle">N\xE4idise partnerid on v\xE4ljam\xF5eldud. P\xE4ris raamlepingu partnerid ja j\xE4rjestused sisestatakse p\xE4rast raamlepingute s\xF5lmimist.</p></div>
+</div>
+<div class="card"><div class="card-body tight"><div class="table-wrap"><table>
+  <thead><tr><th>Partner</th><th>Kontakt</th><th>Hankeosad ja kohad</th><th class="num">M\xE4\xE4ratud</th></tr></thead>
+  <tbody>${_().partners.map(e=>{let a=_().lotPartners.filter(i=>i.partnerId===e.id).sort((i,d)=>(T(i.lotId)?.code??"").localeCompare(T(d.lotId)?.code??"")),n=a.map(i=>`<span class="badge badge-${i.isActive?"info":"neutral"}">${o(T(i.lotId)?.code??"")} \xB7 koht ${i.rank}</span>`).join(" "),r=a[0],s=a.reduce((i,d)=>i+R(d.id),0);return`
+<tr>
+  <td><div class="strong">${o(e.name)}</div><div class="muted small">Registrikood ${o(e.regCode)}</div></td>
+  <td class="small">${r?`${o(r.contactName)}<br /><span class="muted">${o(r.contactEmail)}</span>`:"\u2014"}</td>
+  <td>${n}</td>
+  <td class="num">${s}</td>
+</tr>`}).join("")}</tbody>
+</table></div></div></div>`}function ia(){let t=it(),e=t.map(a=>{let n=a.orderId?h(a.orderId):null;return`
+<tr>
+  <td class="nowrap mono small">${o(x(a.occurredAt))}</td>
+  <td class="small nowrap">${o(a.actorLabel)}</td>
+  <td class="small nowrap"><code>${o(a.eventType)}</code></td>
+  <td class="small nowrap">${n?`<button class="link" ${u({act:"open-order",id:n.id})}>${o($(n))}</button>`:"\u2014"}</td>
+  <td class="small">${o(a.summary)}</td>
+</tr>`}).join("");return`
+<div class="page-head">
+  <div><h1>Auditilogi</h1><p class="subtitle">${t.length} kannet. P\xE4ris rakenduses on see tabel muutmatu \u2014 andmebaasi trigger keelab UPDATE ja DELETE.</p></div>
+</div>
+<div class="card"><div class="card-body tight"><div class="table-wrap"><table>
+  <thead><tr><th>Aeg</th><th>Osaleja</th><th>S\xFCndmus</th><th>Tellimus</th><th>Kirjeldus</th></tr></thead>
+  <tbody>${e}</tbody>
+</table></div></div></div>`}function oa(){let t=ot();return`
+<aside class="mailbox">
+  <div class="mailbox-head">
+    <h2>Partneri postkast</h2>
+    <span class="badge badge-neutral">${t.length}</span>
+  </div>
+  <p class="mailbox-hint">N\xE4idis ei saada p\xE4ris e-kirju. K\xF5ik kirjad, mida rakendus saadaks, ilmuvad siia \u2014 nii koolitajatele kui tellimismeeskonnale.</p>
+  ${t.length===0?'<div class="empty">Kirju veel ei ole.</div>':t.map(da).join("")}
+</aside>`}function da(t){let e=te.has(t.id),a=t.offerId?at(t.offerId):void 0,n=t.template==="offer"&&a?.status==="pending";return`
+<div class="mail ${n?"actionable":""}">
+  <div class="mail-head" ${u({act:"toggle-mail",id:t.id})}>
+    <div class="mail-to">
+      <span>${t.internal?"Tellimismeeskonnale":o(t.toName)}</span>
+      <span class="mono">${o(x(t.sentAt))}</span>
+    </div>
+    <div class="mail-subject">${o(t.subject)}</div>
+    ${t.internal?"":`<div class="mail-to"><span class="muted">${o(t.toEmail)}</span></div>`}
+  </div>
+  ${e?`<div class="mail-body">${t.bodyHtml}</div>`:""}
+  ${n?`<div class="mail-actions">
+          <button class="small primary" ${u({act:"open-offer",token:a.token})}>Ava partneri vaates \u2192</button>
+          <button class="small" ${u({act:"toggle-mail",id:t.id})}>${e?"Peida kiri":"N\xE4ita kirja"}</button>
+        </div>`:""}
+</div>`}function C(t,e,a,n=""){return`
+<div class="modal-backdrop" ${u({act:"close-modal-bg"})}>
+  <div class="modal ${n}">
+    <div class="modal-head"><h2>${o(t)}</h2><button class="small" ${u({act:"close-modal"})}>Sulge</button></div>
+    ${e}
+    ${a}
+  </div>
+</div>`}function la(t,e,a){let n=oe(t);if(!n)return C("Pakkumust ei leitud",'<div class="modal-body"><p>See link ei ole kehtiv.</p></div>',"");let r=h(n.orderId),s=r?T(r.lotId):void 0,i=w(n.lotPartnerId);if(!r||!s||!i)return C("Pakkumust ei leitud",'<div class="modal-body"><p>See link ei ole kehtiv.</p></div>',"");let d=`<div class="offer-banner">N\xC4IDIS \xB7 nii n\xE4eb seda lehte raamlepingu partner ${o(g(n.lotPartnerId))}</div>`,c=[["Hankeosa",me(s)],["Formaat",F[r.workshopType]],["Toimumine",_e(r)],["Asukoht",r.locationText.trim()?`${r.county} \u2014 ${r.locationText}`:r.county],["Osalejaid",String(r.participantCount)],["Keel",V[r.language]],["Hinnanguline maksumus",ne(r.estimatedValueEur)]],k=`
+<p class="strong" style="margin-bottom:4px">${o($(r))} \u2014 ${o(r.title)}</p>
+<dl class="detail-list" style="margin-top:12px">${c.map(([I,q])=>`<dt>${o(I)}</dt><dd>${o(q)}</dd>`).join("")}</dl>
+${r.extraNotes.trim()?`<p class="small" style="margin-top:12px"><span class="muted">Lisainfo:</span> ${o(r.extraNotes)}</p>`:""}`;if(n.status!=="pending"){let I=n.status==="accepted"?"Olete selle tellimuse vastu v\xF5tnud. Ait\xE4h!":n.status==="declined"?"Olete sellest tellimusest loobunud. Tellimus on esitatud raamlepingu j\xE4rjestuses j\xE4rgmisele partnerile.":n.status==="expired"?"Vastamise t\xE4htaeg on m\xF6\xF6dunud. Tellimus on esitatud raamlepingu j\xE4rjestuses j\xE4rgmisele partnerile.":"See pakkumus ei ole enam aktuaalne \u2014 tellija on selle t\xFChistanud.";return C("Koolitustellimus",`${d}<div class="modal-body">
+        <div class="warning-banner">${o(I)}</div>
+        ${k}
+        <p class="hint" style="margin-top:14px">Olek: ${o(be[n.status])}${n.respondedAt?` \xB7 ${o(x(n.respondedAt))}`:""}</p>
+      </div>`,`<div class="modal-foot"><button ${u({act:"close-modal"})}>Sulge</button></div>`,"offer-page")}let E=n.deadlineAt?Y(n.deadlineAt):"\u2014";return e?C("Loobumine tellimusest",`${d}<div class="modal-body">
+        ${a?`<div class="danger-banner">${o(a)}</div>`:""}
+        <p>Palun m\xE4rkige loobumise p\xF5hjus. P\xF5hjus salvestatakse hanke auditij\xE4lge.</p>
+        <form id="decline-form" ${u({formact:"submit-decline",token:t})}>
+          ${Object.entries(z).map(([I,q],pe)=>`
+            <div class="radio-row">
+              <input type="radio" id="dr-${o(I)}" name="reason" value="${o(I)}" ${pe===0?"checked":""} />
+              <label for="dr-${o(I)}">${o(q)}</label>
+            </div>`).join("")}
+          <div class="field" style="margin-top:10px">
+            <label for="dr-text">T\xE4psustus <span class="muted">(vabatahtlik, \u201EMuu p\xF5hjuse\u201C puhul kohustuslik)</span></label>
+            <textarea id="dr-text" name="text" maxlength="400" placeholder="nt koolitajad on sel n\xE4dalal h\xF5ivatud"></textarea>
+          </div>
+        </form>
+      </div>`,`<div class="modal-foot">
+        <button ${u({act:"open-offer",token:t})}>Tagasi</button>
+        <button class="danger" ${u({act:"submit-decline-btn",token:t})}>Kinnita loobumine</button>
+      </div>`,"offer-page"):C("Koolitustellimus",`${d}<div class="modal-body">
+      ${a?`<div class="danger-banner">${o(a)}</div>`:""}
+      <p>Riigikantselei esitab teile raamlepingu \u201EEesti.ai koolitajate tellimine\u201C alusel j\xE4rgmise koolitustellimuse.</p>
+      ${k}
+      <p style="margin-top:16px">Palume vastata hiljemalt <strong>${o(E)}</strong>.
+        <span class="muted small">(${o(Z(v(),n.deadlineAt??0))})</span></p>
+      <p class="hint">Kui te t\xE4htajaks ei vasta, loetakse tellimus tagasi l\xFCkatuks ja see esitatakse j\xE4rjestuses j\xE4rgmisele partnerile.</p>
+    </div>`,`<div class="modal-foot">
+      <button ${u({act:"start-decline",token:t})}>Loobun tellimusest</button>
+      <button class="success" ${u({act:"accept-offer",token:t})}>V\xF5tan tellimuse vastu</button>
+    </div>`,"offer-page")}function ua(t){let e=h(t);if(!e)return"";let a=T(e.lotId),r=ve(O(e.lotId).map(s=>({lotPartnerId:s.id,rank:s.rank,isActive:s.isActive,assignedCount:R(s.id)})),a?.rankingMode??"strict").map((s,i)=>`
+<tr>
+  <td class="nowrap"><span class="rank-chip">${i+1}</span></td>
+  <td>${o(g(s.lotPartnerId))}<div class="muted small">M\xE4\xE4ratud tellimusi: ${s.assignedCount}</div></td>
+  <td class="nowrap">
+    <label class="small" style="font-weight:500;display:flex;gap:6px;align-items:center">
+      <input type="checkbox" style="width:auto" name="skip-${o(s.lotPartnerId)}"  ${a?.allowSkip?"":"disabled"} />
+      j\xE4ta vahele
+    </label>
+  </td>
+  <td><input type="text" name="just-${o(s.lotPartnerId)}" maxlength="200" placeholder="p\xF5hjendus (kohustuslik)" ${a?.allowSkip?"":"disabled"} /></td>
+</tr>`).join("");return C(e.status==="failed"?"K\xE4ivita kaskaad uuesti":"Alusta kaskaadi",`<div class="modal-body">
+      <p>Tellimus <strong>${o($(e))}</strong> esitatakse j\xE4rjestuses esimesele partnerile. Vastamist\xE4htaeg on
+      <strong>${a?.responseDeadlineWorkingDays} t\xF6\xF6p\xE4eva</strong> kella ${o(a?.deadlineLocalTime??"17:00")}-ni
+      (${a?.rankingMode==="strict"?"range j\xE4rjestus":"rotatsioon"}).</p>
+      ${e.status==="failed"?'<div class="warning-banner">Eelmine kaskaadi ring ammendus. Uus ring algab uuesti esimesest kohast ja k\xF5ik varasemad p\xF6\xF6rdumised j\xE4\xE4vad auditij\xE4lge alles.</div>':""}
+      <p class="hint">Soovi korral saad partnereid enne alustamist vahele j\xE4tta \u2014 iga vahelej\xE4tmine n\xF5uab p\xF5hjendust ja j\xE4\xE4b auditij\xE4lge.</p>
+      <form id="start-form">
+        <div class="table-wrap"><table>
+          <thead><tr><th>J\xE4rjekord</th><th>Partner</th><th>Vahele</th><th>P\xF5hjendus</th></tr></thead>
+          <tbody>${r}</tbody>
+        </table></div>
+      </form>
+    </div>`,`<div class="modal-foot">
+      <button ${u({act:"close-modal"})}>Loobu</button>
+      <button class="primary" ${u({act:"confirm-start",id:t})}>K\xE4ivita kaskaad</button>
+    </div>`)}function De(t,e,a,n,r,s=""){return C(t,`<div class="modal-body">
+      <p>${e}</p>
+      ${s}
+      <div class="field"><label for="j-text">P\xF5hjendus</label>
+        <textarea id="j-text" maxlength="400" placeholder="Selgitus j\xE4\xE4b hanke auditij\xE4lge"></textarea>
+      </div>
+    </div>`,`<div class="modal-foot">
+      <button ${u({act:"close-modal"})}>Loobu</button>
+      <button class="primary" ${u({act:n,id:r})}>${o(a)}</button>
+    </div>`)}function ca(t){let e=h(t);if(!e)return"";let a=O(e.lotId).filter(n=>n.isActive).map(n=>`<option value="${o(n.id)}">${o(g(n.id))} (koht ${n.rank})</option>`).join("");return De("M\xE4\xE4ra t\xE4itja k\xE4sitsi","K\xE4sitsi m\xE4\xE4ramine l\xE4heb kaskaadist m\xF6\xF6da. Kasuta seda n\xE4iteks siis, kui kokkulepe s\xFCndis telefoni teel v\xF5i kui kaskaad ammendus.","M\xE4\xE4ra t\xE4itja","confirm-manual",t,`<div class="field"><label for="m-partner">Partner</label><select id="m-partner">${a}</select></div>`)}function ma(){if(!p)return"";switch(p.name){case"offer":return la(p.token,p.declining,p.notice);case"start":return ua(p.orderId);case"skip":return De("J\xE4ta partner vahele",`Praegu ootab vastust <strong>${o(g(A(p.orderId)?.lotPartnerId??""))}</strong>. Vahelej\xE4tmisel esitatakse tellimus kohe j\xE4rgmisele partnerile.`,"J\xE4ta vahele","confirm-skip",p.orderId);case"manual":return ca(p.orderId);case"cancel":return De("T\xFChista tellimus","Tellimus t\xFChistatakse. Kui m\xF5ni partner ootab praegu vastust, saadetakse talle teade.","T\xFChista tellimus","confirm-cancel",p.orderId);default:return""}}function pa(){switch(N.name){case"dashboard":return Zt();case"orders":return Qt();case"order":return Xt(N.id);case"order-form":return aa(N.id);case"lots":return na();case"lot":return ra(N.id);case"partners":return sa();case"audit":return ia();default:return""}}var ga=`
+<div class="footnote">
+  <strong>Kaskaadhankija \u2014 n\xE4idis.</strong> Kaskaadiloogika, t\xF6\xF6p\xE4evade ja riigip\xFChade arvestus ning auditij\xE4lg t\xF6\xF6tavad p\xE4riselt;
+  e-kirjade saatmine ja aja kulg on simuleeritud. Partnerite nimed ja kontaktid on v\xE4ljam\xF5eldud.
+  Kaskaadi t\xE4psed tingimused (vastamist\xE4htaeg, vahelej\xE4tmise reeglid, j\xE4rjestuse reegel) tuleb enne kasutuselev\xF5ttu
+  raamlepingu alusdokumentidega kokku viia \u2014 need on hankeosa kaupa seadistatavad.
+  Andmed p\xFCsivad ainult selles brauseris.
+</div>`;function f(){le();let t=`
+${qt()}
+<div class="layout with-mailbox">
+  ${Yt()}
+  <main>${pa()}${ga}</main>
+  ${oa()}
+</div>
+${ma()}
+${ue?`<div class="toast">${o(ue)}</div>`:""}`;Wt().innerHTML=t}function fa(){let t=document.getElementById("order-form");if(!t)return null;let e=i=>t.elements.namedItem(i)?.value??"",a=e("title").trim();if(!a)return K="Tellimuse nimetus on kohustuslik.",null;let n=e("eventStart"),r=e("eventEnd");if(r&&r<n)return K="L\xF5ppkuup\xE4ev ei saa olla enne alguskuup\xE4eva.",null;let s=Number(e("participantCount"));return!Number.isFinite(s)||s<1?(K="Osalejate arv peab olema v\xE4hemalt 1.",null):{lotId:e("lotId"),title:a,workshopType:e("workshopType"),eventStart:n,eventEnd:r||null,county:e("county"),locationText:e("locationText").trim(),participantCount:s,language:e("language"),estimatedValueEur:Number(e("estimatedValueEur"))||0,extraNotes:e("extraNotes").trim()}}function ka(t){let e=h(t);if(!e)return[];let a=[];for(let n of O(e.lotId)){let r=document.querySelector(`input[name="skip-${n.id}"]`),s=document.querySelector(`input[name="just-${n.id}"]`);r?.checked&&a.push({lotPartnerId:n.id,justification:s?.value.trim()??""})}return a}function L(t){try{t()}catch(e){S(e instanceof Error?e.message:"Toiming eba\xF5nnestus")}f()}function va(t,e){let a=e.dataset.id??"",n=e.dataset.token??"";switch(t){case"nav":J({name:e.dataset.view??"dashboard"});return;case"open-order":a&&J({name:"order",id:a});return;case"open-lot":J({name:"lot",id:a});return;case"new-order":J({name:"order-form",id:null});return;case"edit-order":J({name:"order-form",id:a});return;case"dismiss-intro":tt(),f();return;case"clock":{let r=Ae(Number(e.dataset.ms??"0"));r>0&&S(`${r} pakkumus(t) aegus vastuseta \u2014 kaskaad liikus edasi.`),f();return}case"clock-deadline":{let r=Xe();S(r>0?`${r} pakkumus(t) aegus vastuseta \u2014 kaskaad liikus edasi.`:"\xDCkski pakkumus ei oota praegu vastust."),f();return}case"reset":window.confirm("Kustutada k\xF5ik n\xE4idise andmed ja alustada algusest?")&&(we(),te=new Set,J({name:"dashboard"}));return;case"toggle-mail":te.has(a)?te.delete(a):te.add(a),f();return;case"open-offer":p={name:"offer",token:n,declining:!1,notice:null},f();return;case"start-decline":p={name:"offer",token:n,declining:!0,notice:null},f();return;case"accept-offer":{let r=W(n,"accept");r.ok?(p=null,S("Partner v\xF5ttis tellimuse vastu \u2014 tellimus on m\xE4\xE4ratud.")):p={name:"offer",token:n,declining:!1,notice:Tt(r.reason)},f();return}case"submit-decline-btn":xt(n);return;case"open-start":p={name:"start",orderId:a},f();return;case"confirm-start":L(()=>{let r=ka(a);if(r.find(i=>!i.justification))throw new Error("Iga vahelej\xE4etud partneri kohta tuleb m\xE4rkida p\xF5hjendus.");ee(a,r),p=null,S("Kaskaad k\xE4ivitatud \u2014 pakkumus saadetud j\xE4rjestuses esimesele partnerile.")});return;case"open-skip":p={name:"skip",orderId:a},f();return;case"confirm-skip":L(()=>{let r=document.getElementById("j-text")?.value??"";mt(a,r),p=null,S("Partner j\xE4eti vahele \u2014 pakkumus liikus j\xE4rgmisele.")});return;case"open-manual":p={name:"manual",orderId:a},f();return;case"confirm-manual":L(()=>{let r=document.getElementById("m-partner")?.value??"",s=document.getElementById("j-text")?.value??"";gt(a,r,s),p=null,S("T\xE4itja m\xE4\xE4ratud k\xE4sitsi \u2014 p\xF5hjendus salvestati auditij\xE4lge.")});return;case"open-cancel":p={name:"cancel",orderId:a},f();return;case"confirm-cancel":L(()=>{let r=document.getElementById("j-text")?.value??"";ft(a,r),p=null,S("Tellimus t\xFChistatud.")});return;case"abort":L(()=>{pt(a),S("Kaskaad katkestatud \u2014 tellimus on n\xFC\xFCd muudetav.")});return;case"resend":L(()=>{vt(a),S("Pakkumus saadeti uuesti, vastamist\xE4htaeg algas uuesti.")});return;case"complete":L(()=>{kt(a),S("Tellimus m\xE4rgitud l\xF5petatuks.")});return;case"move-partner":ht(a,Number(e.dataset.dir)),f();return;case"toggle-partner":$t(a),f();return;case"close-modal":p=null,f();return;default:return}}function Tt(t){switch(t){case"already_responded":return"Sellele pakkumusele on juba vastatud.";case"expired":return"Vastamise t\xE4htaeg on m\xF6\xF6dunud \u2014 tellimus liikus j\xE4rjestuses j\xE4rgmisele partnerile.";case"cancelled":return"See pakkumus ei ole enam aktuaalne.";default:return"Pakkumust ei leitud."}}function xt(t){let e=document.querySelector('input[name="reason"]:checked')?.value,a=document.getElementById("dr-text")?.value??"";if(e==="other"&&!a.trim()){p={name:"offer",token:t,declining:!0,notice:"Palun t\xE4psustage muud p\xF5hjust."},f();return}let n=W(t,"decline",e??null,a);if(n.ok){p=null;let r=oe(t)?.orderId,s=r?A(r):void 0;S(s?`Partner loobus \u2014 pakkumus saadeti j\xE4rgmisele: ${g(s.lotPartnerId)}.`:"Partner loobus \u2014 j\xE4rjestuses rohkem partnereid ei olnud.")}else p={name:"offer",token:t,declining:!1,notice:Tt(n.reason)};f()}function jt(){document.addEventListener("click",t=>{let e=t.target?.closest("[data-act]");if(!e)return;let a=e.dataset.act;if(a){if(a==="close-modal-bg"){t.target===e&&(p=null,f());return}t.preventDefault(),va(a,e)}}),document.addEventListener("submit",t=>{let e=t.target;t.preventDefault();let a=e.dataset.formact;if(a==="save-order"){K=null;let n=fa();if(!n){f();return}let r=e.dataset.id;L(()=>{r?(ut(r,n),N={name:"order",id:r},S("Tellimus salvestatud.")):(N={name:"order",id:B(n).id},S("Tellimus loodud. J\xE4rgmine samm: alusta kaskaadi."))});return}if(a==="save-lot"){let n=e.dataset.id??"",r=s=>e.elements.namedItem(s)?.value??"";L(()=>{let s=Number(r("responseDeadlineWorkingDays"));if(!Number.isInteger(s)||s<1)throw new Error("Vastamist\xE4htaeg peab olema v\xE4hemalt 1 t\xF6\xF6p\xE4ev.");bt(n,{responseDeadlineWorkingDays:s,deadlineLocalTime:r("deadlineLocalTime")||"17:00",rankingMode:r("rankingMode"),allowSkip:r("allowSkip")==="yes"}),S("Hankeosa kaskaadi seaded salvestatud.")});return}if(a==="submit-decline"){xt(e.dataset.token??"");return}}),window.setInterval(()=>{p||f()},3e4)}function Et(){et(),jt(),f()}document.readyState==="loading"?document.addEventListener("DOMContentLoaded",Et,{once:!0}):Et();})();
+
+</script>
+</body>
+</html>
