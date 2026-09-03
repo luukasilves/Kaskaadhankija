@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { TestStrip } from '@/components/test-strip';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -11,7 +12,11 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="et">
-      <body>{children}</body>
+      <body>
+        {/* The test harness sits above the application, never inside it. */}
+        <TestStrip />
+        {children}
+      </body>
     </html>
   );
 }

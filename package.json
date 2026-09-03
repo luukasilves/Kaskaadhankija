@@ -17,7 +17,8 @@
     "db:migrate": "tsx src/db/migrate.ts",
     "db:seed": "tsx src/db/seed.ts",
     "db:studio": "drizzle-kit studio",
-    "datasets:build": "tsx scripts/build-datasets.ts"
+    "datasets:build": "tsx scripts/build-datasets.ts",
+    "verify:harness": "next build && node scripts/verify-harness.mjs"
   },
   "dependencies": {
     "@date-fns/tz": "^1.4.1",
