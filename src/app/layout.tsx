@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { TestStrip } from '@/components/test-strip';
+import { bootOnce } from '@/server/boot';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -12,7 +13,10 @@ export const metadata: Metadata = {
   icons: { icon: [{ url: '/icon.svg', type: 'image/svg+xml' }], shortcut: '/icon.svg' },
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Migrations, the sample data and the deadline timer, once per process.
+  await bootOnce();
+
   return (
     <html lang="et">
       <body>

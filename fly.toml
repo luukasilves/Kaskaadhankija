@@ -1,0 +1,59 @@
+# Kaskaadhankija on Fly.io — one machine, one volume, one SQLite file.
+#
+# Rename `app` before the first deploy, then:
+#
+#   fly launch --no-deploy                       # claims the name, keeps this file
+#   fly volumes create kh_data --region arn --size 1
+#   fly deploy --ha=false                        # ONE machine, see below
+#
+# Two things this file gets right and a default would not:
+#
+#   * `fly deploy` creates two machines by default. Two machines would mean two
+#     separate SQLite files on two separate volumes, i.e. two different
+#     applications behind one hostname. Always deploy with `--ha=false`, and
+#     keep max_machines_running at 1.
+#   * `auto_stop_machines` is off. Rounds close on an in-process timer, so a
+#     machine that suspends between requests would stop closing them.
+
+app = "kaskaadhankija"
+primary_region = "arn"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  DATABASE_PATH = "/data/kaskaadhankija.db"
+  # The test deployment. Remove this line for a production one: no personas,
+  # no strip, no virtual clock, and the demo-only actions refuse to run.
+  DEMO_MODE = "1"
+  APP_BASE_URL = "https://kaskaadhankija.fly.dev"
+  PORT = "3000"
+
+# The database. The volume and the machine must be in the same region.
+[mounts]
+  source = "kh_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_start_machines = true
+  # Never suspend: the deadline timer runs inside the process.
+  auto_stop_machines = "off"
+  min_machines_running = 1
+  max_machines_running = 1
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "20s"
+    method = "GET"
+    path = "/api/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"
+
+# There is deliberately no `release_command`: a release machine runs without the
+# volume mounted, so migrations would either fail or write to a disk that is
+# then thrown away. boot() migrates the real database at start-up instead.

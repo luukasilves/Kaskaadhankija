@@ -1,144 +1,189 @@
-# Kaskaadhankija — MVP Plan
+# Kaskaadhankija — plan (v2, parallel cascade)
 
-## Context
+## What this is
 
-**Why**: The eesti.ai programme ("Kõige AI targem rahvas", target: 100,000+ working-age adults complete an AI workshop in 2026–2027) buys trainings through the framework procurement **"Eesti.ai koolitajate tellimine"** (Riigikantselei via RTK, RHR procurement [10567384](https://riigihanked.riik.ee/rhr-web/#/procurement/10567384/general-info), ~€5M, framework agreements valid until 31.12.2027). Individual training orders under the framework are assigned by **cascade mini-procurement (kaskaad)**: framework partners are ranked per lot from the tender evaluation; each order is offered to rank #1, who must accept within a set deadline (~3 working days); on decline or timeout the offer cascades to the next rank, with documented justifications and a complete audit trail. Running this by hand (email + spreadsheet) is error-prone and audit-hostile at the scale of hundreds of orders.
+An online tool for running **cascade mini-procurements (kaskaad-minihanked)** — the
+process for assigning individual training orders under the Estonian framework
+procurement **"Eesti.ai koolitajate tellimine"** (Riigikantselei via RTK,
+[RHR 10567384](https://riigihanked.riik.ee/rhr-web/#/procurement/10567384/general-info),
+~€5M, framework agreements valid until 31.12.2027).
 
-**What**: An online tool ("Kaskaadhankija") for the buyer team to create training orders, run the cascade automatically, and keep the audit trail. Confirmed MVP scope:
+The eesti.ai programme aims to put 100,000+ working-age adults through an AI
+workshop in 2026–2027. That is hundreds of individual orders, each of which has
+to be offered to framework partners in their ranked order, with justifications
+and an audit trail. By email and spreadsheet it is error-prone and hard to audit.
 
-1. **Users**: buyer-side team logs in; framework partners get **no accounts** — they receive offers by email with secure tokenized Accept/Decline links; the cascade advances automatically on decline or deadline expiry.
-2. **Methods**: cascade only (mini-competition post-MVP).
-3. **Stack**: Next.js (App Router, TypeScript) + SQLite + Drizzle; deployed as a **single Docker container**; SMTP for email. UI in Estonian.
+## The model, and why it changed
 
-**Deployment decision (revised after approval)**: the original plan targeted Vercel + Neon Postgres + Resend (three SaaS accounts). It now targets **one container with zero outside services**: Next.js standalone + a SQLite file on a mounted volume + an in-process scheduler + nodemailer against existing SMTP. Rationale — (a) load is trivial (hundreds of orders over two years, a handful of users) and SQLite's global write serialization is exactly the guarantee the cascade needs, replacing row-level locking with something simpler; (b) offer mail must come from a trusted `.ee` government address or partners will treat the link as phishing, and deliverability is a *functional* requirement since the whole cascade depends on partners clicking it; (c) procurement data and partner contacts stay on infrastructure the buyer controls, avoiding a third-party vendor-approval process. The container also runs unchanged on Fly.io/Railway/Render if managing a VM is unwanted.
+**v1 assumed a sequential cascade**: offer to rank 1, wait for the deadline,
+cascade to rank 2 on a decline or a timeout. That is what the merged single-file
+demo in [`demo/`](demo/) shows, and it is a legitimate mode — but it is not the
+one the specialists described.
 
-**Sequencing**: a self-contained single-file HTML demo (`demo/`) comes first — it carries the full cascade state machine with a virtual clock and a simulated partner inbox, so the cascade parameters can be validated against the alusdokumendid with RTK/legal *before* infrastructure exists. Demo and server import the same pure domain modules (`working-days`, `select-next`, cascade reducer) so behaviour cannot drift.
+**v2 implements a parallel cascade.** One round goes to *every* active partner of
+a lot at the same instant. During a window of about three working days each
+partner marks the trainings it will take and confirms; at the deadline the
+allocation is resolved strictly in framework rank order. Speed of response never
+matters. While the window is open, a partner sees the *effect* of higher-ranked
+partners' confirmed marks — never their identity — so it can plan around what is
+realistically still available.
 
-**Framework facts** (from public sources): lots include trainings **with room rental**, **without room rental** (customer's venue), **web-based** (Teams/Zoom), and **large-scale events** (hackathons, lectures, co-creation); standardized formats "Töötuba 1"/"Töötuba 2". Framework agreements may not be concluded yet → partners/rankings entered manually by admins. Exact cascade parameters must be **configurable per lot** and verified against the alusdokumendid before go-live.
+The business logic is specified, in Estonian, in
+[`docs/kaskaadi-ariloogika.md`](docs/kaskaadi-ariloogika.md): **78 numbered
+rules** with stable IDs (`[J-04]`, `[N-03]`, …), a traceability appendix mapping
+verbatim quotes from the specialists' meeting to the rules they justify, and a
+worked example (**Lisa B**) that doubles as the acceptance test. The document is
+the source of truth; the code refers to rules by ID and the tests are named after
+them.
 
-**Execution note**: this file is the approved MVP plan. The build session executes it on this branch, phase by phase per the build order below.
+### The one idea the design turns on
 
----
+The display *is* the algorithm. `allocate()` is a single pure function, and the
+same function serves all three cut points [J-05]:
 
-## Stack
+| Cut | When | Adjustments |
+|---|---|---|
+| **Prognoos** — projection | live, while the window is open | none |
+| **Jaotusettepanek** — proposal | frozen at the deadline | none |
+| **Lõplik jaotus** — final | at confirmation | the buyer's, if any |
+
+What a partner watches during the window therefore cannot disagree with what it
+receives at the end. `partnerView()` derives the four display states [N-03] by
+running the *same* `allocate` over the ranks above the viewer, so cap flow-down
+falls out of the algorithm rather than being reimplemented for the screen, and
+nothing about other partners can leak: the function is never given their
+identities.
+
+### Two decisions that make the window safe
+
+**Visibility informs, it never restricts** [K-01]. Any partner may mark any
+training whatever its state says. A mark with no projection is a fallback that
+takes effect if a higher-ranked partner withdraws — which is what makes
+mid-window revision safe: marking everything and dropping it late achieves
+nothing, because the partners below have already marked their fallbacks.
+
+**Marks bind, so the cap protects** [K-05][K-06]. A confirmed mark is a binding
+undertaking, which is what makes the round a real procurement rather than an
+expression of interest. Fallback-marking would then be dangerous — you could be
+handed everything you marked — so a partner may set an optional ceiling
+("I accept at most N"), and within it trainings are allocated by event date.
+Alternatives for both are recorded as [L-01] and [L-02].
+
+## Architecture, as built
+
+One container, one SQLite file, no outside services.
 
 | Concern | Choice |
 |---|---|
-| Framework | Next.js 15 (App Router, `src/`, TS strict), React 19 |
-| DB | SQLite via `better-sqlite3` + `drizzle-orm/better-sqlite3`, WAL mode, file on a mounted volume; `drizzle-kit` ~0.31. All cascade mutations run in `BEGIN IMMEDIATE` transactions — SQLite serializes writers globally, giving the same safety as `SELECT … FOR UPDATE` with less machinery |
-| Auth | Hand-rolled invite-only magic links (~120 lines): 256-bit token hashed at rest, single-use, short expiry, httpOnly+secure+sameSite session cookie. Reuses the token and email machinery the offer flow needs anyway; avoids a beta auth dependency and its adapter in a gov-adjacent tool |
-| Email | `nodemailer` against configurable SMTP (`SMTP_*` env vars); plain TS template functions; dev mode logs emails to console (`EMAIL_DEV_MODE=1`). Works with any provider's SMTP endpoint if in-house mail is unavailable |
-| UI | Tailwind v4 + shadcn/ui; Estonian strings centralized in `src/lib/strings.ts` |
-| Validation | zod (shared form + server action schemas) |
-| Dates | date-fns v4 + `@date-fns/tz` (TZDate); own working-days util, hardcoded Estonian holidays 2026–2028 |
-| Tests | vitest (working-days, next-partner selection; engine tests on pglite optional) |
-| Scheduling | In-process timer started from `instrumentation.ts` (the container is long-running, so no external cron is needed), calling the same `expireOverdueOffers()` as `GET /api/cron/expire`, which is kept for manual/external triggering + lazy expiry on the public offer page as backstop |
+| Framework | Next.js 15 App Router, React 19, TypeScript strict, server actions |
+| Database | SQLite via `better-sqlite3` + `drizzle-orm`, WAL, on a mounted volume |
+| Transactions | every mutation is one `BEGIN IMMEDIATE` transaction that re-checks status inside; SQLite serializes writers globally, which is exactly the guarantee a cascade needs |
+| Styling | Tailwind v4 design tokens, light and dark, print stylesheet for orders |
+| Time | a virtual clock offset in the database; the domain never reads a clock |
+| Scheduling | in-process timer from `instrumentation.ts`, plus lazy checks on round pages and after any clock move — idempotent from all three |
+| Email | optional `nodemailer` over configurable SMTP; the in-app notification log is the primary channel and each row records what happened to its email |
+| Identity | one `getActor()` seam; personas in the test deployment, real auth later [L-08] |
+| Tests | vitest for domain and engine, plain Node + Playwright for the browser suites |
 
-All timestamps stored UTC; the only Tallinn-aware code is `working-days.ts` and display formatting.
+### Constraints the implementation expresses structurally
 
-## Repository layout
+- **`publishRound` has no partner-selection parameter.** The framework describes
+  offering to one partner at a time or to all of them; an ad hoc subset is not
+  available. The absence of the parameter *is* rule [V-01] — there is no UI to
+  hide, and no code path to review.
+- **Partner actions never receive a `lotPartnerId`.** They take a `roundId`; the
+  engine resolves the acting membership from the actor. A client cannot act for a
+  company that is not its own.
+- **Confirmations, adjustments and audit events are append-only**, enforced by
+  `BEFORE UPDATE`/`BEFORE DELETE` triggers that `RAISE(ABORT)`. A withdrawn
+  training's marks are excluded when the allocation input is built [V-04]; a
+  stored confirmation is never edited, because it is evidence.
+- **The buyer's discretion is never automatic.** The framework's workload right
+  (the "~25 trainings" rule) surfaces as a post-deadline warning with a mandatory
+  justification, and the justification is displayed next to the adjustment it
+  explains [T-01][T-02].
+- **Orders are rendered from a snapshot** frozen at confirmation, so a contract
+  says later what it said when it was agreed [T-05].
 
-```
-Dockerfile  docker-compose.yml  .env.example    # single-container deploy, ./data volume
-drizzle/                          # migrations (+2 custom: audit immutability trigger, order_number_seq)
-drizzle.config.ts
-demo/                             # single-file HTML demo (built by esbuild, shares src/domain)
-src/
-  instrumentation.ts              # starts the in-process expiry timer on server boot
-  middleware.ts                   # cookie-presence redirect; real auth in (app)/layout
-  db/{schema.ts,index.ts,migrate.ts,seed.ts}
-  domain/{working-days.ts,select-next.ts,cascade-reducer.ts}   # PURE — imported by both server and demo
-  lib/{tokens.ts,strings.ts,format.ts,env.ts}
-  auth.ts                         # magic-link issue/verify, session cookie, requireUser()/requireAdmin()
-  server/
-    audit.ts                      # logAudit(tx, …) — same transaction as the mutation
-    cascade/engine.ts             # DB-bound orchestration around the pure domain modules
-    email/{send.ts,templates.ts}  # nodemailer transport + Estonian templates
-    actions/{orders,lots,partners,users,cascade}.ts   # "use server", zod, auth-checked
-  app/
-    login/page.tsx
-    offer/[token]/{page.tsx,actions.ts}   # PUBLIC partner response page, noindex
-    (app)/                         # auth-guarded shell: Töölaud, Tellimused, Hankeosad, Partnerid, Auditilogi, Kasutajad
-      page.tsx                     # dashboard
-      orders/{page.tsx,new/page.tsx,[id]/page.tsx,[id]/cascade-timeline.tsx}
-      lots/{page.tsx,[id]/page.tsx}
-      partners/page.tsx  audit/page.tsx  admin/users/page.tsx
-    api/cron/expire/route.ts       # Bearer CRON_SECRET (manual/external trigger; timer calls the same fn)
-```
+## The test deployment
 
-## Data model (`src/db/schema.ts`)
+The point is that a procurement specialist can walk the whole process from both
+sides without an account, a mail server or a three-day wait.
 
-SQLite dialect: "enums" below are `text` columns with CHECK constraints and TS union types; timestamps are integer epoch milliseconds (`integer({ mode: 'timestamp_ms' })`); booleans are integers. Table and column names are otherwise exactly as listed.
+- **An opening screen** picks a persona before the environment is shown — the
+  buyer, or any of six fictional partners — and each card shows what that persona
+  currently has waiting, so the tester knows which one is instructive.
+- **A hazard-striped strip above the application** switches persona, moves the
+  virtual clock (`+1 h`, `+1 päev`, `Järgmise tähtajani`) and resets the sample
+  data. It is deliberately not app chrome.
+- **`DEMO_MODE` is the single switch.** Unset, there is no strip, no personas and
+  no clock, and the demo-only actions refuse to run.
 
-Enums: `user_role(admin,member)`, `ranking_mode(strict,rotation)`, `order_status(draft,cascading,assigned,failed,cancelled,completed)`, `offer_status(pending,accepted,declined,expired,skipped,cancelled)`, `decline_reason(no_capacity,date_conflict,location_unsuitable,other)`, `workshop_type(tootuba_1,tootuba_2,suursundmus,muu)`, `language(et,ru,en)`, `county(15 maakonda + veebipohine)`, `email_status(sent,failed,delivered,bounced)`, `actor_type(user,partner,system)`.
+### Sample data
 
-- **users**: id, email unique (lowercased), name, role, isActive, createdAt. Plus **sessions** (id, tokenHash unique, userId, expiresAt, createdAt) and **login_tokens** (tokenHash unique, email, expiresAt, usedAt) for the magic-link flow — same hashed-single-use-token pattern as offers.
-- **lots**: code unique (`OSA-2`), name, description, cascade config — `responseDeadlineWorkingDays` (default 3), `deadlineLocalTime` (default `'17:00'` Tallinn), `rankingMode` (default strict), `allowSkip` (default true), `reminderHoursBefore` (nullable, stretch), isActive.
-- **partners**: name, regCode (äriregistrikood), notes, isActive. Company data only (GDPR-minimal).
-- **lot_partners**: lotId, partnerId, `rank`, contactEmail, contactName, unitPriceEur (informative framework price), isActive. `unique(lotId,partnerId)`; partial unique index `(lotId,rank) where isActive`. Accepted volume/value per partner is **derived by query**, never stored.
-- **orders**: `orderYear` + `orderSeq` (next value = `max(orderSeq)+1` for that year, computed inside the creating `BEGIN IMMEDIATE` txn — safe because SQLite serializes writers; `unique(orderYear, orderSeq)`) → display `KH-2026-0007`; lotId, title, workshopType, eventStart/eventEnd, county, locationText, participantCount, language, estimatedValueEur, extraNotes, status, `currentRun int` (per cascade restart), **config snapshot** at cascade start (deadline days, local time, ranking mode — mid-flight lot edits don't affect running cascades), assignedLotPartnerId, assignedAt, createdBy.
-- **offers** (one row per partner per round — the audit core): orderId, lotPartnerId, `runNo`, `roundNo`, `unique(orderId,runNo,roundNo)`, `tokenHash` unique (SHA-256 of 32-byte base64url token; **raw token only in the email**), status, `isManual`, sentAt, `deadlineAt`, respondedAt, declineReasonCode/Text, skipJustification, skippedBy, reminderSentAt, responderIp, responderUserAgent. Partial unique index `(orderId) where status='pending'` — at most one live offer per order. Skipped-before-send rows have null sentAt/tokenHash so every considered rank is documented.
-- **audit_events** (append-only): bigserial, occurredAt, actorType/actorId/actorLabel, nullable orderId/offerId/lotId, eventType (`order.created`, `cascade.started`, `offer.sent/accepted/declined/expired/skipped/resent/email_failed`, `cascade.exhausted/aborted`, `order.assigned_manually/cancelled/completed`, `partner.rank_changed`, `lot.config_changed`, `user.invited`…), payload jsonb. **Custom migration: `BEFORE UPDATE OR DELETE` trigger → `RAISE EXCEPTION`.**
-- **email_log**: orderId/offerId, toEmail, template, subject, resendId, status, error, sentAt.
+Everything is loaded through the *same* import functions the buyer's upload uses,
+so "load from the database" and "upload a table" cannot drift:
 
-Decline reasons (public page radios): `no_capacity` "Koolitajad on hõivatud", `date_conflict` "Kuupäev ei sobi", `location_unsuitable` "Asukoht ei sobi", `other` "Muu põhjus" (free-text required for `other`).
+- `seed/naidis-koolituskalender.csv` — 48 trainings across the four lots, autumn
+  2026, all 15 counties, with an XLSX twin generated from it;
+- `seed/naidis-partnerid.csv` — six fictional partners ranked per lot;
+- four scenario rounds, **replayed as real engine calls against a rewound
+  virtual clock**, so the audit trail, the notification log and the frozen
+  snapshots a tester sees are genuine rather than fabricated rows [L-16].
 
-## Cascade state machine (`src/server/cascade/engine.ts`)
+The open scenario **is Lisa B**, asserted cell by cell against the spec fixture,
+with the rank-3 partner holding an unconfirmed draft — which is where the
+[K-03] trap lives and the most instructive screen in the application.
 
-Order: `draft → cascading → assigned → completed`; `cascading → failed` (exhausted); `draft|cascading|assigned → cancelled`; `cascading → draft` (admin abort; **editing while cascading is forbidden at the action layer** — restart = `currentRun+1`, cascade re-begins at rank 1, old runs kept as history). Offer: `pending` → `accepted|declined|expired|skipped|cancelled`.
+## Verification
 
-| Trigger | Effect (one DB transaction; emails only **after commit**) |
+| Suite | What it holds to account |
 |---|---|
-| Alusta kaskaadi | Guards: draft, ≥1 active lot_partner. Snapshot config, `currentRun++`, optional pre-skips (justification each), first non-skipped rank → pending offer, token, `deadlineAt = addWorkingDays(now, N)` at snapshot local time. Order → cascading. Send offer email |
-| Partner Accept (public) | In a `BEGIN IMMEDIATE` txn (write lock held for its duration). Guards: offer pending, order cascading, `now ≤ deadlineAt`. Offer → accepted (+ip/UA), order → assigned. Confirmations to partner + team |
-| Partner Decline (reason required) | Same locking. Offer → declined + reason; `advanceCascade` in-txn; next-offer email + team notice |
-| Click after deadline (lazy expiry) | Time guard fails → offer expired, `advanceCascade`, render "Tähtaeg on möödunud" |
-| Scheduled expire | Select `status='pending' AND deadline_at < now()`, then each in its own `BEGIN IMMEDIATE` txn re-checking the guard → expired + advance. Idempotent and overlap-safe (a concurrent accept simply wins the lock and the re-check fails). Also sends reminders (stretch) |
-| `advanceCascade` | `select-next.ts` (pure fn): strict = lowest active rank with no offer in current run; rotation = order by (currently assigned/completed count ASC, rank ASC). Found → new pending offer + email. None → order failed, `cascade.exhausted`, team email |
-| Admin Jäta vahele | Mandatory justification → offer skipped (+skippedBy), advance |
-| Admin Katkesta kaskaad | Pending offer → cancelled, order → draft |
-| Admin Määra käsitsi | From draft/cascading/failed: pick any active lot_partner + justification → synthetic offer `accepted, isManual=true`, order → assigned (covers phone agreements, post-exhaustion salvage) |
-| Email send failure | Offer stays pending; email_log failed + audit + red banner; **Saada uuesti** resets `deadlineAt` from now (audited `offer.resent`) |
+| `pnpm test` — 232 tests | one `describe` per rule ID; Lisa B.1–B.4 exactly; the append-only triggers; the seed *is* Lisa B |
+| `node scripts/verify-harness.mjs` | personas, the strip, the clock, reset, and the production posture with `DEMO_MODE` off |
+| `node scripts/verify-partner.mjs` | Lisa B walked from three partner personas — every cell of B.2, then A's B.3 revision flipping a training to B; a sealed round shows no states; no page names a competitor |
+| `node scripts/e2e.mjs` | Lisa B to the end (close → the T-01 warning → cap → B.4 → confirm → orders), and a second round built from an uploaded table with a deliberately broken row |
 
-Race rules: every mutation re-checks status inside a `BEGIN IMMEDIATE` txn, so concurrent writers serialize and the loser's guard fails cleanly; double-clicks get a friendly "Sellele pakkumusele on juba vastatud" page; a crashed email never rolls back state (it becomes a resendable failure). The partial unique index `(orderId) where status='pending'` is the backstop that makes a double-advance impossible even if a guard were missed.
+## Deployment
 
-**Working days** (`src/lib/working-days.ts`): Mon–Fri minus Estonian public holidays hardcoded for 2026–2028 (01.01, 24.02, Suur Reede 03.04.26/26.03.27/14.04.28, ülestõusmispüha 05.04.26/28.03.27/16.04.28, 01.05, nelipüha 24.05.26/16.05.27/04.06.28, 23.06, 24.06, 20.08, 24.–26.12). Send day doesn't count; result = Nth working day at `deadlineLocalTime` Tallinn → UTC via TZDate. Unit-test Friday sends, holiday spans, DST edges.
+`Dockerfile` (multi-stage, Debian slim so better-sqlite3 uses its prebuilt glibc
+binary and the image needs no compiler) and `fly.toml` (one machine, one volume,
+`auto_stop_machines = "off"` because the deadline timer runs in-process). The
+build asserts that the native binding, the migrations and the sample datasets
+were traced into the standalone output, so a tracer change breaks the build
+rather than production. Migrations and the seed run at start-up, not as a release
+command: a Fly release machine has no volume mounted.
 
-## Email flow (Estonian) + public page
+**Not yet deployed.** No Docker daemon is available in the build environment, so
+the image is unbuilt; the standalone server it runs (`node server.js` with the
+volume path) was smoke-tested directly and boots, migrates, seeds and serves.
 
-`sendEmail()` wrapper = nodemailer SMTP send + email_log row; dev mode prints body + links to console. Templates: **offer** (subject `Koolitustellimus KH-2026-0007 — palume vastust hiljemalt 02.09.2026 17:00`; framework reference `Raamleping "Eesti.ai koolitajate tellimine", RHR 10567384, hankeosa …`; details table: töötuba, kuupäev(ad), maakond/asukoht, osalejate arv, keel, hinnanguline maksumus, lisainfo; bold deadline; button → `${APP_BASE_URL}/offer/{rawToken}`; note that the link is personal/single-use and non-response passes the order to the next partner), **acceptance→partner**, **acceptance→team**, **decline→team**, **exhausted→team**, **reminder** (stretch).
+## Open questions
 
-`/offer/[token]` (server component, noindex, no auth): hash → offer+order+lot+partner. States: pending & in-deadline → details + **Võtan tellimuse vastu** / **Loobun tellimusest** (reason radios + textarea), POSTing token-scoped server actions; already responded → outcome summary; expired/cancelled → tähtaeg möödunud; unknown → 404. Shows only that partner's own order data; records ip/UA.
+Four items in the spec await legal or specialist input and are marked as such:
+**[L-01]** revising marks during the window (agreed by the buyer team, needs
+checking against the framework agreement's own wording), **[L-05]** the scope of
+the buyer's adjustments, **[L-07]** what "workload" counts for the 25-training
+threshold, **[L-10]** whether "3 days" means working days. **[L-12]** asks
+whether a closed round should be cancellable at all. Each records the chosen
+option, the alternatives, and the seam in the code where a different answer would
+land.
 
-## Pages
+The cascade parameters themselves — deadline length, the workload threshold,
+whether the sealed mode is ever needed — are per-lot configuration, not
+assumptions baked into the code. They should be checked against the
+alusdokumendid before go-live.
 
-- **Töölaud**: status-count cards; pending offers table (order, partner, rank, deadline countdown, red <24h); warnings (failed emails, exhausted cascades); **Partnerite koormus** per lot (rank, accepted count/€ total, declined/expired/skipped) — the volume-balancing report.
-- **Tellimused**: filterable list; new-order form (zod); detail page = spec + status actions + **cascade timeline** (every run/round: partner, rank, sent/deadline/responded, status badge, reasons/justifications) — the human-readable audit trail.
-- **Hankeosad**: config form + ranked partner editor (add/rank up/down/deactivate; audited; running cascades unaffected via snapshot). **Partnerid**: CRUD. **Auditilogi**: filterable, payload as expandable JSON, read-only. **Kasutajad** (admin): invite by email, role, deactivate.
+---
 
-## Env
+## Appendix — the sequential mode [V-08], deferred
 
-`DATABASE_PATH` (default `./data/kaskaadhankija.db`), `SESSION_SECRET`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_SECURE`, `EMAIL_FROM` (a trusted `.ee` sender), `APP_BASE_URL`, `CRON_SECRET`, `TEAM_NOTIFICATIONS_EMAIL`, `SEED_ADMIN_EMAIL`, `EMAIL_DEV_MODE`, `EXPIRY_POLL_SECONDS` (default 300). Shipped as `.env.example`; `docker-compose.yml` mounts `./data` for the SQLite file and reads `.env`.
+The framework also permits offering one partner at a time. The v1 plan targeted
+exactly that, and the merged demo implements it: offer to rank 1 with a tokenized
+email link, cascade on decline or timeout, with per-lot configuration for the
+deadline, whether skipping is allowed, and strict ranking versus rotation.
 
-## Build order (each phase verifiable)
-
-**D. Demo first** — single-file `demo/kaskaadhankija-demo.html`: seeded lots/partners, order creation, full cascade state machine over `src/domain/*`, simulated partner inbox with live Accept/Decline, virtual clock to fast-forward deadlines, audit trail, permanent "NÄIDIS" banner and fictional partner names. *Verify: open the file offline, run a cascade from rank-1 decline through rank-2 accept, fast-forward a deadline to watch an expiry advance.* Purpose: validate cascade parameters against the alusdokumendid with RTK/legal before infrastructure exists.
-
-0. **Scaffold**: Next.js + deps + Dockerfile + docker-compose + .env.example. *Verify: dev renders, `pnpm build` passes, container builds.*
-1. **Schema + seed**: schema.ts, custom migration adding the audit immutability trigger, migrate.ts (runs on boot), seed.ts. *Verify: `pnpm db:migrate && pnpm db:seed` creates `./data/kaskaadhankija.db`; a manual `UPDATE audit_events` in the sqlite3 CLI raises the trigger's exception.*
-2. **Auth + shell**: magic-link login, invite-only allowlist, (app) layout. *Verify: seeded admin logs in via console link; stranger rejected; logged-out redirect.*
-3. **CRUD**: lots (config + ranked partners), partners, users, orders (draft). *Verify: click-through creating lot + 3 ranked partners + draft order.*
-4. **Cascade engine**: working-days + tokens + select-next + engine + templates, unit tests. *Verify: `pnpm test` green; Alusta kaskaadi → offer row with correct Tallinn deadline; offer email in dev console.*
-5. **Public offer page + confirmations + timeline**. *Verify full happy path locally: start → decline w/ reason → round 2 → accept → assigned + 2 confirmation emails; reopened links show "already responded"; double-submit inert.*
-6. **Cron + lazy expiry**: *Verify: backdate `deadline_at`, curl with Bearer → expired + advanced; 2nd curl no-op; wrong secret 401; exhausting all partners → failed + team email.*
-7. **Dashboard, audit UI, polish, deploy**: `docker compose up` on the target host, `./data` volume, real SMTP credentials, `EMAIL_FROM` on the buyer's own domain. *Verify in prod: seed fictional partners with plus-addressed team inboxes, run one real cascade end-to-end by email, set a short deadline and watch the in-process timer expire it.*
-
-Seed (`src/db/seed.ts`, idempotent): admin from `SEED_ADMIN_EMAIL`; 4 lots mirroring the framework (OSA-1 ruumirendiga, OSA-2 ruumirendita, OSA-3 veebikoolitused, OSA-4 suursündmused; 3 working days / strict / 17:00); 5 fictional partners (Tehisaru Koolitus OÜ, AI Akadeemia OÜ, Digioskus MTÜ, Nutikoolitus OÜ, E-õppe Ekspert OÜ) with plus-addressed emails, ranked 3–4 per lot with plausible unit prices; 2 draft orders.
-
-## Risks / edge cases (handled by design)
-
-Cascade exhausted → failed + alert + restart or audited manual assign. Email failure → banner + resend with fresh deadline (SMTP rejects surface immediately; silent bounces are mitigated by the visible pending state + admin skip, and by sending from a domain with correct SPF/DKIM). Mid-cascade edits forbidden; abort→edit→restart keeps all history. Tokens: 256-bit, hashed at rest, scoped, dead after response/expiry. Config drift: per-order snapshots. Timezone/DST: UTC storage + TZDate + tested holiday table (through 2028 for spillover). GDPR-minimal: business contacts only, participant *count* only, ip/UA kept solely as procurement evidence. Audit immutability: DB trigger + same-transaction writes; backup is a file copy of the SQLite DB (WAL checkpointed), which suits an audit record. SQLite rules out horizontal scaling — irrelevant at this volume, and the schema ports to Postgres if that ever changes. **Before go-live: verify per-lot cascade parameters against the actual framework agreement text** (deadline length, skip rules, rotation vs strict) — all configurable in Hankeosad.
-
-## Verification (overall)
-
-Unit tests for working-days and select-next; scripted end-to-end click-through per phases 5–6 above; final prod smoke test with fictional partners via real email. Success = one order cascading from rank 1 decline → rank 2 accept with a complete, immutable audit trail and correct Tallinn deadlines.
+It is deferred rather than dropped. `src/domain/select-next.ts` and the v1 email
+templates remain, with their tests, and the spec keeps the mode as [V-08]. What a
+future implementation needs is a `mode` on the lot and a second engine path; the
+parallel path is untouched by it, since rank order and the audit trail are shared.
