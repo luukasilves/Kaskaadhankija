@@ -18,7 +18,8 @@
     "db:seed": "tsx src/db/seed.ts",
     "db:studio": "drizzle-kit studio",
     "datasets:build": "tsx scripts/build-datasets.ts",
-    "verify:harness": "next build && node scripts/verify-harness.mjs"
+    "verify:harness": "next build && node scripts/verify-harness.mjs",
+    "verify:partner": "next build && node scripts/verify-partner.mjs"
   },
   "dependencies": {
     "@date-fns/tz": "^1.4.1",

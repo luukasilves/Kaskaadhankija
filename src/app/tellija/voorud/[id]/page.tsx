@@ -94,9 +94,7 @@ export default async function RoundDetail({ params }: { params: Promise<{ id: st
   /* the live projection, or the confirmed result once it exists */
   const isLive = round.status === 'open';
   const projection = isLive ? allocate(projectionInput(db, id, nowMs)) : null;
-  const finalResult = round.finalSnapshot
-    ? (round.finalSnapshot.result as ReturnType<typeof allocate>)
-    : null;
+  const finalResult = round.finalSnapshot?.result ?? null;
   const shown = finalResult ?? projection;
 
   const partnerColumns = participants.map((participant) => {

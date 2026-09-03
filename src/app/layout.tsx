@@ -7,6 +7,9 @@ export const metadata: Metadata = {
   description:
     'Kaskaad-minihangete läbiviimine raamlepingu „Eesti.ai koolitajate tellimine“ alusel.',
   robots: { index: false, follow: false },
+  // Declared explicitly so browsers stop probing /favicon.ico, which the app
+  // does not serve — a 404 on every first page load is noise in the logs.
+  icons: { icon: [{ url: '/icon.svg', type: 'image/svg+xml' }], shortcut: '/icon.svg' },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

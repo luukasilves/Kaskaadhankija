@@ -10,26 +10,11 @@ import { desc, eq } from 'drizzle-orm';
 import { getDb } from '@/db';
 import { lotPartners, notifications, partners, rounds } from '@/db/schema';
 import { formatDateTimeShort } from '@/domain/format';
+import { NOTIFICATION_TYPE_LABELS } from '@/domain/round-statuses';
 import { StatusBadge } from '@/components/status-badge';
 import { hasSmtp } from '@/lib/env';
 
 export const dynamic = 'force-dynamic';
-
-const TYPE_LABELS: Record<string, string> = {
-  round_published: 'Voor avaldatud',
-  confirmation_receipt: 'Kinnituse kviitung',
-  decline_receipt: 'Loobumise kviitung',
-  projection_changed: 'Prognoos muutus',
-  reminder_24h: 'Meeldetuletus',
-  round_changed: 'Vooru muudatus',
-  round_cancelled: 'Voor tühistatud',
-  participant_excluded: 'Partner arvati välja',
-  order_issued: 'Tellimus väljastatud',
-  allocated_elsewhere: 'Määrati teisele partnerile',
-  buyer_round_closed: 'Voor sulgus',
-  buyer_round_confirmed: 'Jaotus kinnitatud',
-  late_action_rejected: 'Hilinenud toiming',
-};
 
 export default async function BuyerNotificationsPage() {
   const db = getDb();
@@ -78,7 +63,7 @@ export default async function BuyerNotificationsPage() {
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-[12px] text-[var(--color-muted)]">
                   <span className="tabular-nums">{formatDateTimeShort(row.createdAt)}</span>
                   <StatusBadge
-                    label={TYPE_LABELS[row.type] ?? row.type}
+                    label={NOTIFICATION_TYPE_LABELS[row.type] ?? row.type}
                     tone={row.recipientKind === 'buyer' ? 'neutral' : 'info'}
                   />
                   <span>

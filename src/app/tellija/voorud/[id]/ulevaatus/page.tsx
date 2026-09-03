@@ -14,7 +14,6 @@ import { notFound } from 'next/navigation';
 import { eq } from 'drizzle-orm';
 import { getDb } from '@/db';
 import { lots, orders, rounds, trainings } from '@/db/schema';
-import { allocate } from '@/domain/allocate';
 import { formatDateTimeShort, formatEur, formatIsoDay } from '@/domain/format';
 import { PARTICIPANT_OUTCOME_LABELS, ROUND_STATUS_LABELS, ROUND_STATUS_TONES } from '@/domain/round-statuses';
 import { RankChip, StatusBadge } from '@/components/status-badge';
@@ -71,11 +70,9 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
   }
 
   const isConfirmed = round.status === 'confirmed';
-  const proposal = round.proposalSnapshot?.result as ReturnType<typeof allocate> | undefined;
+  const proposal = round.proposalSnapshot?.result;
   // Before confirmation the preview reflects any adjustments already applied.
-  const current = isConfirmed
-    ? (round.finalSnapshot?.result as ReturnType<typeof allocate> | undefined)
-    : previewFinalAllocation(db, id);
+  const current = isConfirmed ? round.finalSnapshot?.result : previewFinalAllocation(db, id);
 
   const adjustments = effectiveAdjustments(db, id);
   const participants = participantsOf(db, id);

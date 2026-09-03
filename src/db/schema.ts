@@ -36,6 +36,7 @@ import type {
   VisibilityMode,
 } from '../domain/round-statuses';
 import type { County, OrderLanguage, WorkshopType } from '../domain/statuses';
+import type { AllocationInput, AllocationResult } from '../domain/allocate';
 
 const uuid = () => text().$defaultFn(() => crypto.randomUUID());
 
@@ -215,8 +216,8 @@ export const trainings = sqliteTable(
 
 /** Frozen input + result of one allocation run [J-03]. */
 export interface AllocationSnapshot {
-  input: unknown;
-  result: unknown;
+  input: AllocationInput;
+  result: AllocationResult;
   computedAt: number;
   algorithmVersion: number;
 }

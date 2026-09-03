@@ -113,6 +113,7 @@ export interface ParticipantRow {
   contactName: string;
   contactEmail: string;
   excludedAt: number | null;
+  excludedReason: string;
   draftMarks: string[];
   draftCap: number | null;
   outcomeAtClose: string | null;
@@ -133,6 +134,7 @@ export function participantsOf(tx: Reader, roundId: string): ParticipantRow[] {
       contactName: roundParticipants.contactNameSnapshot,
       contactEmail: roundParticipants.contactEmailSnapshot,
       excludedAt: roundParticipants.excludedAt,
+      excludedReason: roundParticipants.excludedReason,
       draftMarks: roundParticipants.draftMarks,
       draftCap: roundParticipants.draftCap,
       outcomeAtClose: roundParticipants.outcomeAtClose,

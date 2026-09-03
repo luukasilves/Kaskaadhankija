@@ -132,6 +132,23 @@ export function viewStateLabel(state: TrainingViewState, reason?: NotProjectedRe
   return reason ? `${base} (${NOT_PROJECTED_REASON_LABELS[reason]})` : base;
 }
 
+/**
+ * The same label split in two, for the partner's table.
+ *
+ * The concatenated form is the wording [N-03] gives, but as one badge it is too
+ * long for a table cell and gets clipped — which would hide the very column the
+ * partner is there to read. Stacking the reason under the badge keeps both.
+ */
+export function viewStateParts(
+  state: TrainingViewState,
+  reason?: NotProjectedReason,
+): { label: string; reason: string | null } {
+  return {
+    label: TRAINING_VIEW_STATE_LABELS[state],
+    reason: reason ? NOT_PROJECTED_REASON_LABELS[reason] : null,
+  };
+}
+
 export type StatusTone = 'neutral' | 'info' | 'success' | 'warning' | 'danger';
 
 export const ROUND_STATUS_TONES: Record<RoundStatus, StatusTone> = {
@@ -204,3 +221,29 @@ export function roundDisplayCode(year: number, seq: number): string {
 export function trainingDisplayCode(year: number, seq: number): string {
   return `KK-${year}-${String(seq).padStart(3, '0')}`;
 }
+
+/* ------------------------------------------------------------------ *
+ * teavitused
+ * ------------------------------------------------------------------ */
+
+/**
+ * Estonian names for the notification types [D-01…D-07].
+ *
+ * One map, used by both the buyer's full log and the partner's own log, so a
+ * koolitaja and the tellija refer to the same message by the same name.
+ */
+export const NOTIFICATION_TYPE_LABELS: Record<string, string> = {
+  round_published: 'Voor avaldatud',
+  confirmation_receipt: 'Kinnituse kviitung',
+  decline_receipt: 'Loobumise kviitung',
+  projection_changed: 'Prognoos muutus',
+  reminder_24h: 'Meeldetuletus',
+  round_changed: 'Vooru muudatus',
+  round_cancelled: 'Voor tühistatud',
+  participant_excluded: 'Partner arvati välja',
+  order_issued: 'Tellimus väljastatud',
+  allocated_elsewhere: 'Määrati teisele partnerile',
+  buyer_round_closed: 'Voor sulgus',
+  buyer_round_confirmed: 'Jaotus kinnitatud',
+  late_action_rejected: 'Hilinenud toiming',
+};

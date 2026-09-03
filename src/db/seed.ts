@@ -9,7 +9,7 @@
  *     therefore cannot drift, and the sample files stay the single description
  *     of the synthetic procurement.
  *  2. Scenario rounds are built by **replaying real engine calls** against a
- *     rewound virtual clock (Phase 8), so the audit trail, the notification log
+ *     rewound virtual clock, so the audit trail, the notification log
  *     and the frozen snapshots are genuine rather than fabricated rows.
  *
  * Idempotent: guarded by `app_state.seed_version`, and the imports upsert by
@@ -140,7 +140,7 @@ export interface SeedReport {
 
 /**
  * Load the base mock data: lots, the buyer user, the partner ranking and the
- * koolituskalender. Scenario rounds are layered on top in Phase 8.
+ * koolituskalender. Scenario rounds are layered on top by `seedScenarios`.
  */
 export function seedBaseData(ctx: Ctx): SeedReport {
   seedLotsAndUsers(ctx);
@@ -197,25 +197,26 @@ function makeCtx(tx: Ctx['tx'], at: number): Ctx {
  * Seed if the database has not been seeded yet. Called from `boot()` and by
  * `pnpm db:seed`.
  */
-export async function seedIfEmpty(): Promise<SeedReport | null> {
+export async function seedIfEmpty(): Promise<(SeedReport & { openRoundId: string }) | null> {
   const db = getDb();
   ensureAppState(db);
   if (readSeedVersion(db) >= SEED_VERSION) return null;
 
   const { seedScenarios } = await import('./seed-scenarios');
+  const now = Date.now();
 
-  const report = db.transaction(
+  return db.transaction(
     (tx) => {
-      const ctx = makeCtx(tx, Date.now());
+      const ctx = makeCtx(tx, now);
       const base = seedBaseData(ctx);
-      seedScenarios(tx);
-      writeSeedVersion(tx, SEED_VERSION, Date.now());
-      return base;
+      // Scenario rounds are replayed as real engine calls at past instants, so
+      // they must run after the trainings and the ranking exist.
+      const scenarios = seedScenarios(tx, now, ctx.actor.label);
+      writeSeedVersion(tx, SEED_VERSION, now);
+      return { ...base, openRoundId: scenarios.openRoundId };
     },
     { behavior: 'immediate' },
   );
-
-  return report;
 }
 
 /** `pnpm db:seed` */

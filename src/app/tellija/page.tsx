@@ -10,7 +10,6 @@ import Link from 'next/link';
 import { eq, inArray } from 'drizzle-orm';
 import { getDb } from '@/db';
 import { lots, rounds, trainings } from '@/db/schema';
-import { allocate } from '@/domain/allocate';
 import { formatDateTimeShort, formatEur, formatIsoDay } from '@/domain/format';
 import {
   ROUND_STATUS_LABELS,
@@ -116,9 +115,7 @@ export default async function BuyerDashboard() {
           </p>
           <ul className="mt-3 space-y-2">
             {awaiting.map((round) => {
-              const snapshot = round.proposalSnapshot?.result as
-                | ReturnType<typeof allocate>
-                | undefined;
+              const snapshot = round.proposalSnapshot?.result;
               const allocated = snapshot
                 ? snapshot.allocations.reduce((sum, a) => sum + a.trainingIds.length, 0)
                 : 0;

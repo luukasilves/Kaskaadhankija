@@ -94,6 +94,5 @@ export function finalInput(tx: Reader, roundId: string): AllocationInput {
   if (!round) throw new Error('Voorust ei leitud.');
   if (!round.proposalSnapshot) throw new Error('Jaotusettepanek puudub — voor ei ole suletud.');
 
-  const frozen = round.proposalSnapshot.input as AllocationInput;
-  return { ...frozen, adjustments: effectiveAdjustments(tx, roundId) };
+  return { ...round.proposalSnapshot.input, adjustments: effectiveAdjustments(tx, roundId) };
 }

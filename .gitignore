@@ -49,3 +49,4 @@ yarn-error.log*
 demo/screenshots/
 scripts/harness-screenshots/
 scripts/e2e-screenshots/
+scripts/partner-screenshots/

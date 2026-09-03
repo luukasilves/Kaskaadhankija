@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   addWorkingDays,
   isWorkingDay,
+  subWorkingDays,
   tallinnParts,
   tallinnWallToUtc,
   workingDaysBetween,
@@ -152,5 +153,36 @@ describe('workingDaysBetween', () => {
     const sent = tallinnWallToUtc(2026, 8, 18, 9, 0);
     const deadline = addWorkingDays(sent, 3, '17:00');
     expect(workingDaysBetween(sent, deadline)).toBe(3);
+  });
+});
+
+describe('subWorkingDays', () => {
+  it('excludes the starting day', () => {
+    // Thursday 3 Sep 2026 → 3 working days back → Monday 31 Aug at 10:00
+    const from = tallinnWallToUtc(2026, 9, 3, 17, 0);
+    expect(wall(subWorkingDays(from, 3, '10:00'))).toBe('2026-08-31 10:00');
+  });
+
+  it('carries a Monday back over the weekend', () => {
+    // Monday 7 Sep 2026 → 1 working day back → Friday 4 Sep
+    const from = tallinnWallToUtc(2026, 9, 7, 9, 0);
+    expect(wall(subWorkingDays(from, 1, '10:00'))).toBe('2026-09-04 10:00');
+  });
+
+  it('skips a public holiday', () => {
+    // Monday 24 Aug 2026 → 3 working days back, with Thu 20 Aug a holiday:
+    // Fri 21 (1), Thu 20 holiday, Wed 19 (2), Tue 18 (3)
+    const from = tallinnWallToUtc(2026, 8, 24, 17, 0);
+    expect(wall(subWorkingDays(from, 3, '09:00'))).toBe('2026-08-18 09:00');
+  });
+
+  it('inverts addWorkingDays across the Christmas cluster', () => {
+    const sent = tallinnWallToUtc(2026, 12, 22, 11, 0);
+    const deadline = addWorkingDays(sent, 3, '17:00');
+    expect(wall(subWorkingDays(deadline, 3, '11:00'))).toBe('2026-12-22 11:00');
+  });
+
+  it('rejects a non-positive n', () => {
+    expect(() => subWorkingDays(new Date(), 0)).toThrow();
   });
 });
