@@ -16,13 +16,15 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
     "db:seed": "tsx src/db/seed.ts",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "datasets:build": "tsx scripts/build-datasets.ts"
   },
   "dependencies": {
     "@date-fns/tz": "^1.4.1",
     "better-sqlite3": "^13.0.3",
     "date-fns": "^4.1.0",
     "drizzle-orm": "^0.45.2",
+    "exceljs": "^4.4.0",
     "next": "^15.5.4",
     "nodemailer": "^9.0.5",
     "react": "^19.2.0",
