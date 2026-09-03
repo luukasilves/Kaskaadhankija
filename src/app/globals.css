@@ -1,0 +1,203 @@
+@import 'tailwindcss';
+
+/**
+ * Design tokens for Kaskaadhankija.
+ *
+ * A restrained, government-adjacent palette: this tool sits alongside the
+ * Estonian public procurement register, and procurement officers read dense
+ * tables in it all day. Light and dark are both first-class.
+ */
+
+@theme {
+  --color-bg: #f4f6f9;
+  --color-surface: #ffffff;
+  --color-surface-alt: #f9fafc;
+  --color-border: #dde3ea;
+  --color-border-strong: #c3ccd7;
+  --color-text: #1b2430;
+  --color-muted: #5d6875;
+  --color-brand: #14507d;
+  --color-brand-hover: #0f3f63;
+  --color-brand-soft: #e7f0f7;
+  --color-success: #1a6f47;
+  --color-success-soft: #e3f3ea;
+  --color-warning: #96560a;
+  --color-warning-soft: #fbeedc;
+  --color-danger: #a52a21;
+  --color-danger-soft: #fbe8e6;
+  --color-neutral: #5d6875;
+  --color-neutral-soft: #eef1f5;
+  --color-demo: #7a3ea3;
+  --color-demo-soft: #f3e9fa;
+
+  --radius-card: 10px;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  @theme {
+    --color-bg: #10151c;
+    --color-surface: #171e27;
+    --color-surface-alt: #1d2531;
+    --color-border: #2b3542;
+    --color-border-strong: #3b4757;
+    --color-text: #e7ecf2;
+    --color-muted: #9aa6b4;
+    --color-brand: #6aa9d8;
+    --color-brand-hover: #8bbde4;
+    --color-brand-soft: #1a2b3a;
+    --color-success: #6cc79b;
+    --color-success-soft: #16301f;
+    --color-warning: #e0a763;
+    --color-warning-soft: #33260f;
+    --color-danger: #ef8177;
+    --color-danger-soft: #35191a;
+    --color-neutral: #9aa6b4;
+    --color-neutral-soft: #222b37;
+    --color-demo: #c295e0;
+    --color-demo-soft: #2a1c36;
+  }
+}
+
+@layer base {
+  html {
+    color-scheme: light dark;
+  }
+
+  body {
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1 {
+    font-size: 21px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+  }
+  h2 {
+    font-size: 16px;
+    font-weight: 650;
+  }
+  h3 {
+    font-size: 14px;
+    font-weight: 650;
+  }
+
+  /* Dense numeric tables read much better with tabular figures. */
+  table {
+    font-variant-numeric: tabular-nums;
+  }
+
+  :where(input, select, textarea, button):focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: -1px;
+  }
+}
+
+@layer components {
+  .kh-card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    box-shadow:
+      0 1px 2px rgb(20 36 54 / 0.06),
+      0 4px 12px rgb(20 36 54 / 0.05);
+  }
+
+  .kh-input {
+    font: inherit;
+    width: 100%;
+    padding: 7px 10px;
+    border: 1px solid var(--color-border-strong);
+    border-radius: 6px;
+    background: var(--color-surface);
+    color: var(--color-text);
+  }
+
+  .kh-btn {
+    font: inherit;
+    font-weight: 600;
+    padding: 6px 13px;
+    border-radius: 6px;
+    border: 1px solid var(--color-border-strong);
+    background: var(--color-surface);
+    color: var(--color-text);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .kh-btn:hover:not(:disabled) {
+    background: var(--color-surface-alt);
+  }
+  .kh-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .kh-btn-primary {
+    background: var(--color-brand);
+    border-color: var(--color-brand);
+    color: #fff;
+  }
+  .kh-btn-primary:hover:not(:disabled) {
+    background: var(--color-brand-hover);
+  }
+  .kh-btn-success {
+    background: var(--color-success);
+    border-color: var(--color-success);
+    color: #fff;
+  }
+  .kh-btn-danger {
+    border-color: var(--color-danger);
+    color: var(--color-danger);
+  }
+  .kh-btn-danger:hover:not(:disabled) {
+    background: var(--color-danger-soft);
+  }
+
+  .kh-badge {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 650;
+    white-space: nowrap;
+  }
+
+  .kh-th {
+    text-align: left;
+    padding: 9px 14px;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--color-muted);
+    font-weight: 650;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .kh-td {
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--color-border);
+    vertical-align: top;
+  }
+}
+
+/* The printable order document [T-05] — hide the app chrome. */
+@media print {
+  .kh-no-print {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+    color: #000;
+    font-size: 11pt;
+  }
+  .kh-card {
+    border: none;
+    box-shadow: none;
+  }
+}
