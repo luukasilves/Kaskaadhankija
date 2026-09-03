@@ -102,9 +102,7 @@ const auditTypes = (roundId: string) =>
 
 const allocationMap = (roundId: string) => {
   const round = roundRow(roundId);
-  const result = (round?.finalSnapshot ?? round?.proposalSnapshot)?.result as
-    | ReturnType<typeof allocate>
-    | undefined;
+  const result = (round?.finalSnapshot ?? round?.proposalSnapshot)?.result;
   if (!result) return {};
   return Object.fromEntries(
     result.allocations.map((a) => [fx.lotPartnerIds.indexOf(a.lotPartnerId), a.trainingIds]),
@@ -834,6 +832,116 @@ describe('[E-01] deactivating a membership mid-round', () => {
       confirmMarks(ctx, roundId, fx.partnerIds[0], { marks: [fx.trainingIds[0]], cap: null }),
     );
     expect(result).toMatchObject({ ok: false, reason: 'excluded' });
+  });
+});
+
+describe('[D-04] projection notices are rate-limited', () => {
+  /** projection_changed notices per partner index. */
+  const noticesFor = (partnerIndex: number) =>
+    harness.read((db) =>
+      db
+        .select()
+        .from(notifications)
+        .where(
+          and(
+            eq(notifications.type, 'projection_changed'),
+            eq(notifications.recipientLotPartnerId, fx.lotPartnerIds[partnerIndex]),
+          ),
+        )
+        .all(),
+    );
+
+  it('tells a partner whose projection a higher rank changed', () => {
+    const roundId = openRound();
+    confirm(roundId, 2, [fx.trainingIds[0], fx.trainingIds[1]]);
+    expect(noticesFor(2)).toHaveLength(0);
+
+    // Rank 1 takes both, so rank 3's projection drops from 2 to 0.
+    confirm(roundId, 0, [fx.trainingIds[0], fx.trainingIds[1]]);
+    expect(noticesFor(2)).toHaveLength(1);
+    expect(noticesFor(0)).toHaveLength(0);
+  });
+
+  it('says nothing to a partner whose projection did not move', () => {
+    const roundId = openRound();
+    confirm(roundId, 1, [fx.trainingIds[4]]);
+    confirm(roundId, 0, [fx.trainingIds[0]]);
+    expect(noticesFor(1)).toHaveLength(0);
+  });
+
+  it('never names the partner who caused the change [N-04]', () => {
+    const roundId = openRound();
+    confirm(roundId, 2, [fx.trainingIds[0]]);
+    confirm(roundId, 0, [fx.trainingIds[0]]);
+
+    const notice = noticesFor(2)[0];
+    expect(notice).toBeDefined();
+    const text = `${notice.title} ${notice.body} ${notice.bodyHtml}`;
+    expect(text).not.toContain('Partner 1');
+    expect(text).not.toContain('Kontakt 1');
+    expect(text).not.toContain('kontakt1@naidis.ee');
+  });
+
+  it('suppresses a second notice inside the four-hour window', () => {
+    const roundId = openRound();
+    confirm(roundId, 2, [fx.trainingIds[0], fx.trainingIds[1]]);
+    confirm(roundId, 0, [fx.trainingIds[0]]);
+    expect(noticesFor(2)).toHaveLength(1);
+
+    harness.advance(3 * 3_600_000);
+    confirm(roundId, 0, [fx.trainingIds[0], fx.trainingIds[1]]);
+    expect(noticesFor(2)).toHaveLength(1);
+  });
+
+  it('notifies again once the window has passed', () => {
+    const roundId = openRound();
+    confirm(roundId, 2, [fx.trainingIds[0], fx.trainingIds[1]]);
+    confirm(roundId, 0, [fx.trainingIds[0]]);
+
+    harness.advance(5 * 3_600_000);
+    confirm(roundId, 0, [fx.trainingIds[0], fx.trainingIds[1]]);
+    expect(noticesFor(2)).toHaveLength(2);
+  });
+
+  it('records the current projection even when it stays silent', () => {
+    const roundId = openRound();
+    confirm(roundId, 2, [fx.trainingIds[0], fx.trainingIds[1]]);
+    confirm(roundId, 0, [fx.trainingIds[0]]);
+    harness.advance(3_600_000);
+    confirm(roundId, 0, [fx.trainingIds[0], fx.trainingIds[1]]);
+
+    const participant = harness
+      .read((db) => participantsOf(db, roundId))
+      .find((p) => p.lotPartnerId === fx.lotPartnerIds[2]);
+    expect(participant?.lastProjectionCount).toBe(0);
+    expect(noticesFor(2)).toHaveLength(1);
+  });
+
+  it('goes quiet in the final 24 hours, where the reminder carries the position', () => {
+    const roundId = openRound();
+    confirm(roundId, 2, [fx.trainingIds[0], fx.trainingIds[1]]);
+
+    const deadlineAt = roundRow(roundId)!.deadlineAt!;
+    harness.now = deadlineAt - 12 * 3_600_000;
+    confirm(roundId, 0, [fx.trainingIds[0], fx.trainingIds[1]]);
+
+    expect(noticesFor(2)).toHaveLength(0);
+    expect(harness.write((ctx) => sendDeadlineReminder(ctx, roundId))).toBe(3);
+  });
+
+  it('sends none at all in a sealed round [N-06]', () => {
+    const roundId = harness.write((ctx) => {
+      const id = createRound(ctx, {
+        lotId: fx.lotId,
+        trainingIds: fx.trainingIds,
+        visibilityMode: 'sealed',
+      });
+      publishRound(ctx, id);
+      return id;
+    });
+    confirm(roundId, 2, [fx.trainingIds[0]]);
+    confirm(roundId, 0, [fx.trainingIds[0]]);
+    expect(noticesFor(2)).toHaveLength(0);
   });
 });
 

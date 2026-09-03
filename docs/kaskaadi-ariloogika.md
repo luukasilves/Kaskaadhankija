@@ -1,7 +1,8 @@
 # Kaskaadhankija — kaskaadi äriloogika
 
-**Versioon:** 2.0 (mustand) · **Kuupäev:** 27.08.2026 · **Mudel:** paralleelne kaskaad
+**Versioon:** 2.1 · **Kuupäev:** 03.09.2026 · **Mudel:** paralleelne kaskaad
 **Staatus:** kokku lepitud tellija tiimiga. Õiguslikku või erialast ülevaatust ootavad punktid: **L-01, L-05, L-07, L-10**.
+Versioon 2.1 lisab tõlgendused, mille veebirakenduse ehitamine nõudis (L-11…L-16 ja märkused J-01, V-04, E-03, N-08, T-05 juurde). Ükski reegel ei muutunud — täpsustati.
 
 ---
 
@@ -82,6 +83,7 @@ Koosolekult tulenevad siduvad piirangud, mida iga reegel allpool järgib:
 - **[V-02] Olekud.** `mustand → avatud → suletud → kinnitatud`; lisaks `tühistatud`, kuhu saab liikuda olekust *mustand* või *avatud*. Kinnitatud vooru ei saa tühistada — selle tellimusi käsitletakse ükshaaval (E-07).
 - **[V-03] Vooru sisu.** Hankeosa; vähemalt üks koolitus; vastamistähtaeg (vaikimisi hankeosa seadistuse järgi N tööpäeva avaldamisest kell HH:MM Tallinna aja järgi; tellija võib määrata hilisema tähtaja, mitte kunagi varasema); nähtavusrežiim (dünaamiline või suletud, vt N-03 ja N-06); töömahu piiri hetkeväärtus; **järjestuse hetktõmmis** — partnerite järjestus külmutatakse avaldamise hetkel.
 - **[V-04] Muudatused avatud vooru ajal.** Tellija võib **pikendada** tähtaega (mitte kunagi lühendada) ja **eemaldada** koolitusi (ainult vähendada; eemaldatud koolituse märked tühistuvad). Mõlemad nõuavad põhjendust ja kõigile partneritele saadetakse teade. Koolitusi **lisada või muuta ei saa** — kinnitanud partnerid on tuginenud avaldatud tingimustele. Vajadusel tühistatakse voor ja avaldatakse uus.
+  *Täpsustus (v2.1):* „märked tühistuvad“ tähendab, et eemaldatud koolitus jäetakse **jaotuse sisendi koostamisel** välja; partnerite kinnitusi ei muudeta kunagi tagantjärele, sest kinnitus on tõend (D-08). Sama koolituse hilisem uude vooru andmine (E-09) kasutab sama kirjet, nii et selle ajalugu jääb terveks.
 - **[V-05] Tühistamine.** Avatud vooru tühistamisel tühistuvad kõik märked, kõiki partnereid teavitatakse põhjusega, sündmus kirjutatakse auditijälge.
 - **[V-06] Tähtaeg.** Tähtaja hetkel külmutab süsteem **jaotusettepaneku** (J-05). Hilisemad partnerite toimingud lükatakse tagasi selge teatega ja logitakse. Voor liigub olekusse *suletud*.
 - **[V-07] Järjestuse hetktõmmis.** Hankeosa halduses tehtud järjestuse muudatused ei mõjuta avatud vooru — voor kasutab avaldamisel külmutatud järjestust.
@@ -121,7 +123,8 @@ Koosolekult tulenevad siduvad piirangud, mida iga reegel allpool järgib:
 - **[N-05] Kõik on vastamisakna ajal esialgne — ja sildistatud sellisena.** Kuna kõrgema kohaga partnerid võivad märkeid muuta (K-04), võib koolitus kuni tähtajani liikuda oleku 1 ja 2 (või 3 ja 4) vahel. See on **oodatav käitumine**, mida selgitatakse nii kasutajaliideses („esialgne“, „prognoos“, „võib muutuda kuni tähtajani“) kui ka vooru avaldamise teates.
 - **[N-06] Suletud režiim** (vooru kohta sisselülitatav, vaikimisi väljas). Reeglis N-03 kirjeldatud olekud on peidetud; prognoos kuvatakse kui „selgub pärast tähtaega“. Sama algoritm, sama jaotus. Režiim on olemas selleks, et Riina tõstatatud küsimuse — kas dünaamiline nähtavus on kooskõlas raamlepingus öelduga — saaks lahendada **ilma koodi muutmata**.
 - **[N-07] Pärast tähtaega, enne tellija kinnitust** näevad partnerid teadet „tähtaeg möödus, tellija kinnitab jaotust“ — mitte jaotusettepanekut.
-- **[N-08] Pärast tellija kinnitust** näeb iga partner oma lõplikke koolitusi (tellimust) ning neutraalset loendit oma märgitud koolitustest, mis „määrati eesõiguse alusel teisele partnerile“ — identiteeti ei avaldata. Jaotamata jäänud koolitusi partneritele ei kuvata; nende edasise käigu otsustab tellija (T-06).
+- **[N-08] Pärast tellija kinnitust** näeb iga partner oma lõplikke koolitusi (tellimust) ning neutraalset loendit oma märgitud koolitustest, mis **„määrati teisele partnerile“** — identiteeti ega põhjust ei avaldata. Jaotamata jäänud koolitusi partneritele ei kuvata; nende edasise käigu otsustab tellija (T-06).
+  *Täpsustus (v2.1):* sõnastusest jäeti välja „eesõiguse alusel“, sest see ei ole alati tõsi — pärast tellija kohandust (T-02) võib koolitus minna madalama kohaga partnerile, ja Lisa B.4 ise ütleb, et kohanduse põhjust partnerile ei avaldata. Neutraalne sõnastus kehtib kõigis kanalites: ekraanil, teavituses ja e-kirjas.
 - **[N-09] Prognoos ei arvesta kunagi tellija kaalutlusõigusega kohandusi** (T-02). Prognoos peegeldab ainult automaatset algoritmi; tellija otsused tehakse pärast tähtaega.
 
 ---
@@ -129,6 +132,7 @@ Koosolekult tulenevad siduvad piirangud, mida iga reegel allpool järgib:
 ## J — Jaotusalgoritm
 
 - **[J-01] Sisendid.** Vooru koolitused (v.a eemaldatud); partnerid hetktõmmise järjestuses; iga partneri **viimane kinnitus enne lõikehetke** (märked + piirmäär); tellija kohandused (prognoosi ja jaotusettepaneku puhul tühi).
+  *Täpsustus (v2.1):* „enne lõikehetke“ on **kaasav** — täpselt tähtaja hetkel antud kinnitus loeb (`kinnitatud ≤ lõikehetk`). Sama millisekundi sisse jäävad kinnitused järjestatakse kande numbri järgi, seega siduv on alati hilisem kanne.
 - **[J-02] Protseduur.**
 
   ```
@@ -155,6 +159,7 @@ Koosolekult tulenevad siduvad piirangud, mida iga reegel allpool järgib:
 - **[T-03] Töömahu piir on ainult hoiatustase.** Vaikimisi 25, seadistatav hankeosa kohta. Piir ei tee kunagi iseseisvalt midagi — otsus on alati tellija oma. *Kas kohandusi lubatakse ka hoiatuseta partnerite puhul — vt L-05.*
 - **[T-04] Kinnitamine.** Pärast kohandusi arvutatakse lõplik jaotus uuesti ja kuvatakse. „**Kinnita jaotus**“ on vooru osas pöördumatu; hilisemad parandused tehakse tellimuste kaupa (E-07) või uue vooruga.
 - **[T-05] Tellimus.** Kinnitamisel luuakse iga vähemalt ühe koolitusega partneri kohta **tellimus**: koolituste loend, viide raamlepingule ja voorule, partneri siduva kinnituse aeg ja tellija kinnituse aeg. Tellimus on hankeleping raamlepingu alusel („tellimus ongi käsitletav hankelepinguna“) ning peab olema väljatrükitav ja säilitatav.
+  *Täpsustus (v2.1):* tellimus koostatakse kinnitamise hetkel külmutatud hetktõmmisest ja on prinditav HTML-leht (vt L-15); tellija ja partner näevad ja prindivad sama dokumendi.
 - **[T-06] Jääk.** Iga jaotamata koolituse kohta valib tellija: **(a)** uus voor kõigile partneritele (vaikimisi soovitus; kuna midagi ei määratud, võib koolituse andmeid enne muuta); **(b)** käsitsi määramine konkreetsele partnerile põhjendusega (ainult raamlepinguga lubatud juhtudel, nt telefoni teel sündinud kokkulepe); **(c)** koolituse tühistamine. Kõik logitakse.
 - **[T-07] Ülevaatuse aeg.** Süsteem ei jõusta tellijale tähtaega, kuid töölaud märgib voorud, mis on oodanud kinnitust üle 1 tööpäeva. Partneritele öeldakse vooru teates, millal kinnitust oodata (seadistatav; vaikimisi 2 tööpäeva pärast tähtaega; *L-09*).
 
@@ -179,6 +184,7 @@ Koosolekult tulenevad siduvad piirangud, mida iga reegel allpool järgib:
 - **[E-01] Partner deaktiveeritakse avatud vooru ajal.** Partner jäetakse jaotusest välja, tema märkeid ei arvestata, partnerit ja tellijat teavitatakse, auditijälge lisatakse märkus.
 - **[E-02] Ükski partner ei kinnita.** Kõik koolitused jäävad jääki → T-06.
 - **[E-03] Tühja märgete komplekti kinnitamine** = loobumine (K-07).
+  *Täpsustus (v2.1):* liides küsib enne kinnitamist üle („Ühtegi koolitust ei ole märgitud. Kinnitada loobumine kõigist vooru koolitustest?“) ja salvestab kande liigiga *loobumine*, mitte tühja kinnitusena — nii on loobumine hiljem eristatav vastamata jätmisest (K-08).
 - **[E-04] Piirmäär on märgetest väiksem.** Jaotatakse piirmäära sees kuupäeva järjekorras; piirmäära ületavad märked loetakse madalama kohaga partnerite suhtes märkimata koolitusteks (need „voolavad alla“).
 - **[E-05] Toiming pärast tähtaega.** Lükatakse tagasi selge teatega ja logitakse.
 - **[E-06] Aeg.** Kõik tähtajad Tallinna aja järgi; tööpäevad Eesti riigipühade alusel (kasutatakse sama arvutust kui v1-s: `src/domain/working-days.ts`). *Kalendri- või tööpäevad — vt L-10.*
@@ -240,6 +246,35 @@ Iga punkt kirjeldab **tehtud valiku**, **alternatiive** ja **seisu**. Muudatus t
 - **[L-10] „3 päeva“ — töö- või kalendripäevad?**
   **Ettepanek:** tööpäevad Eesti tava kohaselt (E-06).
   **Seis:** **kinnitada spetsialistidega.**
+
+- **[L-11] Mida partneri olekuveerg järgib — mustandit või kinnitust?**
+  **Valik:** neli olekut (N-03) arvutatakse partneri **mustandi** järgi, sest märke mõju peab olema näha enne kinnitamist (E-10). Kui mustand erineb viimasest kinnitusest, kuvatakse silmatorkav hoiatus (K-03) ja mõlemad arvud: „Prognoosis sinule (esialgne) X · kinnitatud seisuga Y“.
+  **Alternatiiv:** olekud ainult kinnitatud märgete järgi — üheselt tõene, kuid partner ei näe oma kavandatava valiku mõju enne, kui on end sellega sidunud.
+  **Seis:** otsustatud; hoiatus on selle valiku hind ja peab jääma nähtavaks.
+
+- **[L-12] Suletud vooru tühistamine.**
+  **Valik:** V-02 ei sisalda üleminekut `suletud → tühistatud`. Suletud voor lõpetatakse kinnitamisega; kui midagi ei tohi määrata, jäetakse ülevaatusel kõik partnerid vahele (T-02), kõik koolitused muutuvad jäägiks ja neid käsitletakse T-06 alusel.
+  **Alternatiiv:** lubada suletud vooru tühistamine põhjendusega — lühem tee, kuid jätab partnerite kinnitused ilma nähtava tulemuseta.
+  **Seis:** **vajab spetsialistide seisukohta** — kas jäägi tee on piisav.
+
+- **[L-13] Kes saab prognoosi muutuse teate (D-04)?**
+  **Valik:** teade läheb neile partneritele, kelle prognoos muutus **kellegi teise** kinnituse tõttu. Kinnitanud partner ise selle teate ei saa — tema kinnituse kviitung (D-02) juba sisaldab tema uut prognoosi, ja kaks teadet ühe toimingu kohta õpetab mõlemat ignoreerima.
+  **Alternatiiv:** teade ka kinnitajale, D-04 sõnastuse järgi tähttäheliselt.
+  **Seis:** otsustatud; sagedusepiirang (4 h) ja viimase 24 tunni vaikus jäävad D-04 järgi kehtima.
+
+- **[L-14] Töömahu hoiatuse künnise näidisväärtus.**
+  **Valik:** näidiskeskkonnas on hankeosa OSA-2 künnis **4** koolitust, mitte 25, et T-01 hoiatus oleks testimisel üldse saavutatav. Ekraanil on see märgitud testväärtusena.
+  **Seis:** näidisandmete otsus; päris keskkonnas tuleb künnis L-07 vastuse alusel seadistada.
+
+- **[L-15] Loobumise ja tellimuse dokumendi keel.**
+  **Valik:** tellimuse dokument (T-05) on prinditav HTML-leht, mis koostatakse kinnitamise hetkel külmutatud hetktõmmisest — mitte päringutest, sest leping peab hiljem ütlema sedasama, mida kinnitamise hetkel.
+  **Alternatiiv:** PDF-eksport serveris.
+  **Seis:** otsustatud MVP jaoks; PDF lisatav hiljem.
+
+- **[L-16] Näidisandmete ausus.**
+  **Valik:** näidisstsenaariumid koostatakse **päris mootorikutsetega tagasikeritud virtuaalkellal**, mitte käsitsi kirjutatud ridadena, ja koolitus märgitakse läbiviiduks ainult siis, kui selle toimumiskuupäev on möödas.
+  **Põhjendus:** auditijälg, teavituste logi ja külmutatud hetktõmmised peavad olema tõesed ka näidiskeskkonnas — vastasel juhul näidatakse spetsialistidele midagi, mida süsteem tegelikult ei tee.
+  **Seis:** otsustatud.
 
 ---
 
@@ -325,3 +360,4 @@ Kinnitamisel (T-04) luuakse kolm tellimust (T-05), C saab teate oma kolmest kool
 | Versioon | Kuupäev | Muudatus |
 |---|---|---|
 | 2.0 (mustand) | 27.08.2026 | Esimene paralleelse kaskaadi äriloogika versioon spetsialistide koosoleku ja tellija tiimi otsuste alusel. Asendab v1 järjestikuse kaskaadi kui põhimudeli; järjestikune režiim jääb alles (V-08). |
+| 2.1 | 03.09.2026 | Veebirakenduse ehitamisel tehtud tõlgendused kirja pandud: uued **L-11** (olekuveerg järgib mustandit), **L-12** (suletud vooru ei tühistata), **L-13** (prognoosi muutuse teate saajad), **L-14** (näidiskünnis 4), **L-15** (tellimus on prinditav HTML), **L-16** (näidisandmed koostatakse päris mootorikutsetega); täpsustused **J-01** (kaasav tähtaja hetk), **V-04** (märked jäetakse välja sisendi koostamisel, kinnitusi ei muudeta), **E-03** (üleküsimine ja kande liik), **N-08** (neutraalne sõnastus ilma „eesõiguse alusel“), **T-05** (prinditav HTML). Reeglid ise ei muutunud. |

@@ -244,7 +244,10 @@ describe('ülejäänud stsenaariumid', () => {
 
   it('records the notifications the scenarios would really have sent', () => {
     const rows = harness.read((db) =>
-      db.select({ type: notifications.type }).from(notifications).all(),
+      db
+        .select({ type: notifications.type, recipient: notifications.recipientLotPartnerId })
+        .from(notifications)
+        .all(),
     );
     const kinds = new Set(rows.map((row) => row.type));
     for (const expected of [
@@ -257,5 +260,12 @@ describe('ülejäänud stsenaariumid', () => {
     ]) {
       expect(kinds, `teavitus ${expected}`).toContain(expected);
     }
+
+    // [D-04][L-13] the projection notice goes to the partner whose projection
+    // someone else's revision moved — B, when A capped itself and released K3.
+    const participants = harness.read((db) => participantsOf(db, openRoundId));
+    const b = participants.find((p) => p.rankAtPublication === 2)!;
+    const projectionNotices = rows.filter((row) => row.type === 'projection_changed');
+    expect(projectionNotices.map((row) => row.recipient)).toEqual([b.lotPartnerId]);
   });
 });

@@ -59,6 +59,8 @@ export interface Ctx {
 }
 
 export interface QueuedNotification {
+  /** the in-app row this email belongs to, so its send outcome can be recorded */
+  notificationId: string;
   recipientKind: 'buyer' | 'partner';
   recipientLotPartnerId: string | null;
   type: string;

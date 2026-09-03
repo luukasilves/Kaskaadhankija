@@ -620,7 +620,7 @@ export function confirmMarks(
   // [D-04] tell the partners whose projection this changed — only in dynamic
   // mode, where they can see the effect anyway.
   if (round.visibilityMode === 'dynamic') {
-    notifyProjectionChanges(ctx, roundId, previousCounts);
+    notifyProjectionChanges(ctx, roundId, previousCounts, participant.lotPartnerId);
   }
 
   return { ok: true, projectedCount: view.projectedCount };
@@ -653,8 +653,18 @@ const PROJECTION_NOTICE_INTERVAL_MS = 4 * 3_600_000;
  * Suppressed in the final 24 hours, where the reminder [D-05] carries the
  * current position instead — otherwise a flurry of late revisions would spam
  * everyone at exactly the moment they are deciding.
+ *
+ * The partner who just acted is skipped: their own projection did move, but the
+ * [D-02] receipt they are already being sent states it. Two messages for one
+ * click would train them to ignore both. Recorded as an interpretation in the
+ * spec's section L.
  */
-function notifyProjectionChanges(ctx: Ctx, roundId: string, previous: Map<string, number>): void {
+function notifyProjectionChanges(
+  ctx: Ctx,
+  roundId: string,
+  previous: Map<string, number>,
+  actingLotPartnerId: string,
+): void {
   const round = loadRound(ctx, roundId);
   const lot = loadLot(ctx, round.lotId);
   const current = projectionCounts(ctx, roundId);
@@ -662,6 +672,7 @@ function notifyProjectionChanges(ctx: Ctx, roundId: string, previous: Map<string
 
   for (const participant of participantsOf(ctx.tx, roundId)) {
     if (participant.excludedAt !== null) continue;
+    if (participant.lotPartnerId === actingLotPartnerId) continue;
     const before = previous.get(participant.lotPartnerId) ?? 0;
     const after = current.get(participant.lotPartnerId) ?? 0;
     if (before === after) continue;

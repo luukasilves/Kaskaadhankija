@@ -11,6 +11,8 @@
  */
 
 import nodemailer, { type Transporter } from 'nodemailer';
+import { eq } from 'drizzle-orm';
+import { getDb } from '@/db';
 import { notifications, type NotificationType } from '@/db/schema';
 import { env, hasSmtp } from '@/lib/env';
 import type { Ctx, QueuedNotification } from './context';
@@ -33,11 +35,12 @@ export interface NotifyInput {
  */
 export function notify(ctx: Ctx, input: NotifyInput): void {
   const emailTo = input.emailTo ?? '';
+  const notificationId = crypto.randomUUID();
 
   ctx.tx
     .insert(notifications)
     .values({
-      id: crypto.randomUUID(),
+      id: notificationId,
       createdAt: ctx.at,
       recipientKind: input.recipientKind,
       recipientLotPartnerId: input.recipientLotPartnerId ?? null,
@@ -54,6 +57,7 @@ export function notify(ctx: Ctx, input: NotifyInput): void {
 
   if (emailTo) {
     ctx.outbox.push({
+      notificationId,
       recipientKind: input.recipientKind,
       recipientLotPartnerId: input.recipientLotPartnerId ?? null,
       type: input.type,
@@ -117,14 +121,41 @@ export async function dispatchOutbox(outbox: QueuedNotification[]): Promise<void
         text: message.body,
         html: message.bodyHtml,
       });
+      recordEmailOutcome(message.notificationId, { status: 'sent' });
     } catch (error) {
-      // The in-app notification already exists; surface the failure loudly.
-      console.error(
-        `[kaskaadhankija] e-kirja saatmine ebaõnnestus (${message.emailTo}): ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
+      // The in-app notification already exists; surface the failure loudly and
+      // record it, so the log does not claim a message was delivered.
+      const detail = error instanceof Error ? error.message : String(error);
+      console.error(`[kaskaadhankija] e-kirja saatmine ebaõnnestus (${message.emailTo}): ${detail}`);
+      recordEmailOutcome(message.notificationId, { status: 'failed', error: detail });
     }
+  }
+}
+
+/**
+ * Write back what happened to one email.
+ *
+ * Runs after the mutation's transaction has committed, on its own connection —
+ * the notification log shows this status, so leaving it at the inserted
+ * 'skipped' would have the log tell partners nothing was sent when it was.
+ */
+function recordEmailOutcome(
+  notificationId: string,
+  outcome: { status: 'sent' | 'failed'; error?: string },
+): void {
+  try {
+    getDb()
+      .update(notifications)
+      .set({
+        emailStatus: outcome.status,
+        emailError: outcome.error?.slice(0, 500) ?? '',
+        emailSentAt: outcome.status === 'sent' ? Date.now() : null,
+      })
+      .where(eq(notifications.id, notificationId))
+      .run();
+  } catch (error) {
+    // Bookkeeping: never turn a failed status write into a failed request.
+    console.error('[kaskaadhankija] e-kirja oleku salvestamine ebaõnnestus', error);
   }
 }
 

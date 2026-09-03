@@ -288,22 +288,28 @@ function scenarioLisaB(tx: Tx, cast: Cast, now: number, buyerLabel: string): str
 
   const aLabel = cast.contactLabel(REG.aiAkadeemia, 'OSA-2');
   const aId = cast.partnerId(REG.aiAkadeemia);
-  // First answer: three marks, no cap. Then the revision Lisa B describes.
+
+  // A answers first with three marks and no cap.
   confirmMarks(partnerCtx(tx, publishedAt + 4 * H, aLabel), roundId, aId, {
     marks: [k1!, k2!, k3!],
     cap: null,
   });
-  confirmMarks(partnerCtx(tx, publishedAt + 22 * H, aLabel), roundId, aId, {
-    marks: [k1!, k2!, k3!, k5!],
-    cap: 2,
-  });
 
+  // B answers next, and is at that moment projected K4 and K6.
   confirmMarks(
-    partnerCtx(tx, publishedAt + 25 * H, cast.contactLabel(REG.digioskus, 'OSA-2')),
+    partnerCtx(tx, publishedAt + 6 * H, cast.contactLabel(REG.digioskus, 'OSA-2')),
     roundId,
     cast.partnerId(REG.digioskus),
     { marks: [k2!, k3!, k4!, k6!], cap: null },
   );
+
+  // A then revises to the Lisa B position — four marks, capped at two. This
+  // releases K3, which moves B's projection from two to three and produces a
+  // genuine [D-04] projection notice in the log, addressed to B.
+  confirmMarks(partnerCtx(tx, publishedAt + 22 * H, aLabel), roundId, aId, {
+    marks: [k1!, k2!, k3!, k5!],
+    cap: 2,
+  });
 
   saveDraftMarks(
     partnerCtx(tx, publishedAt + 27 * H, cast.contactLabel(REG.tehisaru, 'OSA-2')),
