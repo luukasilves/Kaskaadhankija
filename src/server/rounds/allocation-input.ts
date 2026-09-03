@@ -26,7 +26,10 @@ type Reader = Tx | Db;
  * The effective adjustment per partner: the latest row, unless it is a `clear`.
  * The table is append-only, so a change is a new row and the history stays [T-02].
  */
-export function effectiveAdjustments(tx: Reader, roundId: string): BuyerAdjustment[] {
+export function effectiveAdjustmentRows(
+  tx: Reader,
+  roundId: string,
+): Array<typeof buyerAdjustments.$inferSelect> {
   const rows = tx
     .select()
     .from(buyerAdjustments)
@@ -35,16 +38,33 @@ export function effectiveAdjustments(tx: Reader, roundId: string): BuyerAdjustme
     .all();
 
   const seen = new Set<string>();
-  const effective: BuyerAdjustment[] = [];
+  const effective: Array<typeof buyerAdjustments.$inferSelect> = [];
   for (const row of rows) {
     if (seen.has(row.lotPartnerId)) continue;
     seen.add(row.lotPartnerId);
+    // 'clear' contributes nothing — it is how an adjustment is undone.
+    if (row.kind === 'clear') continue;
+    effective.push(row);
+  }
+  return effective;
+}
+
+/**
+ * The same adjustments in the shape the algorithm takes.
+ *
+ * The domain type deliberately carries no justification: the mandatory
+ * reasoning [T-02] is evidence for people, not an input to the arithmetic, and
+ * keeping it out means a frozen snapshot cannot replay differently because
+ * someone reworded it. Screens that need to show the reasoning read the rows.
+ */
+export function effectiveAdjustments(tx: Reader, roundId: string): BuyerAdjustment[] {
+  const effective: BuyerAdjustment[] = [];
+  for (const row of effectiveAdjustmentRows(tx, roundId)) {
     if (row.kind === 'skip') {
       effective.push({ lotPartnerId: row.lotPartnerId, kind: 'skip' });
     } else if (row.kind === 'cap' && row.capValue !== null) {
       effective.push({ lotPartnerId: row.lotPartnerId, kind: 'cap', cap: row.capValue });
     }
-    // 'clear' contributes nothing — it is how an adjustment is undone.
   }
   return effective;
 }

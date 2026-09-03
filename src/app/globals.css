@@ -186,18 +186,66 @@
   }
 }
 
-/* The printable order document [T-05] — hide the app chrome. */
+/**
+ * The printable order document [T-05].
+ *
+ * Paper is always light, whatever the reader's screen is set to: the dark
+ * palette would print as pale text on a black rectangle. So the tokens are
+ * forced back to ink-on-white values here rather than only overriding `body`,
+ * because every colour on the page comes from a token.
+ */
 @media print {
+  :root {
+    color-scheme: light;
+    --color-bg: #ffffff;
+    --color-surface: #ffffff;
+    --color-surface-alt: #ffffff;
+    --color-border: #b9c1cb;
+    --color-border-strong: #8b95a1;
+    --color-text: #000000;
+    --color-muted: #3f4854;
+    --color-brand: #0f3f63;
+    --color-brand-soft: #ffffff;
+    --color-success: #14573a;
+    --color-success-soft: #ffffff;
+    --color-warning: #6f3f07;
+    --color-warning-soft: #ffffff;
+    --color-danger: #8a231b;
+    --color-danger-soft: #ffffff;
+    --color-neutral: #3f4854;
+    --color-neutral-soft: #ffffff;
+  }
+
   .kh-no-print {
     display: none !important;
   }
+
   body {
     background: #fff;
     color: #000;
-    font-size: 11pt;
+    font-size: 10.5pt;
   }
+
   .kh-card {
     border: none;
     box-shadow: none;
+  }
+
+  /* Keep a contract's table on as few pages as possible, and never split a row. */
+  table {
+    page-break-inside: auto;
+  }
+
+  tr,
+  .kh-badge {
+    page-break-inside: avoid;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+
+  a[href]::after {
+    content: '';
   }
 }

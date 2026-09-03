@@ -33,7 +33,7 @@ export interface ReviewRow {
   valueText: string;
   workload: number;
   overThreshold: boolean;
-  adjustment: { kind: 'skip' | 'cap'; cap: number | null } | null;
+  adjustment: { kind: 'skip' | 'cap'; cap: number | null; justification: string } | null;
 }
 
 export interface LeftoverRef {
@@ -101,6 +101,7 @@ export function ReviewPanel({
               {rows.map((row) => (
                 <tr
                   key={row.lotPartnerId}
+                  data-testid={`review-row-${row.rank}`}
                   style={row.excluded ? { opacity: 0.55 } : undefined}
                 >
                   <td className="kh-td">
@@ -145,7 +146,10 @@ export function ReviewPanel({
                       </span>
                     )}
                     {row.finalTrainings.length > 0 && (
-                      <div className="mt-0.5 text-[11px] font-normal text-[var(--color-muted)]">
+                      <div
+                        data-testid={`final-codes-${row.rank}`}
+                        className="mt-0.5 text-[11px] font-normal text-[var(--color-muted)]"
+                      >
                         {row.finalTrainings.map((t) => t.code).join(', ')}
                       </div>
                     )}
@@ -180,6 +184,11 @@ export function ReviewPanel({
                             }
                             tone="warning"
                           />
+                          {/* [T-02] the justification is mandatory, so it has to
+                              be visible where the adjustment is. */}
+                          <p className="max-w-[22rem] text-[12px] text-[var(--color-muted)]">
+                            {row.adjustment.justification}
+                          </p>
                           <ActionForm
                             action={clearAdjustmentAction}
                             submitLabel="Tühista kohandus"

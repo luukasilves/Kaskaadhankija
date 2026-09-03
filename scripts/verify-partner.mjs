@@ -1,43 +1,33 @@
 /**
  * Walk Lisa B in a real browser, from the three partner personas.
  *
- * This is the acceptance check for the partner side: the seeded open round is
- * Lisa B, so every display state, every count and the [K-03] unconfirmed-draft
- * warning has a documented expected value. It also asserts the two things the
- * partner UI must never do — leak a competitor's identity, and show states in a
- * sealed round.
+ * The seeded open round is Lisa B, so every display state, every count and the
+ * [K-03] unconfirmed-draft warning has a documented expected value. Also
+ * asserts the two things the partner UI must never do — leak a competitor's
+ * identity, and show states in a sealed round.
  *
- *   pnpm verify:partner        (after pnpm build)
+ *   pnpm verify:partner        (builds first)
  */
 
 import { chromium } from 'playwright';
-import { spawn } from 'node:child_process';
-import { createServer } from 'node:net';
 import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import {
+  CHROMIUM,
+  appHtml,
+  freePort,
+  leakDetail,
+  makeChecker,
+  removeDatabase,
+  startServer,
+  switchTo,
+  waitForHealth,
+  watchPage,
+} from './lib/browser-harness.mjs';
 
 const ROOT = process.cwd();
 const SHOTS = join(ROOT, 'scripts', 'partner-screenshots');
 const DB = join(ROOT, 'data', `partner-${Date.now()}.db`);
-
-/**
- * Take a port the OS says is free rather than a fixed one. A previous failed
- * run can leave its server listening, and a fixed port would let this run
- * health-check that stale process and then test the wrong build entirely.
- */
-function freePort() {
-  return new Promise((resolve, reject) => {
-    const probe = createServer();
-    probe.unref();
-    probe.on('error', reject);
-    probe.listen(0, '127.0.0.1', () => {
-      const { port } = probe.address();
-      probe.close(() => resolve(port));
-    });
-  });
-}
-
-let PORT = 0;
 let BASE = '';
 
 /** Lisa B: OSA-2 koht 1 = A, koht 2 = B, koht 3 = C, koht 4 silent. */
@@ -91,94 +81,7 @@ const LISA_B2 = {
   },
 };
 
-let failures = 0;
-const results = [];
-
-function check(label, condition, detail = '') {
-  if (condition) results.push(`  PASS  ${label}`);
-  else {
-    failures += 1;
-    results.push(`  FAIL  ${label}${detail ? ` — ${detail}` : ''}`);
-  }
-}
-
-function startServer() {
-  const child = spawn('node', ['node_modules/next/dist/bin/next', 'start', '-p', String(PORT)], {
-    cwd: ROOT,
-    env: {
-      ...process.env,
-      DATABASE_PATH: DB,
-      PORT: String(PORT),
-      DEMO_MODE: '1',
-      APP_BASE_URL: BASE,
-    },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  const logs = [];
-  child.stdout.on('data', (d) => logs.push(String(d)));
-  child.stderr.on('data', (d) => logs.push(String(d)));
-  return { child, logs };
-}
-
-async function waitForHealth(timeoutMs = 60_000) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      if ((await fetch(`${BASE}/api/health`)).ok) return true;
-    } catch {
-      /* not up yet */
-    }
-    await new Promise((r) => setTimeout(r, 400));
-  }
-  return false;
-}
-
-/**
- * Switch persona through the strip and wait for the new area to render.
- *
- * Waiting on the persona's name would prove nothing — the strip's dropdown
- * lists every persona at all times. What proves the switch happened is the
- * application navigation for the new area.
- */
-async function switchTo(page, name) {
-  const select = page.locator('[data-testid="test-strip"] select');
-  const value = await select
-    .locator('option')
-    .evaluateAll(
-      (options, needle) => options.find((o) => o.textContent.includes(needle))?.value ?? null,
-      name,
-    );
-  if (!value) throw new Error(`persoona "${name}" ei ole ribal olemas`);
-  const area = value.startsWith('buyer:') ? '/tellija' : '/partner';
-  await select.selectOption(value);
-  await page.waitForSelector(`nav a[href^="${area}/"]`, { timeout: 20_000 });
-  // Partner→partner keeps the same navigation, so the only proof the cookie
-  // actually changed is the application header naming the new persona.
-  await page.waitForFunction(
-    (needle) => {
-      const header = document.querySelector('header:not([data-testid="test-strip"])');
-      return !!header && header.textContent.includes(needle);
-    },
-    name,
-    { timeout: 20_000 },
-  );
-}
-
-/** Where a forbidden name occurs, so a leak is reported and not just flagged. */
-function leakDetail(html, names) {
-  const found = [];
-  for (const name of names) {
-    const at = html.indexOf(name);
-    if (at >= 0) {
-      found.push(
-        `${name} @${at}: …${html
-          .slice(Math.max(0, at - 120), at + 80)
-          .replace(/\s+/g, ' ')}…`,
-      );
-    }
-  }
-  return found.join('\n        ');
-}
+const { check, results, state } = makeChecker();
 
 /**
  * Open the seeded Lisa B round (OSA-2) as the current persona.
@@ -204,21 +107,6 @@ async function openLisaBRound(page) {
     `avatud OSA-2 vooru ei leitud (${count} avatud kaarti) — URL ${page.url()}\n` +
       (await page.locator('main').textContent()).replace(/\s+/g, ' ').slice(0, 500),
   );
-}
-
-/**
- * The application's own markup, without the test strip.
- *
- * The persona dropdown names every mock company, so a leak check over the whole
- * document would always fail; what matters is that the *application* never
- * names a competitor.
- */
-async function appHtml(page) {
-  return page.evaluate(() => {
-    const main = document.querySelector('main');
-    const nav = document.querySelector('header:not([data-testid="test-strip"])');
-    return [nav?.outerHTML ?? '', main?.outerHTML ?? ''].join('\n');
-  });
 }
 
 /** The rank chip beside the round code, which is the partner's own koht. */
@@ -262,21 +150,17 @@ async function main() {
   mkdirSync(SHOTS, { recursive: true });
   mkdirSync(join(ROOT, 'data'), { recursive: true });
 
-  PORT = await freePort();
-  BASE = `http://localhost:${PORT}`;
+  const port = await freePort();
+  const server = startServer({ port, databasePath: DB });
+  BASE = server.base;
 
-  const browser = await chromium.launch({
-    executablePath: process.env.CHROMIUM_PATH || '/opt/pw-browsers/chromium',
-  });
-  const server = startServer();
-  // Whatever happens from here on, the server and the browser get torn down —
-  // a leftover process would poison the next run.
+  const browser = await chromium.launch({ executablePath: CHROMIUM });
   const teardown = () => {
-    server.child.kill();
+    server.stop();
     return browser.close().catch(() => {});
   };
-  process.on('exit', () => server.child.kill());
-  if (!(await waitForHealth())) {
+
+  if (!(await waitForHealth(BASE))) {
     console.error('Server did not start:\n' + server.logs.join(''));
     await teardown();
     process.exit(1);
@@ -290,32 +174,16 @@ async function main() {
 
   console.log('\nPartner UI verification\n');
   console.log(results.join('\n'));
-  console.log(`\n${failures === 0 ? 'ALL PASS' : `${failures} FAILURE(S)`} — screenshots in ${SHOTS}\n`);
-  rmSync(DB, { force: true });
-  rmSync(`${DB}-wal`, { force: true });
-  rmSync(`${DB}-shm`, { force: true });
-  process.exit(failures === 0 ? 0 : 1);
+  console.log(
+    `\n${state.failures === 0 ? 'ALL PASS' : `${state.failures} FAILURE(S)`} — screenshots in ${SHOTS}\n`,
+  );
+  removeDatabase(DB);
+  process.exit(state.failures === 0 ? 0 : 1);
 }
 
 async function walk(browser) {
-
   const page = await browser.newPage({ viewport: { width: 1500, height: 1000 } });
-  const consoleErrors = [];
-  const badResponses = [];
-  page.on('pageerror', (e) => consoleErrors.push(String(e)));
-  page.on('console', (m) => {
-    if (m.type() !== 'error') return;
-    const at = m.location();
-    consoleErrors.push(`${m.text()} @ ${at?.url ?? '?'}`);
-  });
-  page.on('response', (r) => r.status() >= 400 && badResponses.push(`${r.status()} ${r.url()}`));
-  page.on('requestfailed', (r) => {
-    // Navigating away cancels Next's in-flight RSC prefetches; an aborted
-    // request is this script's doing, not the application's.
-    const why = r.failure()?.errorText ?? '';
-    if (why.includes('ERR_ABORTED')) return;
-    badResponses.push(`failed ${r.url()} (${why})`);
-  });
+  const { consoleErrors, badResponses } = watchPage(page);
 
   /* ---------------- enter as C, the instructive persona ---------------- */
 

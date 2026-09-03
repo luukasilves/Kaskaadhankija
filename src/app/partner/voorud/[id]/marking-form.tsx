@@ -239,7 +239,7 @@ export function MarkingForm({
                       </td>
                     )}
                     {finalMine && (
-                      <td className="kh-td whitespace-nowrap">
+                      <td className="kh-td min-w-[150px]">
                         {gotIt ? (
                           <StatusBadge label="Määratud teile" tone="success" />
                         ) : wasConfirmed ? (

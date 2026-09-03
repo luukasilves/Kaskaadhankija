@@ -17,7 +17,7 @@ import { lots, orders, rounds, trainings } from '@/db/schema';
 import { formatDateTimeShort, formatEur, formatIsoDay } from '@/domain/format';
 import { PARTICIPANT_OUTCOME_LABELS, ROUND_STATUS_LABELS, ROUND_STATUS_TONES } from '@/domain/round-statuses';
 import { RankChip, StatusBadge } from '@/components/status-badge';
-import { effectiveAdjustments } from '@/server/rounds/allocation-input';
+import { effectiveAdjustmentRows } from '@/server/rounds/allocation-input';
 import { previewFinalAllocation } from '@/server/rounds/engine';
 import { latestConfirmation, participantsOf, workloadFor } from '@/server/rounds/views';
 import { ReviewPanel } from './review-panel';
@@ -74,7 +74,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
   // Before confirmation the preview reflects any adjustments already applied.
   const current = isConfirmed ? round.finalSnapshot?.result : previewFinalAllocation(db, id);
 
-  const adjustments = effectiveAdjustments(db, id);
+  const adjustmentRows = effectiveAdjustmentRows(db, id);
   const participants = participantsOf(db, id);
 
   const trainingById = new Map(
@@ -89,7 +89,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
     const final =
       current?.allocations.find((a) => a.lotPartnerId === participant.lotPartnerId)?.trainingIds ??
       [];
-    const adjustment = adjustments.find((a) => a.lotPartnerId === participant.lotPartnerId);
+    const adjustment = adjustmentRows.find((a) => a.lotPartnerId === participant.lotPartnerId);
     const workload = workloadFor(db, participant.lotPartnerId);
     const value = final.reduce(
       (sum, trainingId) => sum + (trainingById.get(trainingId)?.estimatedValueEur ?? 0),
@@ -113,9 +113,11 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
       workload,
       overThreshold: workload >= round.workloadThresholdSnapshot,
       adjustment: adjustment
-        ? adjustment.kind === 'skip'
-          ? { kind: 'skip' as const, cap: null }
-          : { kind: 'cap' as const, cap: adjustment.cap }
+        ? {
+            kind: adjustment.kind === 'skip' ? ('skip' as const) : ('cap' as const),
+            cap: adjustment.capValue,
+            justification: adjustment.justification,
+          }
         : null,
     };
   });
