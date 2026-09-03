@@ -129,3 +129,128 @@ export function rawPartnerRow(over: Record<string, string> = {}): Record<string,
     ...over,
   };
 }
+
+/* ------------------------------------------------------------------ *
+ * fixtures for engine tests
+ * ------------------------------------------------------------------ */
+
+/** Distinguishes fixtures within one test, so codes never collide. */
+let fixtureSeq = 0;
+
+export interface LotFixture {
+  lotId: string;
+  /** lot_partner ids in rank order */
+  lotPartnerIds: string[];
+  partnerIds: string[];
+  /** training ids in event-date order */
+  trainingIds: string[];
+  trainingCodes: string[];
+}
+
+/**
+ * A lot with `partnerCount` ranked members and `trainingCount` trainings on
+ * consecutive weekdays — enough to exercise the cascade end to end.
+ */
+export function seedLotWithPartners(
+  harness: TestHarness,
+  options: {
+    code?: string;
+    partnerCount?: number;
+    trainingCount?: number;
+    responseWorkingDays?: number;
+    workloadThreshold?: number;
+    firstEventDate?: string;
+  } = {},
+): LotFixture {
+  const code = options.code ?? 'OSA-2';
+  const partnerCount = options.partnerCount ?? 3;
+  const trainingCount = options.trainingCount ?? 6;
+  const firstEventDate = options.firstEventDate ?? '2026-10-05';
+  // Registry codes and training codes are globally unique, so a test that
+  // needs a second lot must not reuse this fixture's namespace.
+  const nth = ++fixtureSeq;
+
+  const lotId = crypto.randomUUID();
+  const lotPartnerIds: string[] = [];
+  const partnerIds: string[] = [];
+  const trainingIds: string[] = [];
+  const trainingCodes: string[] = [];
+
+  harness.write((ctx) => {
+    ctx.tx
+      .insert(schema.lots)
+      .values({
+        id: lotId,
+        code,
+        name: `Hankeosa ${code}`,
+        responseDeadlineWorkingDays: options.responseWorkingDays ?? 3,
+        deadlineLocalTime: '17:00',
+        reviewWorkingDays: 2,
+        workloadThreshold: options.workloadThreshold ?? 25,
+        defaultVisibilityMode: 'dynamic',
+        createdAt: ctx.at,
+      })
+      .run();
+
+    for (let rank = 1; rank <= partnerCount; rank++) {
+      const partnerId = crypto.randomUUID();
+      const lotPartnerId = crypto.randomUUID();
+      partnerIds.push(partnerId);
+      lotPartnerIds.push(lotPartnerId);
+      ctx.tx
+        .insert(schema.partners)
+        .values({
+          id: partnerId,
+          name: nth === 1 ? `Partner ${rank}` : `Partner ${nth}.${rank}`,
+          regCode: String(10000000 + nth * 100 + rank),
+          createdAt: ctx.at,
+        })
+        .run();
+      ctx.tx
+        .insert(schema.lotPartners)
+        .values({
+          id: lotPartnerId,
+          lotId,
+          partnerId,
+          rank,
+          contactName: `Kontakt ${rank}`,
+          contactEmail: `kontakt${rank}@naidis.ee`,
+          unitPriceEur: 1000 + rank * 50,
+          createdAt: ctx.at,
+        })
+        .run();
+    }
+
+    const start = new Date(`${firstEventDate}T00:00:00Z`);
+    for (let i = 0; i < trainingCount; i++) {
+      const id = crypto.randomUUID();
+      const trainingCode = `KK-2026-${(nth - 1) * 100 + 200 + i + 1}`;
+      const date = new Date(start.getTime() + i * 2 * 86_400_000);
+      trainingIds.push(id);
+      trainingCodes.push(trainingCode);
+      ctx.tx
+        .insert(schema.trainings)
+        .values({
+          id,
+          code: trainingCode,
+          lotId,
+          title: `Koolitus ${i + 1}`,
+          workshopType: 'tootuba_1',
+          eventDate: date.toISOString().slice(0, 10),
+          county: 'Harju maakond',
+          targetGroup: 'kov',
+          participantCount: 20,
+          language: 'et',
+          estimatedValueEur: 1000,
+          status: 'unassigned',
+          createdAt: ctx.at,
+          updatedAt: ctx.at,
+        })
+        .run();
+    }
+  });
+
+  return { lotId, lotPartnerIds, partnerIds, trainingIds, trainingCodes };
+}
+
+export { schema };
