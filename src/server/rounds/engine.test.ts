@@ -599,7 +599,7 @@ describe('[T-02] buyer adjustments', () => {
         justification: 'töömaht on liiga suur',
       }),
     );
-    const preview = harness.write((ctx) => previewFinalAllocation(ctx, roundId));
+    const preview = harness.write((ctx) => previewFinalAllocation(ctx.tx, roundId));
     expect(preview.allocations.find((a) => a.lotPartnerId === fx.lotPartnerIds[0])).toBeUndefined();
     expect(preview.byTraining[fx.trainingIds[0]]).toBe(fx.lotPartnerIds[1]);
   });
@@ -614,7 +614,7 @@ describe('[T-02] buyer adjustments', () => {
         justification: 'tasakaalustamine',
       }),
     );
-    const preview = harness.write((ctx) => previewFinalAllocation(ctx, roundId));
+    const preview = harness.write((ctx) => previewFinalAllocation(ctx.tx, roundId));
     expect(preview.allocations.find((a) => a.lotPartnerId === fx.lotPartnerIds[0])?.trainingIds).toEqual([
       fx.trainingIds[0],
     ]);
@@ -630,7 +630,7 @@ describe('[T-02] buyer adjustments', () => {
       }),
     );
     harness.write((ctx) => clearAdjustment(ctx, roundId, fx.lotPartnerIds[0]));
-    const preview = harness.write((ctx) => previewFinalAllocation(ctx, roundId));
+    const preview = harness.write((ctx) => previewFinalAllocation(ctx.tx, roundId));
     expect(preview.allocations.find((a) => a.lotPartnerId === fx.lotPartnerIds[0])).toBeTruthy();
   });
 

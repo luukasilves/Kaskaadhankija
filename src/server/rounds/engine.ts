@@ -69,7 +69,7 @@ import {
 } from '@/domain/round-templates';
 import { env } from '@/lib/env';
 import { logAudit } from '../audit';
-import { failure, type Ctx } from '../context';
+import { failure, type Ctx, type Db, type Tx } from '../context';
 import { notify, teamEmail } from '../notify';
 import { effectiveAdjustments, finalInput, projectionInput, proposalInput } from './allocation-input';
 import { latestConfirmation, participantsOf, roundTrainingList, workloadFor } from './views';
@@ -255,6 +255,12 @@ function releaseTraining(ctx: Ctx, trainingId: string, status: 'unassigned' | 'l
 export interface PublishRoundInput {
   /** later than the lot default is allowed; earlier is not [V-03] */
   deadlineAt?: number;
+  /**
+   * Give partners this many working days beyond the lot default. Preferred over
+   * `deadlineAt` from a form: a date-time input has no timezone, whereas
+   * working days are what the process is actually specified in.
+   */
+  extraWorkingDays?: number;
   visibilityMode?: VisibilityMode;
 }
 
@@ -293,7 +299,16 @@ export function publishRound(ctx: Ctx, roundId: string, input: PublishRoundInput
   }
 
   const defaultDeadline = computeDefaultDeadline(lot, ctx.at);
-  const deadlineAt = input.deadlineAt ?? defaultDeadline;
+  const extra = input.extraWorkingDays ?? 0;
+  const deadlineAt =
+    input.deadlineAt ??
+    (extra > 0
+      ? addWorkingDays(
+          new Date(ctx.at),
+          lot.responseDeadlineWorkingDays + extra,
+          lot.deadlineLocalTime,
+        ).getTime()
+      : defaultDeadline);
   if (deadlineAt < defaultDeadline) {
     throw new Error(
       `Vastamistähtaeg ei saa olla varasem kui ${lot.responseDeadlineWorkingDays} tööpäeva (${formatDateTimeShort(defaultDeadline)}).`,
@@ -690,6 +705,27 @@ function notifyProjectionChanges(ctx: Ctx, roundId: string, previous: Map<string
  * changes to an open round [V-04]
  * ------------------------------------------------------------------ */
 
+/**
+ * Extend by whole **working** days from the current deadline, keeping the local
+ * time of day the partners were told. This is what the buyer UI offers, since
+ * "give them two more days" means working days everywhere else in the process.
+ */
+export function extendDeadlineByWorkingDays(
+  ctx: Ctx,
+  roundId: string,
+  workingDays: number,
+  reason: string,
+): void {
+  if (!Number.isInteger(workingDays) || workingDays < 1) {
+    throw new Error('Pikendus peab olema vähemalt üks tööpäev.');
+  }
+  const round = loadRound(ctx, roundId);
+  if (round.deadlineAt === null) throw new Error('Vooru tähtaeg puudub.');
+  const lot = loadLot(ctx, round.lotId);
+  const next = addWorkingDays(new Date(round.deadlineAt), workingDays, lot.deadlineLocalTime).getTime();
+  extendDeadline(ctx, roundId, next, reason);
+}
+
 export function extendDeadline(ctx: Ctx, roundId: string, newDeadlineAt: number, reason: string): void {
   const round = loadRound(ctx, roundId);
   if (round.status !== 'open') throw new Error('Tähtaega saab pikendada ainult avatud vooru puhul.');
@@ -1076,9 +1112,14 @@ export function clearAdjustment(ctx: Ctx, roundId: string, lotPartnerId: string)
   });
 }
 
-/** The final allocation as it currently stands, for the review preview. */
-export function previewFinalAllocation(ctx: Ctx, roundId: string): AllocationResult {
-  return allocate(finalInput(ctx.tx, roundId));
+/**
+ * The final allocation as it currently stands, for the review preview.
+ *
+ * A read, so it takes a reader rather than a mutation context — the review page
+ * renders this on every load without opening a transaction.
+ */
+export function previewFinalAllocation(tx: Tx | Db, roundId: string): AllocationResult {
+  return allocate(finalInput(tx, roundId));
 }
 
 /**
