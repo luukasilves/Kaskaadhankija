@@ -1,0 +1,49 @@
+name: CI
+
+# The domain and engine suites, plus a real build. The browser suites are not
+# run here: they need Chromium and take minutes, and their job is to catch
+# regressions before a commit, not after it.
+
+on:
+  push:
+    branches: [main, 'claude/**']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm typecheck
+
+      - run: pnpm test
+
+      - run: pnpm build
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+
+      # The three things the Dockerfile asserts at image-build time. Checking
+      # them here too means a tracer regression is caught by CI rather than by a
+      # failing deploy.
+      - name: The standalone output carries what it needs at runtime
+        run: |
+          test -n "$(find .next/standalone -name 'linux-x64.node' -path '*better-sqlite3*')" \
+            || { echo 'better-sqlite3 prebuild missing from .next/standalone'; exit 1; }
+          test -f .next/standalone/drizzle/0001_append_only_triggers.sql \
+            || { echo 'migrations missing from .next/standalone'; exit 1; }
+          test -f .next/standalone/seed/naidis-koolituskalender.csv \
+            || { echo 'sample datasets missing from .next/standalone'; exit 1; }

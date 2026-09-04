@@ -86,7 +86,8 @@ pnpm build
 node scripts/verify-harness.mjs # personas, strip, clock, reset, DEMO_MODE off
 node scripts/verify-partner.mjs # Lisa B from three partner personas
 node scripts/e2e.mjs            # Lisa B to the end, and a round built from an upload
-pnpm verify:all                 # build, then all three in order
+node scripts/verify-container.mjs  # restart survival on a volume, production posture
+pnpm verify:all                 # build, then all four in order
 
 pnpm db:seed                    # load the sample data into ./data
 pnpm datasets:build             # regenerate the XLSX twins from the CSVs
@@ -119,6 +120,31 @@ in short: one machine only (two would mean two databases), never suspended
 release command (a release machine has no volume). Copy `.env.example` for the
 configuration; SMTP is optional, and without it the in-app notification log is
 the only channel.
+
+Deploys run from GitHub Actions, so nothing needs to be installed locally:
+
+1. Create a Fly access token (account- or organisation-scoped, **not** an
+   app-scoped deploy token — the workflow may have to create the app itself).
+2. Save it as the repository secret **`FLY_API_TOKEN`**, under
+   *Settings → Secrets and variables → Actions*.
+3. Run **Deploy to Fly.io** from the Actions tab, or push to `main`.
+
+The workflow creates the app and the `kh_data` volume if they are missing,
+deploys with `--ha=false`, and then refuses to go green unless the result is
+right: exactly one machine, started, with a volume at `/data`; `/api/health`
+reporting ok; the opening screen offering six partner personas and the buyer;
+and `/tellija` unreachable without a persona.
+
+Two things that bite. Fly app names are **globally unique** — if `kaskaadhankija`
+is taken, re-run the workflow with a different name in its `app` input, and
+change both `app` and `APP_BASE_URL` in `fly.toml` (the latter is what
+notification links use). And Fly wants payment details on file before it will
+create machines.
+
+To run it as a real deployment rather than a test one, remove `DEMO_MODE` from
+`fly.toml`: no personas, no strip, no virtual clock, and the demo-only actions
+refuse. Mail can be added later without redeploying anything else, with
+`fly secrets set SMTP_HOST=… SMTP_USER=… SMTP_PASS=… EMAIL_FROM=…`.
 
 ## Before go-live
 
