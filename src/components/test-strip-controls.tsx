@@ -8,7 +8,7 @@
  */
 
 import { useTransition, useState } from 'react';
-import { switchPersona } from '@/server/actions/persona';
+import { clearPersona, switchPersona } from '@/server/actions/persona';
 import { advanceOneDay, advanceOneHour, advanceToNextDeadline } from '@/server/actions/clock';
 import { resetDemoData } from '@/server/actions/demo';
 
@@ -50,11 +50,13 @@ export function TestStripControls({
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-      <label className="flex items-center gap-2">
-        <span className="font-mono text-[11px] tracking-wider uppercase opacity-80">Persoon</span>
+    <div className="flex items-center gap-x-3 gap-y-1.5 sm:flex-wrap">
+      <label className="flex min-w-0 flex-1 items-center gap-2 sm:flex-none">
+        <span className="hidden font-mono text-[11px] tracking-wider uppercase opacity-80 sm:inline">
+          Persoon
+        </span>
         <select
-          className="kh-input max-w-[22rem] py-1"
+          className="kh-input min-w-0 max-w-[22rem] flex-1 py-1"
           value={currentKey ?? ''}
           disabled={pending}
           onChange={(event) => {
@@ -80,8 +82,10 @@ export function TestStripControls({
         </select>
       </label>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="font-mono text-[11px] tracking-wider uppercase opacity-80">Kell</span>
+      <div className="flex items-center gap-1.5 sm:flex-wrap">
+        <span className="hidden font-mono text-[11px] tracking-wider uppercase opacity-80 sm:inline">
+          Kell
+        </span>
         <span className="font-semibold tabular-nums">{clockLabel}</span>
         {offsetDays !== 0 && (
           <span className="kh-badge bg-[var(--color-warning-soft)] text-[var(--color-warning)]">
@@ -110,17 +114,35 @@ export function TestStripControls({
         </button>
       </div>
 
-      <button
-        type="button"
-        className="kh-btn text-xs"
-        disabled={pending}
-        onClick={() => {
-          if (!window.confirm('Kustutada kõik näidise andmed ja alustada algusest?')) return;
-          run(resetDemoData);
-        }}
-      >
-        Lähtesta näidisandmed
-      </button>
+      <div className="flex items-center gap-2 sm:flex-wrap">
+        {currentKey !== null && (
+          <button
+            type="button"
+            className="kh-btn text-xs"
+            disabled={pending}
+            title="Tagasi persoonivaliku lehele"
+            onClick={() =>
+              startTransition(async () => {
+                await clearPersona();
+              })
+            }
+          >
+            Vaheta persooni
+          </button>
+        )}
+
+        <button
+          type="button"
+          className="kh-btn text-xs"
+          disabled={pending}
+          onClick={() => {
+            if (!window.confirm('Kustutada kõik näidise andmed ja alustada algusest?')) return;
+            run(resetDemoData);
+          }}
+        >
+          Lähtesta näidisandmed
+        </button>
+      </div>
 
       {message && (
         <span

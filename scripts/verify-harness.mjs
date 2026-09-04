@@ -1,6 +1,7 @@
 /**
  * Drive the test harness in a real browser: opening screen, persona strip,
- * virtual clock, reset, and the production posture with DEMO_MODE off.
+ * virtual clock, reset, the returning visitor, and the production posture
+ * with DEMO_MODE off.
  *
  * Starts its own server on a throwaway database, so it never touches the
  * developer's data.
@@ -174,6 +175,73 @@ async function main() {
     (await page.locator('section:has(h2:text("Raamlepingu partnerid")) form').count()) === 6,
   );
   await page.screenshot({ path: join(SHOTS, '05-after-reset.png'), fullPage: true });
+
+  /* ---------------- the returning visitor, and the fold ---------------- */
+
+  /*
+   * Every check above starts from a fresh browser profile, which is exactly how
+   * a shipped bug survived: the opening screen used to redirect anyone holding
+   * a persona cookie, so it was a once-per-browser event and `clearPersona`
+   * had no caller at all. These checks come back with a cookie in hand.
+   */
+  await page.locator('section:has(h2:text("Tellija")) form button').first().click();
+  await page.waitForURL('**/tellija', { timeout: 15_000 });
+
+  await page.goto('http://localhost:3210/');
+  await page.waitForSelector('h1');
+  check(
+    'a returning tester still gets the persona picker, not a redirect',
+    page.url() === 'http://localhost:3210/' &&
+      (await page.getByTestId('persona-card').count()) === 7,
+    page.url(),
+  );
+  check('the picker offers a shortcut back to where they were', await page.getByTestId('continue-band').isVisible());
+  check(
+    'the persona they hold is marked on its card',
+    (await page.getByText('praegu valitud').count()) === 1,
+  );
+
+  await page.getByTestId('continue-link').click();
+  await page.waitForURL('**/tellija', { timeout: 15_000 });
+  check('the shortcut lands back in that persona’s area', page.url().endsWith('/tellija'));
+
+  // The strip can hand the persona back — the control that had no caller.
+  await page.locator('[data-testid="test-strip"] button:has-text("Vaheta persooni")').click();
+  await page.waitForURL('http://localhost:3210/', { timeout: 15_000 });
+  await page.waitForSelector('[data-testid="persona-card"]', { timeout: 15_000 });
+  check('“Vaheta persooni” returns to the picker', page.url() === 'http://localhost:3210/');
+  check(
+    'and clears the persona, so no shortcut is offered',
+    (await page.getByTestId('continue-band').count()) === 0,
+  );
+  check(
+    'the sample data is untouched by switching persona',
+    (await page.getByTestId('persona-card').count()) === 7,
+  );
+
+  /*
+   * The choices must be reachable without scrolling on a phone. They were not:
+   * the intro prose pushed the first card to 563px on a 390px screen, under the
+   * browser chrome, so the page read as having no choices on it at all.
+   */
+  const phone = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const phonePage = await phone.newPage();
+  await phonePage.goto('http://localhost:3210/');
+  await phonePage.waitForSelector('h1');
+  const firstCard = await phonePage.getByTestId('persona-card').first().boundingBox();
+  const stripHeight = (await phonePage.getByTestId('test-strip').boundingBox())?.height ?? 0;
+  check(
+    'on a 390px screen the first persona card starts within the first screenful',
+    firstCard !== null && firstCard.y < 520,
+    `esimene kaart ${Math.round(firstCard?.y ?? -1)}px, riba ${Math.round(stripHeight)}px`,
+  );
+  check(
+    'the test strip does not take a quarter of a phone screen',
+    stripHeight < 150,
+    `${Math.round(stripHeight)}px`,
+  );
+  await phonePage.screenshot({ path: join(SHOTS, '06-phone-picker.png') });
+  await phone.close();
 
   check(
     'no failed requests in demo mode',

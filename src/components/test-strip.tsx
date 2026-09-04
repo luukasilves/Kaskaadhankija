@@ -43,13 +43,19 @@ export async function TestStrip() {
   return (
     <div
       data-testid="test-strip"
-      className="kh-no-print border-b-2 border-[var(--color-demo)] bg-[var(--color-demo-soft)] px-4 py-2 text-[var(--color-text)]"
+      className="kh-no-print border-b-2 border-[var(--color-demo)] bg-[var(--color-demo-soft)] px-4 py-1.5 text-[var(--color-text)]"
       style={{
         backgroundImage:
           'repeating-linear-gradient(135deg, transparent 0 14px, color-mix(in srgb, var(--color-demo) 8%, transparent) 14px 28px)',
       }}
     >
-      <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-x-5 gap-y-2">
+      {/*
+        One swipeable row on a phone, wrapping rows on wider screens. Four
+        wrapped rows of test controls took 191px — a fifth of a phone screen —
+        which pushed the persona choices under the browser chrome and made the
+        opening screen look as though it offered nothing to choose.
+      */}
+      <div className="mx-auto flex max-w-[1600px] items-center gap-x-3 gap-y-1.5 overflow-x-auto whitespace-nowrap sm:flex-wrap sm:overflow-visible">
         <span className="rounded border border-[var(--color-demo)] px-2 py-0.5 font-mono text-[11px] font-bold tracking-widest text-[var(--color-demo)] uppercase">
           Testkeskkond
         </span>
