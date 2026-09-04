@@ -80,7 +80,7 @@ One container, one SQLite file, no outside services.
 | Transactions | every mutation is one `BEGIN IMMEDIATE` transaction that re-checks status inside; SQLite serializes writers globally, which is exactly the guarantee a cascade needs |
 | Styling | Tailwind v4 design tokens, light and dark, print stylesheet for orders |
 | Time | a virtual clock offset in the database; the domain never reads a clock |
-| Scheduling | in-process timer from `instrumentation.ts`, plus lazy checks on round pages and after any clock move — idempotent from all three |
+| Scheduling | in-process timer started on the first request, plus lazy checks on round pages and after any clock move — idempotent from all three |
 | Email | optional `nodemailer` over configurable SMTP; the in-app notification log is the primary channel and each row records what happened to its email |
 | Identity | one `getActor()` seam; personas in the test deployment, real auth later [L-08] |
 | Tests | vitest for domain and engine, plain Node + Playwright for the browser suites |
@@ -143,6 +143,7 @@ with the rank-3 partner holding an unconfirmed draft — which is where the
 | `node scripts/verify-harness.mjs` | personas, the strip, the clock, reset, and the production posture with `DEMO_MODE` off |
 | `node scripts/verify-partner.mjs` | Lisa B walked from three partner personas — every cell of B.2, then A's B.3 revision flipping a training to B; a sealed round shows no states; no page names a competitor |
 | `node scripts/e2e.mjs` | Lisa B to the end (close → the T-01 warning → cap → B.4 → confirm → orders), and a second round built from an uploaded table with a deliberately broken row |
+| `node scripts/verify-container.mjs` | what only the container does, on the standalone build it runs: surviving a SIGKILL restart on a volume without re-seeding or re-migrating, and the production posture with `DEMO_MODE` unset |
 
 ## Deployment
 
@@ -154,9 +155,14 @@ were traced into the standalone output, so a tracer change breaks the build
 rather than production. Migrations and the seed run at start-up, not as a release
 command: a Fly release machine has no volume mounted.
 
-**Not yet deployed.** No Docker daemon is available in the build environment, so
-the image is unbuilt; the standalone server it runs (`node server.js` with the
-volume path) was smoke-tested directly and boots, migrates, seeds and serves.
+**Deployed** at [kaskaadhankija.fly.dev](https://kaskaadhankija.fly.dev), from
+GitHub Actions rather than a workstation — the build environment has no Docker
+daemon and no route to Fly. The workflow creates the app and volume if missing,
+deploys with `--ha=false`, and then asserts the result from outside: one machine
+started with a volume at `/data`, `/api/health` ok, six partner personas and the
+buyer on the opening screen, and `/tellija` unreachable without a persona. A
+deploy that "succeeded" while serving the wrong thing is the failure worth
+catching.
 
 ## Open questions
 

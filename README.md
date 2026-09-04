@@ -24,9 +24,17 @@ specialists edit it directly.
 | **[`PLAN.md`](PLAN.md)** | Why the design is what it is, and what is deliberately structural |
 | **`src/`** | The application: buyer and partner screens, the round engine, the table import, the test harness |
 | **[`demo/`](demo/)** | The v1 single-file HTML demo of the *sequential* cascade — still useful, no server needed |
-| Deployment | `Dockerfile` and `fly.toml` are written; the image has not been built or deployed yet |
+| **[kaskaadhankija.fly.dev](https://kaskaadhankija.fly.dev)** | The running test environment — pick a persona and walk the whole process |
 
-## Try it locally
+## Try it
+
+The test environment is live at **[kaskaadhankija.fly.dev](https://kaskaadhankija.fly.dev)**:
+one machine in Stockholm, SQLite on a volume, sample data seeded on first boot.
+Pick a persona and the five-minute tour below works there exactly as it does
+locally. It is a test deployment — fictional partners, a virtual clock, and a
+reset button — so nothing in it needs protecting.
+
+To run it yourself:
 
 ```bash
 pnpm install
