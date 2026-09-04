@@ -114,22 +114,27 @@ export default async function OpeningScreen() {
   const roster = listPersonas();
 
   return (
-    <main className="mx-auto max-w-[1100px] p-5 md:p-10">
-      {/* Compact on purpose: the choices have to be reachable without scrolling
-          on a phone, where the test strip already takes a quarter of the screen. */}
+    <main
+      data-testid="intro-screen"
+      className="mx-auto flex min-h-screen max-w-[1100px] flex-col justify-center p-5 md:p-10"
+    >
+      {/* The gate. No strip, no navigation, nothing of the environment until a
+          persona is chosen — and compact enough that the choices themselves are
+          the first thing on the screen, phone included. */}
       <header className="mb-5">
-        <div className="flex flex-wrap items-center gap-3">
-          <h1>Kaskaadhankija</h1>
+        <div className="flex flex-wrap items-baseline gap-3">
+          <h1 className="text-[26px]">Kaskaadhankija</h1>
           <span className="kh-badge border border-[var(--color-demo)] bg-[var(--color-demo-soft)] text-[var(--color-demo)]">
             TESTKESKKOND
           </span>
         </div>
-        <p className="mt-2">
-          Vali persoon, kelle vaates keskkonda vaadata.{' '}
-          <span className="text-[var(--color-muted)]">
-            Näidise aeg{' '}
-            <strong className="tabular-nums">{formatDateTimeShort(roster.nowMs)}</strong>.
-          </span>
+        <p className="mt-2 text-[15px]">
+          <strong>Vali persoon</strong>, kelle vaates keskkonda vaadata.
+        </p>
+        <p className="mt-1 text-[13px] text-[var(--color-muted)]">
+          Kaskaad-minihangete näidiskeskkond raamlepingu „Eesti.ai koolitajate tellimine“ alusel.
+          Andmed on väljamõeldud. Näidise aeg{' '}
+          <strong className="tabular-nums">{formatDateTimeShort(roster.nowMs)}</strong>.
         </p>
       </header>
 
@@ -187,8 +192,8 @@ export default async function OpeningScreen() {
         </section>
       )}
 
-      <section className="mt-8 border-t border-[var(--color-border)] pt-5">
-        <h2>Mis keskkond see on?</h2>
+      <details className="mt-8 border-t border-[var(--color-border)] pt-5">
+        <summary className="cursor-pointer font-semibold">Mis keskkond see on?</summary>
         <p className="mt-2 max-w-[70ch] text-[var(--color-muted)]">
           Kaskaad-minihangete keskkond raamlepingu „Eesti.ai koolitajate tellimine“ (riigihanke
           viitenumber 10567384) alusel. Kogu kaskaadiloogika, vastamistähtaegade arvutus ja
@@ -200,9 +205,10 @@ export default async function OpeningScreen() {
           Keskkond töötab <strong>ühe ühise andmebaasi peal</strong>: kõik, kes lingi avavad, näevad
           ja muudavad sama seisu. Persoon on iga brauseri oma, seega mitmekesi katsetades saab
           igaüks olla eri partner — kuid kella kerimine ja näidisandmete lähtestamine mõjuvad
-          kõigile korraga. Persooni saab vahetada ka ülemiselt ribalt.
+          kõigile korraga. Pärast persoona valimist saab seda ülemiselt ribalt vahetada — nupp
+          „Vaheta persooni“ toob siia lehele tagasi.
         </p>
-      </section>
+      </details>
 
       <footer className="mt-8 border-t border-[var(--color-border)] pt-4 text-[12px] text-[var(--color-muted)]">
         Äriloogika on kirjeldatud failis <code>docs/kaskaadi-ariloogika.md</code>. Iga reegel kannab

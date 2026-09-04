@@ -97,6 +97,10 @@ async function main() {
     (await page.locator('main h1').first().textContent())?.includes('Kaskaadhankija'),
   );
   check('opening screen is marked as a test environment', (await page.getByText('TESTKESKKOND').count()) > 0);
+  check(
+    'the opening screen shows nothing but the choice — no strip to bypass it with',
+    (await page.getByTestId('test-strip').count()) === 0,
+  );
   const buyerCards = await page.locator('section:has(h2:text("Tellija")) form').count();
   const partnerCards = await page.locator('section:has(h2:text("Raamlepingu partnerid")) form').count();
   check('one buyer persona offered', buyerCards === 1, `${buyerCards}`);
@@ -166,10 +170,17 @@ async function main() {
   check('reset returns to the persona picker', page.url() === 'http://localhost:3210/');
   const afterReset = await page.evaluate(async () => (await fetch('/api/health')).ok);
   check('reset leaves the app healthy', afterReset);
+  check('reset returns to the gate, with no strip', (await page.getByTestId('test-strip').count()) === 0);
+  // The offset lives on the strip, which the gate does not show — so re-enter
+  // as the buyer and read it there.
+  await page.locator('section:has(h2:text("Tellija")) form button').first().click();
+  await page.waitForURL('**/tellija', { timeout: 15_000 });
   check(
     'reset clears the clock offset',
     (await page.locator('[data-testid="test-strip"]').getByText(/^\+\d+ p$/).count()) === 0,
   );
+  await page.goto('http://localhost:3210/');
+  await page.waitForSelector('[data-testid="persona-card"]', { timeout: 15_000 });
   check(
     'reset restores the full persona roster',
     (await page.locator('section:has(h2:text("Raamlepingu partnerid")) form').count()) === 6,
@@ -229,18 +240,24 @@ async function main() {
   await phonePage.goto('http://localhost:3210/');
   await phonePage.waitForSelector('h1');
   const firstCard = await phonePage.getByTestId('persona-card').first().boundingBox();
-  const stripHeight = (await phonePage.getByTestId('test-strip').boundingBox())?.height ?? 0;
   check(
     'on a 390px screen the first persona card starts within the first screenful',
-    firstCard !== null && firstCard.y < 520,
-    `esimene kaart ${Math.round(firstCard?.y ?? -1)}px, riba ${Math.round(stripHeight)}px`,
+    firstCard !== null && firstCard.y < 340,
+    `esimene kaart ${Math.round(firstCard?.y ?? -1)}px`,
   );
+
+  await phonePage.screenshot({ path: join(SHOTS, '06-phone-gate.png') });
+
+  // And once inside, the strip must not eat the screen either.
+  await phonePage.locator('section:has(h2:text("Tellija")) form button').first().click();
+  await phonePage.waitForURL('**/tellija', { timeout: 15_000 });
+  const stripHeight = (await phonePage.getByTestId('test-strip').boundingBox())?.height ?? 0;
   check(
-    'the test strip does not take a quarter of a phone screen',
-    stripHeight < 150,
+    'inside, the test strip does not take a quarter of a phone screen',
+    stripHeight > 0 && stripHeight < 150,
     `${Math.round(stripHeight)}px`,
   );
-  await phonePage.screenshot({ path: join(SHOTS, '06-phone-picker.png') });
+  await phonePage.screenshot({ path: join(SHOTS, '07-phone-inside.png') });
   await phone.close();
 
   check(

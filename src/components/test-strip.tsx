@@ -7,18 +7,26 @@
  * tester needs at all times — who they are acting as, what the virtual clock
  * says, and a way back to a clean slate.
  *
- * Absent entirely when DEMO_MODE is off; the E2E suite asserts that.
+ * Absent entirely when DEMO_MODE is off, and also **before a persona has been
+ * chosen**: the opening screen is a gate, and a strip above it would both show
+ * harness chrome before the environment has been entered and offer a dropdown
+ * that skips the choice the screen exists to make.
  */
 
-import { cookies } from 'next/headers';
 import { formatDateTimeShort } from '@/domain/format';
 import { isDemoMode } from '@/lib/env';
-import { PERSONA_COOKIE } from '@/server/auth/actor';
+import { getActor } from '@/server/auth/actor';
 import { listPersonaOptions, nextDeadlineMs } from '@/server/personas';
 import { TestStripControls } from './test-strip-controls';
 
 export async function TestStrip() {
   if (!isDemoMode) return null;
+
+  // Nothing but the choice until a persona is chosen. Resolved rather than read
+  // from the cookie, so a stale cookie — one left by a reset, which mints new
+  // ids — shows the gate instead of a strip naming a persona that is gone.
+  const actor = await getActor();
+  if (!actor) return null;
 
   let personas: Array<{ key: string; group: string; label: string }> = [];
   let nowMs = Date.now();
@@ -37,8 +45,8 @@ export async function TestStrip() {
     return null;
   }
 
-  const store = await cookies();
-  const currentKey = store.get(PERSONA_COOKIE)?.value ?? null;
+  const currentKey =
+    actor.kind === 'buyer' ? `buyer:${actor.userId}` : `partner:${actor.partnerId}`;
 
   return (
     <div
