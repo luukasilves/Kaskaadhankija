@@ -137,6 +137,25 @@ function nextCalendarDay(year: number, month: number, day: number) {
   };
 }
 
+function previousCalendarDay(year: number, month: number, day: number) {
+  const previous = new Date(Date.UTC(year, month - 1, day - 1));
+  return {
+    year: previous.getUTCFullYear(),
+    month: previous.getUTCMonth() + 1,
+    day: previous.getUTCDate(),
+  };
+}
+
+function wallTime(localTime: string): { hour: number; minute: number } {
+  const [hourStr, minuteStr] = localTime.split(':');
+  const hour = Number(hourStr);
+  const minute = Number(minuteStr ?? '0');
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) {
+    throw new Error(`invalid localTime ${localTime}`);
+  }
+  return { hour, minute };
+}
+
 /** True when the given Tallinn calendar date is a working day (Mon–Fri, not a riigipüha). */
 export function isWorkingDay(year: number, month: number, day: number): boolean {
   const dow = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
@@ -169,12 +188,32 @@ export function addWorkingDays(from: Date, n: number, localTime = '17:00'): Date
   }
   if (counted < n) throw new Error('addWorkingDays: could not find enough working days');
 
-  const [hourStr, minuteStr] = localTime.split(':');
-  const hour = Number(hourStr);
-  const minute = Number(minuteStr ?? '0');
-  if (!Number.isFinite(hour) || !Number.isFinite(minute)) {
-    throw new Error(`addWorkingDays: invalid localTime ${localTime}`);
+  const { hour, minute } = wallTime(localTime);
+  return tallinnWallToUtc(cursor.year, cursor.month, cursor.day, hour, minute);
+}
+
+/**
+ * The mirror of `addWorkingDays`: the `n`-th working day *before* `from`, at
+ * `localTime` Tallinn time. The starting day never counts.
+ *
+ * Used by the mock seed to place a round's publication in the past — "avaldatud
+ * 2 tööpäeva tagasi kell 10:00" — so that replaying the real engine calls
+ * against a rewound clock lands the deadline where the scenario wants it.
+ */
+export function subWorkingDays(from: Date, n: number, localTime = '17:00'): Date {
+  if (!Number.isInteger(n) || n < 1) {
+    throw new Error(`subWorkingDays: n must be a positive integer, got ${n}`);
   }
+  const start = tallinnParts(from);
+  let cursor = { year: start.year, month: start.month, day: start.day };
+  let counted = 0;
+  for (let guard = 0; counted < n && guard < 400; guard++) {
+    cursor = previousCalendarDay(cursor.year, cursor.month, cursor.day);
+    if (isWorkingDay(cursor.year, cursor.month, cursor.day)) counted++;
+  }
+  if (counted < n) throw new Error('subWorkingDays: could not find enough working days');
+
+  const { hour, minute } = wallTime(localTime);
   return tallinnWallToUtc(cursor.year, cursor.month, cursor.day, hour, minute);
 }
 

@@ -1,0 +1,49 @@
+﻿kood;hankeosa;nimetus;formaat;kuupaev;lopp_kuupaev;maakond;asukoht;sihtruhm;osalejate_arv;keel;hinnanguline_maksumus;markused
+KK-2026-101;OSA-1;Töötuba 1 Tallinna linnavalitsuse teenistujatele;Töötuba 1;15.09.2026;;Harju maakond;Koolitaja ruumid kesklinnas;KOV ametnikud;28;et;1450;Osalejad on AI-tööriistadega varem kokku puutunud
+KK-2026-102;OSA-1;Töötuba 1 Tartu linnavalitsuse teenistujatele;Töötuba 1;22.09.2026;;Tartu maakond;Koolitaja ruumid;KOV ametnikud;26;et;1450;
+KK-2026-103;OSA-1;Töötuba 2 Harju maakonna KOV juhtidele;Töötuba 2;06.10.2026;;Harju maakond;Koolitaja ruumid;KOV ametnikud;22;et;1515;Eeldab Töötuba 1 läbimist
+KK-2026-104;OSA-1;Töötuba 1 Pärnu haridusasutuste juhtidele;Töötuba 1;13.10.2026;;Pärnu maakond;Koolitaja ruumid;Haridus;30;et;1450;
+KK-2026-105;OSA-1;Töötuba 1 Ida-Viru tervishoiutöötajatele;Töötuba 1;20.10.2026;;Ida-Viru maakond;Koolitaja ruumid Jõhvis;Tervishoid;24;ru;1580;Läbiviimine vene keeles
+KK-2026-106;OSA-1;Töötuba 2 Viljandi maakonna ametnikele;Töötuba 2;27.10.2026;;Viljandi maakond;Koolitaja ruumid;KOV ametnikud;20;et;1515;
+KK-2026-107;OSA-1;Töötuba 1 Rakvere sotsiaaltöötajatele;Töötuba 1;03.11.2026;;Lääne-Viru maakond;Koolitaja ruumid;Sotsiaalvaldkond;25;et;1450;
+KK-2026-108;OSA-1;Töötuba 1 Kuressaare väikeettevõtjatele;Töötuba 1;10.11.2026;;Saare maakond;Koolitaja ruumid;Väikeettevõtjad;18;et;1600;Saartele lisandub logistikakulu
+KK-2026-109;OSA-1;Töötuba 2 Jõgeva maakonna haridustöötajatele;Töötuba 2;17.11.2026;;Jõgeva maakond;Koolitaja ruumid;Haridus;23;et;1515;
+KK-2026-110;OSA-1;Töötuba 1 Valga maakonna ametnikele;Töötuba 1;24.11.2026;;Valga maakond;Koolitaja ruumid;KOV ametnikud;19;et;1450;
+KK-2026-111;OSA-1;Töötuba 1 Haapsalu tervishoiuasutuste töötajatele;Töötuba 1;01.12.2026;;Lääne maakond;Koolitaja ruumid;Tervishoid;21;et;1580;
+KK-2026-112;OSA-1;Töötuba 2 Kärdla ja Hiiumaa ametnikele;Töötuba 2;08.12.2026;;Hiiu maakond;Koolitaja ruumid;KOV ametnikud;15;et;1600;Väike grupp
+KK-2026-201;OSA-2;Töötuba 1 Rahandusministeeriumi teenistujatele;Töötuba 1;05.10.2026;;Harju maakond;Tellija ruumid, Suur-Ameerika 1;Riigiasutused;24;et;980;
+KK-2026-202;OSA-2;Töötuba 1 Sotsiaalministeeriumi teenistujatele;Töötuba 1;07.10.2026;;Harju maakond;Tellija ruumid;Riigiasutused;26;et;980;
+KK-2026-203;OSA-2;Töötuba 2 Justiitsministeeriumi juristidele;Töötuba 2;12.10.2026;;Harju maakond;Tellija ruumid;Riigiasutused;20;et;1040;Eeldab Töötuba 1 läbimist
+KK-2026-204;OSA-2;Töötuba 1 Maksu- ja Tolliameti teenistujatele;Töötuba 1;14.10.2026;;Harju maakond;Tellija ruumid, Lõõtsa 8a;Riigiasutused;30;et;980;
+KK-2026-205;OSA-2;Töötuba 1 Politsei- ja Piirivalveameti teenistujatele;Töötuba 1;19.10.2026;;Harju maakond;Tellija ruumid;Riigiasutused;28;et;980;
+KK-2026-206;OSA-2;Töötuba 2 Riigi Tugiteenuste Keskuse spetsialistidele;Töötuba 2;21.10.2026;;Harju maakond;Tellija ruumid;Riigiasutused;22;et;1040;
+KK-2026-207;OSA-2;Töötuba 1 Järva maakonna KOV ametnikele;Töötuba 1;08.09.2026;;Järva maakond;Paide, tellija ruumid;KOV ametnikud;22;et;980;
+KK-2026-208;OSA-2;Töötuba 1 Rapla maakonna KOV ametnikele;Töötuba 1;10.09.2026;;Rapla maakond;Rapla, tellija ruumid;KOV ametnikud;20;et;980;
+KK-2026-209;OSA-2;Töötuba 1 Põlva maakonna haridustöötajatele;Töötuba 1;15.09.2026;;Põlva maakond;Põlva, tellija ruumid;Haridus;24;et;980;
+KK-2026-210;OSA-2;Töötuba 1 Võru maakonna sotsiaaltöötajatele;Töötuba 1;17.09.2026;;Võru maakond;Võru, tellija ruumid;Sotsiaalvaldkond;18;et;980;
+KK-2026-211;OSA-2;Töötuba 2 Tartu maakonna KOV juhtidele;Töötuba 2;24.09.2026;;Tartu maakond;Tartu, tellija ruumid;KOV ametnikud;21;et;1040;
+KK-2026-212;OSA-2;Töötuba 1 Narva linnavalitsuse teenistujatele;Töötuba 1;05.11.2026;;Ida-Viru maakond;Narva, tellija ruumid;KOV ametnikud;25;ru;1010;Läbiviimine vene keeles
+KK-2026-213;OSA-2;Töötuba 1 Kohtla-Järve sotsiaaltöötajatele;Töötuba 1;12.11.2026;;Ida-Viru maakond;Kohtla-Järve, tellija ruumid;Sotsiaalvaldkond;20;ru;1010;Läbiviimine vene keeles
+KK-2026-214;OSA-2;Töötuba 2 Pärnu maakonna ametnikele;Töötuba 2;19.11.2026;;Pärnu maakond;Pärnu, tellija ruumid;KOV ametnikud;23;et;1040;
+KK-2026-215;OSA-2;Töötuba 1 Saare maakonna väikeettevõtjatele;Töötuba 1;26.11.2026;;Saare maakond;Kuressaare, tellija ruumid;Väikeettevõtjad;17;et;1010;
+KK-2026-216;OSA-2;Töötuba 2 Lääne-Viru haridusasutuste juhtidele;Töötuba 2;03.12.2026;;Lääne-Viru maakond;Rakvere, tellija ruumid;Haridus;22;et;1040;
+KK-2026-301;OSA-3;Töötuba 1 veebis Sotsiaalkindlustusameti spetsialistidele;Töötuba 1;08.09.2026;;Veebipõhine;MS Teams;Riigiasutused;45;et;760;Vajalik salvestus
+KK-2026-302;OSA-3;Töötuba 1 veebis Töötukassa nõustajatele;Töötuba 1;10.09.2026;;Veebipõhine;MS Teams;Riigiasutused;50;et;760;
+KK-2026-303;OSA-3;Töötuba 2 veebis Terviseameti spetsialistidele;Töötuba 2;15.09.2026;;Veebipõhine;MS Teams;Tervishoid;40;et;820;
+KK-2026-304;OSA-3;Töötuba 1 veebis Haridus- ja Teadusministeeriumi teenistujatele;Töötuba 1;17.09.2026;;Veebipõhine;MS Teams;Haridus;42;et;760;
+KK-2026-305;OSA-3;Töötuba 1 veebis Keskkonnaameti spetsialistidele;Töötuba 1;22.09.2026;;Veebipõhine;Zoom;Riigiasutused;38;et;760;
+KK-2026-306;OSA-3;Töötuba 1 veebis üldhariduskoolide õpetajatele;Töötuba 1;06.10.2026;;Veebipõhine;MS Teams;Haridus;60;et;790;Suurem grupp
+KK-2026-307;OSA-3;Töötuba 2 veebis kutseõppeasutuste õpetajatele;Töötuba 2;08.10.2026;;Veebipõhine;MS Teams;Haridus;48;et;820;
+KK-2026-308;OSA-3;Töötuba 1 veebis perearstidele ja pereõdedele;Töötuba 1;15.10.2026;;Veebipõhine;MS Teams;Tervishoid;55;et;790;
+KK-2026-309;OSA-3;Töötuba 1 veebis vene keeles KOV ametnikele;Töötuba 1;22.10.2026;;Veebipõhine;MS Teams;KOV ametnikud;40;ru;790;Läbiviimine vene keeles
+KK-2026-310;OSA-3;Töötuba 2 veebis riigiasutuste juhtidele;Töötuba 2;29.10.2026;;Veebipõhine;MS Teams;Riigiasutused;35;et;820;
+KK-2026-311;OSA-3;Töötuba 1 veebis väikeettevõtjatele;Töötuba 1;05.11.2026;;Veebipõhine;Zoom;Väikeettevõtjad;70;et;790;Avatud registreerimine
+KK-2026-312;OSA-3;Töötuba 1 veebis sotsiaaltöötajatele;Töötuba 1;12.11.2026;;Veebipõhine;MS Teams;Sotsiaalvaldkond;44;et;760;
+KK-2026-313;OSA-3;Töötuba 2 veebis raamatupidajatele ja finantsistidele;Töötuba 2;19.11.2026;;Veebipõhine;MS Teams;Väikeettevõtjad;52;et;820;
+KK-2026-314;OSA-3;Töötuba 1 veebis vene keeles tervishoiutöötajatele;Töötuba 1;26.11.2026;;Veebipõhine;MS Teams;Tervishoid;36;ru;790;Läbiviimine vene keeles
+KK-2026-401;OSA-4;Eesti.ai kaasloomepäev avaliku sektori juhtidele;Suursündmus;15.10.2026;;Tartu maakond;Tartu, täpsustatakse kokkuleppel;Riigiasutused;180;et;4800;Vajalik modereerimine ja registreerimine
+KK-2026-402;OSA-4;Eesti.ai häkaton riigiasutuste arendusmeeskondadele;Suursündmus;05.11.2026;07.11.2026;Harju maakond;Tallinn, täpsustatakse kokkuleppel;Riigiasutused;120;et;7500;Kolmepäevane, vajalik tehniline tugi
+KK-2026-403;OSA-4;Eesti.ai loeng KOV juhtidele ja volikogude liikmetele;Muu formaat;12.11.2026;;Pärnu maakond;Pärnu kontserdimaja;KOV ametnikud;250;et;5200;
+KK-2026-404;OSA-4;Eesti.ai kaasloomepäev haridusjuhtidele;Suursündmus;19.11.2026;;Harju maakond;Tallinn, täpsustatakse kokkuleppel;Haridus;200;et;4800;
+KK-2026-405;OSA-4;Eesti.ai konverentsipäev tervishoiuasutuste juhtidele;Suursündmus;03.12.2026;;Tartu maakond;Tartu, täpsustatakse kokkuleppel;Tervishoid;160;et;5600;
+KK-2026-406;OSA-4;Eesti.ai loeng väikeettevõtjatele ja alustavatele ettevõtetele;Muu formaat;10.12.2026;;Ida-Viru maakond;Narva, täpsustatakse kokkuleppel;Väikeettevõtjad;300;et;5200;Kahekeelne, et ja ru

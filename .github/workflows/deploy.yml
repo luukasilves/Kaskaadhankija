@@ -1,0 +1,236 @@
+name: Deploy to Fly.io
+
+# Deploys the test environment: one machine, one SQLite file on a volume.
+#
+# Requires a single repository secret, FLY_API_TOKEN, scoped to the account or
+# the organisation — not an app-scoped deploy token, because the bootstrap job
+# may have to create the app itself.
+#
+# On the branch trigger: `workflow_dispatch` is only offered for workflows that
+# already exist on the default branch, so until this is merged the push trigger
+# is the only way to run it. Drop `claude/parallel-cascade-spec` from the list
+# once it is on main.
+
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: 'Fly app name (must be globally unique)'
+        required: false
+        default: ''
+  push:
+    branches: [main, claude/parallel-cascade-spec]
+
+concurrency:
+  # One deploy at a time: two concurrent runs would fight over one machine.
+  group: fly-deploy
+  cancel-in-progress: false
+
+env:
+  FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+  FLY_REGION: arn # Stockholm — the closest Fly region to Tallinn
+  VOLUME_NAME: kh_data
+  VOLUME_SIZE_GB: '1'
+
+jobs:
+  # ------------------------------------------------------------------ #
+  # Create the app and its volume if they are not there yet. Idempotent,
+  # so re-running a failed deploy is always safe.
+  #
+  # Existence is checked by exit code and plain text rather than by JSON
+  # field names, which have changed shape between flyctl versions.
+  # ------------------------------------------------------------------ #
+  bootstrap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      app: ${{ steps.resolve.outputs.app }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Refuse to run without a token
+        run: |
+          if [ -z "$FLY_API_TOKEN" ]; then
+            echo '::error::FLY_API_TOKEN is not set. Add it under Settings → Secrets and variables → Actions.'
+            exit 1
+          fi
+          flyctl version
+
+      - name: Resolve the app name and the organisation
+        id: resolve
+        run: |
+          # The input wins, so a name clash can be worked around without a
+          # commit; otherwise fly.toml is the single source of truth.
+          APP='${{ inputs.app }}'
+          if [ -z "$APP" ]; then
+            APP=$(sed -n 's/^app *= *"\(.*\)"/\1/p' fly.toml | head -1)
+          fi
+          if [ -z "$APP" ]; then
+            echo '::error::No app name in fly.toml and none given.'
+            exit 1
+          fi
+          echo "app=$APP" >> "$GITHUB_OUTPUT"
+
+          # Most accounts have an org called "personal"; a token scoped to a
+          # named organisation does not, so fall back to whatever is listed.
+          if flyctl orgs list 2>/dev/null | grep -qiw personal; then
+            ORG=personal
+          else
+            ORG=$(flyctl orgs list 2>/dev/null | awk 'NR>1 && NF {print $NF; exit}')
+          fi
+          if [ -z "$ORG" ]; then
+            echo '::error::Could not determine a Fly organisation from this token.'
+            flyctl orgs list || true
+            exit 1
+          fi
+          echo "org=$ORG" >> "$GITHUB_OUTPUT"
+          echo "Deploying $APP into organisation $ORG."
+
+      - name: Create the app if it does not exist
+        run: |
+          APP='${{ steps.resolve.outputs.app }}'
+          ORG='${{ steps.resolve.outputs.org }}'
+          if flyctl status --app "$APP" > /dev/null 2>&1; then
+            echo "App $APP already exists."
+          else
+            echo "Creating app $APP…"
+            if ! flyctl apps create "$APP" --org "$ORG"; then
+              echo "::error::Could not create $APP. Fly app names are globally unique — if it is taken, re-run this workflow from the Actions tab with a different name in the 'app' input, or change 'app' and 'APP_BASE_URL' in fly.toml."
+              exit 1
+            fi
+          fi
+
+      - name: Create the volume if it does not exist
+        run: |
+          APP='${{ steps.resolve.outputs.app }}'
+          if flyctl volumes list --app "$APP" 2>/dev/null | grep -qw "$VOLUME_NAME"; then
+            echo "Volume $VOLUME_NAME already exists."
+            flyctl volumes list --app "$APP"
+          else
+            echo "Creating volume $VOLUME_NAME in $FLY_REGION…"
+            flyctl volumes create "$VOLUME_NAME" \
+              --app "$APP" --region "$FLY_REGION" --size "$VOLUME_SIZE_GB" --yes
+          fi
+
+  # ------------------------------------------------------------------ #
+  # Build the image on Fly's builder and release it onto one machine.
+  # ------------------------------------------------------------------ #
+  deploy:
+    needs: bootstrap
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy
+        run: |
+          APP='${{ needs.bootstrap.outputs.app }}'
+          # --remote-only: Fly's builder runs the docker build, so the runner
+          #                needs no Docker of its own.
+          # --ha=false:    exactly one machine. Two would mean two SQLite files
+          #                on two volumes behind one hostname.
+          flyctl deploy \
+            --app "$APP" \
+            --remote-only \
+            --ha=false \
+            --wait-timeout 600
+
+  # ------------------------------------------------------------------ #
+  # Prove the deployment is what it should be, from outside.
+  # ------------------------------------------------------------------ #
+  smoke:
+    needs: [bootstrap, deploy]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Exactly one machine, started, with the volume attached
+        run: |
+          APP='${{ needs.bootstrap.outputs.app }}'
+          flyctl machines list --app "$APP"
+
+          # Tolerant of key casing: flyctl has changed it between versions.
+          flyctl machines list --app "$APP" --json > machines.json
+          COUNT=$(jq 'length' machines.json)
+          if [ "$COUNT" -ne 1 ]; then
+            echo "::error::Expected exactly 1 machine, found $COUNT. Two machines mean two databases."
+            exit 1
+          fi
+
+          STATE=$(jq -r '.[0] | (.state // .State // "unknown")' machines.json)
+          if [ "$STATE" != "started" ]; then
+            echo "::error::Machine state is '$STATE', expected 'started'."
+            exit 1
+          fi
+
+          MOUNTS=$(jq '[.[0] | (.config // .Config // {}) | (.mounts // .Mounts // []) | .[]
+                        | (.path // .Path // "")] | map(select(. == "/data")) | length' machines.json)
+          if [ "$MOUNTS" -lt 1 ]; then
+            echo "::error::No volume mounted at /data — the database would not survive a restart."
+            exit 1
+          fi
+          echo "One machine, started, volume mounted at /data."
+
+      - name: The site answers, and is the application we expect
+        run: |
+          APP='${{ needs.bootstrap.outputs.app }}'
+          BASE="https://$APP.fly.dev"
+
+          # A machine that has just been released can take a moment to serve.
+          for attempt in $(seq 1 20); do
+            if curl -fsS --max-time 10 "$BASE/api/health" > health.json 2>/dev/null; then
+              break
+            fi
+            echo "waiting for $BASE … ($attempt)"
+            sleep 6
+          done
+
+          cat health.json
+          jq -e '.ok == true' health.json > /dev/null \
+            || { echo "::error::$BASE/api/health did not report ok."; exit 1; }
+
+          curl -fsS --max-time 20 "$BASE/" > home.html
+          grep -q 'TESTKESKKOND' home.html \
+            || { echo '::error::The opening screen is not the test environment.'; exit 1; }
+
+          # Each persona card posts its key; six partners and one buyer.
+          PARTNERS=$(grep -o 'value="partner:[0-9a-f-]*"' home.html | sort -u | wc -l)
+          BUYERS=$(grep -o 'value="buyer:[0-9a-f-]*"' home.html | sort -u | wc -l)
+          if [ "$PARTNERS" -ne 6 ] || [ "$BUYERS" -ne 1 ]; then
+            echo "::error::Expected 6 partner personas and 1 buyer, found $PARTNERS and $BUYERS — the sample data did not seed."
+            exit 1
+          fi
+          echo "Six partner personas and the buyer are offered."
+
+          # The seeded Lisa B round must be waiting for a response.
+          grep -q 'VOOR-' home.html \
+            || { echo '::error::No seeded round on the opening screen.'; exit 1; }
+
+          # Without a persona chosen, the buyer area must not be reachable.
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$BASE/tellija")
+          if [ "$CODE" = "200" ]; then
+            echo '::error::/tellija served without a persona.'
+            exit 1
+          fi
+          echo "/tellija returned $CODE, as it should without a persona."
+          echo "Deployed and serving: $BASE"
+
+      - name: Summary
+        run: |
+          APP='${{ needs.bootstrap.outputs.app }}'
+          {
+            echo "### Kaskaadhankija is deployed"
+            echo
+            echo "**https://$APP.fly.dev**"
+            echo
+            echo "One machine in \`$FLY_REGION\`, SQLite on the \`$VOLUME_NAME\` volume."
+            echo "The seeded round \`VOOR-2026-003\` is Lisa B of the specification."
+          } >> "$GITHUB_STEP_SUMMARY"

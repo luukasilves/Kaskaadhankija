@@ -1,0 +1,332 @@
+'use server';
+
+/**
+ * Buyer-side round actions.
+ *
+ * Thin wrappers: authorization and transaction handling live in `helpers.ts`,
+ * the rules live in `engine.ts`. Each returns an `ActionOutcome` so the page can
+ * show what happened rather than throwing an opaque error at the user.
+ */
+
+import { redirect } from 'next/navigation';
+import {
+  applyAdjustment,
+  cancelLeftover,
+  cancelRound,
+  clearAdjustment,
+  closeRound,
+  confirmAllocation,
+  createRound,
+  deactivateLotPartner,
+  extendDeadlineByWorkingDays,
+  markTrainingCompleted,
+  publishRound,
+  recordPartnerWithdrawal,
+  reissueLeftover,
+  removeTrainingFromDraft,
+  withdrawTraining,
+  cancelOrderTraining,
+} from '../rounds/engine';
+import { runDueJobs } from '../rounds/jobs';
+import type { VisibilityMode } from '@/domain/round-statuses';
+import {
+  buyerWrite,
+  describeError,
+  fail,
+  fieldList,
+  fieldNumber,
+  fieldText,
+  ok,
+  type ActionOutcome,
+} from './helpers';
+
+const ROUNDS = '/tellija/voorud';
+const DASHBOARD = '/tellija';
+
+/** Create a draft round from selected trainings, then open its page. */
+export async function createRoundAction(form: FormData): Promise<ActionOutcome> {
+  const lotId = fieldText(form, 'lotId');
+  const trainingIds = fieldList(form, 'trainingIds');
+  const note = fieldText(form, 'note');
+  const visibilityMode = (fieldText(form, 'visibilityMode') || undefined) as VisibilityMode | undefined;
+
+  if (!lotId) return fail('Vali hankeosa.');
+  if (trainingIds.length === 0) return fail('Vali vähemalt üks koolitus.');
+
+  let roundId: string;
+  try {
+    roundId = await buyerWrite(
+      (ctx) => createRound(ctx, { lotId, trainingIds, note, visibilityMode }),
+      [ROUNDS, DASHBOARD, '/tellija/koolitused'],
+    );
+  } catch (error) {
+    return fail(describeError(error));
+  }
+  redirect(`${ROUNDS}/${roundId}`);
+}
+
+export async function publishRoundAction(form: FormData): Promise<ActionOutcome> {
+  const roundId = fieldText(form, 'roundId');
+  // Expressed in working days rather than a wall-clock date: that is the unit
+  // the framework uses, and it avoids a timezone-less datetime input.
+  const extraWorkingDays = fieldNumber(form, 'extraWorkingDays') ?? 0;
+  const visibilityMode = (fieldText(form, 'visibilityMode') || undefined) as VisibilityMode | undefined;
+
+  try {
+    await buyerWrite(
+      (ctx) => publishRound(ctx, roundId, { extraWorkingDays, visibilityMode }),
+      [ROUNDS, `${ROUNDS}/${roundId}`, DASHBOARD],
+    );
+    return ok('Voor on avaldatud kõigile hankeosa partneritele.');
+  } catch (error) {
+    return fail(describeError(error));
+  }
+}
+
+export async function removeDraftTrainingAction(form: FormData): Promise<ActionOutcome> {
+  const roundId = fieldText(form, 'roundId');
+  const trainingId = fieldText(form, 'trainingId');
+  try {
+    await buyerWrite((ctx) => removeTrainingFromDraft(ctx, roundId, trainingId), [
+      `${ROUNDS}/${roundId}`,
+      '/tellija/koolitused',
+    ]);
+    return ok('Koolitus eemaldatud mustandist.');
+  } catch (error) {
+    return fail(describeError(error));
+  }
+}
+
+export async function extendDeadlineAction(form: FormData): Promise<ActionOutcome> {
+  const roundId = fieldText(form, 'roundId');
+  const addDays = fieldNumber(form, 'addWorkingDays') ?? 0;
+  const reason = fieldText(form, 'reason');
+
+  if (addDays <= 0) return fail('Vali, mitu päeva juurde anda.');
+
+  try {
+    await buyerWrite((ctx) => extendDeadlineByWorkingDays(ctx, roundId, addDays, reason), [
+      `${ROUNDS}/${roundId}`,
+      ROUNDS,
+    ]);
+    return ok('Tähtaeg on pikendatud ja partnereid teavitatud.');
+  } catch (error) {
+    return fail(describeError(error));
+  }
+}
+
+export async function withdrawTrainingAction(form: FormData): Promise<ActionOutcome> {
+  const roundId = fieldText(form, 'roundId');
+  const trainingId = fieldText(form, 'trainingId');
+  const reason = fieldText(form, 'reason');
+  try {
+    await buyerWrite((ctx) => withdrawTraining(ctx, roundId, trainingId, reason), [
+      `${ROUNDS}/${roundId}`,
+      '/tellija/koolitused',
+    ]);
+    return ok('Koolitus on voorust tagasi võetud ja partnereid teavitatud.');
+  } catch (error) {
+    return fail(describeError(error));
+  }
+}
+
+export async function cancelRoundAction(form: FormData): Promise<ActionOutcome> {
+  const roundId = fieldText(form, 'roundId');
+  const reason = fieldText(form, 'reason');
+  try {
+    await buyerWrite((ctx) => cancelRound(ctx, roundId, reason), [
+      ROUNDS,
+      `${ROUNDS}/${roundId}`,
+      DASHBOARD,
+      '/tellija/koolitused',
+    ]);
+    return ok('Voor on tühistatud.');
+  } catch (error) {
+    return fail(describeError(error));
+  }
+}
+
+/** Close a round early is not offered; this only forces the due check. */
+export async function runDeadlineJobsAction(): Promise<ActionOutcome> {
+  try {
+    const report = runDueJobs();
+    return ok(
+      report.closed.length > 0
+        ? `Suletud: ${report.closed.join(', ')}.`
+        : 'Ükski voor ei olnud tähtaja ületanud.',
+    );
+  } catch (error) {
+    return fail(describeError(error));
+  }
+}
+
+export async function applyAdjustmentAction(form: FormData): Promise<ActionOutcome> {
+  const roundId = fieldText(form, 'roundId');
+  const lotPartnerId = fieldText(form, 'lotPartnerId');
+  const kind = fieldText(form, 'kind') as 'skip' | 'cap';
+  const cap = fieldNumber(form, 'cap');
+  const justification = fieldText(form, 'justification');
+
+  try {
+    await buyerWrite(
+      (ctx) =>
+        applyAdjustment(ctx, roundId, {
+          lotPartnerId,
+          kind,
+          cap: cap ?? undefined,
+          justification,
+        }),
+      [`${ROUNDS}/${roundId}/ulevaatus`],
+    );
+    return ok(kind === 'skip' ? 'Partner jäetakse selles voorus vahele.' : 'Piirmäär rakendatud.');
+  } catch (error) {
+    return fail(describeError(error));
+  }
+}
+
+export async function clearAdjustmentAction(form: FormData): Promise<ActionOutcome> {
+  const roundId = fieldText(form, 'roundId');
+  const lotPartnerId = fieldText(form, 'lotPartnerId');
+  try {
+    await buyerWrite((ctx) => clearAdjustment(ctx, roundId, lotPartnerId), [
+      `${ROUNDS}/${roundId}/ulevaatus`,
+    ]);
+    return ok('Kohandus tühistatud.');
+  } catch (error) {
+    return fail(describeError(error));
+  }
+}
+
+export async function confirmAllocationAction(form: FormData): Promise<ActionOutcome> {
+  const roundId = fieldText(form, 'roundId');
+  try {
+    const result = await buyerWrite((ctx) => confirmAllocation(ctx, roundId), [
+      ROUNDS,
+      `${ROUNDS}/${roundId}`,
+      `${ROUNDS}/${roundId}/ulevaatus`,
+      DASHBOARD,
+      '/tellija/tellimused',
+      '/tellija/koolitused',
+    ]);
+    return ok(
+      `Jaotus kinnitatud: ${result.orderIds.length} tellimus(t) loodud${
+        result.leftover.length > 0 ? `, jääk ${result.leftover.length} koolitust` : ''
+      }.`,
+    );
+  } catch (error) {
+    return fail(describeError(error));
+  }
+}
+
+/* ---------------- jääk [T-06] ---------------- */
+
+export async function reissueLeftoverAction(form: FormData): Promise<ActionOutcome> {
+  const trainingIds = fieldList(form, 'trainingIds');
+  const lotId = fieldText(form, 'lotId');
+  if (trainingIds.length === 0) return fail('Vali vähemalt üks koolitus.');
+
+  let roundId: string;
+  try {
+    roundId = await buyerWrite(
+      (ctx) => {
+        const id = createRound(ctx, { lotId, trainingIds: [] });
+        for (const trainingId of trainingIds) reissueLeftover(ctx, trainingId, id);
+        return id;
+      },
+      [DASHBOARD, ROUNDS, '/tellija/koolitused'],
+    );
+  } catch (error) {
+    return fail(describeError(error));
+  }
+  redirect(`${ROUNDS}/${roundId}`);
+}
+
+export async function cancelLeftoverAction(form: FormData): Promise<ActionOutcome> {
+  const trainingId = fieldText(form, 'trainingId');
+  const reason = fieldText(form, 'reason');
+  try {
+    await buyerWrite((ctx) => cancelLeftover(ctx, trainingId, reason), [
+      DASHBOARD,
+      '/tellija/koolitused',
+    ]);
+    return ok('Koolitus tühistatud.');
+  } catch (error) {
+    return fail(describeError(error));
+  }
+}
+
+/* ---------------- orders and memberships ---------------- */
+
+export async function markTrainingCompletedAction(form: FormData): Promise<ActionOutcome> {
+  const trainingId = fieldText(form, 'trainingId');
+  try {
+    await buyerWrite((ctx) => markTrainingCompleted(ctx, trainingId), [
+      '/tellija/koolitused',
+      '/tellija/tellimused',
+    ]);
+    return ok('Koolitus märgitud läbiviiduks.');
+  } catch (error) {
+    return fail(describeError(error));
+  }
+}
+
+export async function cancelOrderTrainingAction(form: FormData): Promise<ActionOutcome> {
+  const orderId = fieldText(form, 'orderId');
+  const trainingId = fieldText(form, 'trainingId');
+  const reason = fieldText(form, 'reason');
+  try {
+    await buyerWrite((ctx) => cancelOrderTraining(ctx, orderId, trainingId, reason), [
+      `/tellija/tellimused/${orderId}`,
+      '/tellija/tellimused',
+    ]);
+    return ok('Koolitus tellimusest tühistatud.');
+  } catch (error) {
+    return fail(describeError(error));
+  }
+}
+
+export async function recordPartnerWithdrawalAction(form: FormData): Promise<ActionOutcome> {
+  const orderId = fieldText(form, 'orderId');
+  const trainingId = fieldText(form, 'trainingId');
+  const note = fieldText(form, 'note');
+  try {
+    await buyerWrite((ctx) => recordPartnerWithdrawal(ctx, orderId, trainingId, note), [
+      `/tellija/tellimused/${orderId}`,
+      DASHBOARD,
+    ]);
+    return ok('Partneri loobumine on registreeritud ja märgitud järelmenetluseks.');
+  } catch (error) {
+    return fail(describeError(error));
+  }
+}
+
+export async function deactivateLotPartnerAction(form: FormData): Promise<ActionOutcome> {
+  const lotPartnerId = fieldText(form, 'lotPartnerId');
+  const lotId = fieldText(form, 'lotId');
+  const reason = fieldText(form, 'reason');
+  try {
+    await buyerWrite((ctx) => deactivateLotPartner(ctx, lotPartnerId, reason), [
+      `/tellija/hankeosad/${lotId}`,
+      '/tellija/partnerid',
+    ]);
+    return ok('Partneri osalus hankeosas on lõpetatud.');
+  } catch (error) {
+    return fail(describeError(error));
+  }
+}
+
+/** Force a due-check from the buyer UI, mirroring what the timer does. */
+export async function closeRoundIfDueAction(form: FormData): Promise<ActionOutcome> {
+  const roundId = fieldText(form, 'roundId');
+  try {
+    const result = await buyerWrite((ctx) => closeRound(ctx, roundId), [
+      `${ROUNDS}/${roundId}`,
+      ROUNDS,
+    ]);
+    return result.closed
+      ? ok(`Voor ${result.code} suletud, jaotusettepanek külmutatud.`)
+      : ok('Voor ei olnud avatud.');
+  } catch (error) {
+    return fail(describeError(error));
+  }
+}

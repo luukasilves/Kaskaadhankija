@@ -1,0 +1,6 @@
+﻿kood;hankeosa;nimetus;formaat;kuupaev;lopp_kuupaev;maakond;asukoht;sihtruhm;osalejate_arv;keel;hinnanguline_maksumus;markused
+KK-2026-901;OSA-1;E2E Töötuba 1 esimene;Töötuba 1;12.10.2026;;Harju maakond;Koolitaja ruumid;KOV ametnikud;20;et;1450;
+KK-2026-902;OSA-1;E2E Töötuba 1 teine;Töötuba 1;14.10.2026;;Tartu maakond;Koolitaja ruumid;Haridus;22;et;1450;
+KK-2026-903;OSA-1;E2E Töötuba 2 kolmas;Töötuba 2;19.10.2026;;Pärnu maakond;Koolitaja ruumid;Riigiasutused;18;et;1515;
+KK-2026-904;OSA-1;E2E Töötuba 1 neljas;Töötuba 1;21.10.2026;;Viljandi maakond;Koolitaja ruumid;Tervishoid;24;et;1450;
+KK-2026-905;OSA-1;E2E vigane rida tundmatu maakonnaga;Töötuba 1;26.10.2026;;Stockholmi maakond;Koolitaja ruumid;Muu;20;et;1450;See rida peab importimisel vea andma

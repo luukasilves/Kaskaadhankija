@@ -46,3 +46,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+demo/screenshots/
+scripts/harness-screenshots/
+scripts/e2e-screenshots/
+scripts/partner-screenshots/

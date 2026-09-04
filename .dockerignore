@@ -1,0 +1,32 @@
+node_modules
+.next
+out
+dist
+
+# the SQLite database belongs on the volume, never in the image
+data
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+.git
+.github
+
+# verification output
+demo/screenshots
+scripts/harness-screenshots
+scripts/partner-screenshots
+scripts/e2e-screenshots
+coverage
+
+# secrets stay in `fly secrets`
+.env
+.env*.local
+.env.production
+
+*.log
+.DS_Store
+.vscode
+.idea
