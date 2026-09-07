@@ -278,7 +278,21 @@ function scenarioLisaB(tx: Tx, cast: Cast, now: number, buyerLabel: string): str
     'KK-2026-206',
   ]);
 
-  const publishedAt = subWorkingDays(new Date(now), 2, '10:00').getTime();
+  /*
+   * Published a few hours ago rather than two working days ago, so that after a
+   * reset the tester finds the **whole** response window ahead of them.
+   *
+   * Seeded two working days in, the round was always about to expire however
+   * often the sample data was reset: reset on a Monday and the deadline was
+   * always Tuesday, with a day left. That is a fine way to show urgency and a
+   * poor way to run a session where several people need time to mark and
+   * confirm — and the urgent state is one click away anyway, on the strip's
+   * "Järgmise tähtajani".
+   *
+   * The partners' answers compress into those hours accordingly. Their order is
+   * what Lisa B depends on, not the gaps between them.
+   */
+  const publishedAt = now - 4 * H;
   const roundId = createRound(buyerCtx(tx, publishedAt - H, buyerLabel), {
     lotId,
     trainingIds: [k1!, k2!, k3!, k4!, k5!, k6!],
@@ -290,14 +304,14 @@ function scenarioLisaB(tx: Tx, cast: Cast, now: number, buyerLabel: string): str
   const aId = cast.partnerId(REG.aiAkadeemia);
 
   // A answers first with three marks and no cap.
-  confirmMarks(partnerCtx(tx, publishedAt + 4 * H, aLabel), roundId, aId, {
+  confirmMarks(partnerCtx(tx, publishedAt + H, aLabel), roundId, aId, {
     marks: [k1!, k2!, k3!],
     cap: null,
   });
 
   // B answers next, and is at that moment projected K4 and K6.
   confirmMarks(
-    partnerCtx(tx, publishedAt + 6 * H, cast.contactLabel(REG.digioskus, 'OSA-2')),
+    partnerCtx(tx, publishedAt + 2 * H, cast.contactLabel(REG.digioskus, 'OSA-2')),
     roundId,
     cast.partnerId(REG.digioskus),
     { marks: [k2!, k3!, k4!, k6!], cap: null },
@@ -306,13 +320,13 @@ function scenarioLisaB(tx: Tx, cast: Cast, now: number, buyerLabel: string): str
   // A then revises to the Lisa B position — four marks, capped at two. This
   // releases K3, which moves B's projection from two to three and produces a
   // genuine [D-04] projection notice in the log, addressed to B.
-  confirmMarks(partnerCtx(tx, publishedAt + 22 * H, aLabel), roundId, aId, {
+  confirmMarks(partnerCtx(tx, publishedAt + 3 * H, aLabel), roundId, aId, {
     marks: [k1!, k2!, k3!, k5!],
     cap: 2,
   });
 
   saveDraftMarks(
-    partnerCtx(tx, publishedAt + 27 * H, cast.contactLabel(REG.tehisaru, 'OSA-2')),
+    partnerCtx(tx, publishedAt + 3.5 * H, cast.contactLabel(REG.tehisaru, 'OSA-2')),
     roundId,
     cast.partnerId(REG.tehisaru),
     { marks: [k1!, k3!, k4!, k5!, k6!], cap: null },

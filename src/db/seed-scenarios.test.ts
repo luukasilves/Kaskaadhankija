@@ -79,6 +79,27 @@ describe('Stsenaarium A on Lisa B', () => {
     expect(input.trainings.map((t) => t.code).sort()).toEqual([...LISA_B_CODES]);
   });
 
+  it('opens with the whole response window still ahead of the tester', () => {
+    /*
+     * The scenario used to be seeded two working days into its window, so a
+     * freshly reset environment always had a round about to expire — reset on a
+     * Monday and the deadline was always Tuesday. A tester needs the window,
+     * and the urgent case is one click away on the strip instead.
+     */
+    const round = harness.read((db) =>
+      db
+        .select({ publishedAt: rounds.publishedAt, deadlineAt: rounds.deadlineAt })
+        .from(rounds)
+        .where(eq(rounds.id, openRoundId))
+        .get(),
+    )!;
+    const hours = (ms: number) => ms / 3_600_000;
+
+    expect(hours(NOW - round.publishedAt!), 'avaldatud tundi tagasi').toBeLessThan(24);
+    expect(round.deadlineAt!).toBeGreaterThan(NOW);
+    expect(hours(round.deadlineAt! - NOW), 'tähtajani jäänud tunde').toBeGreaterThan(40);
+  });
+
   it('seats A, B, C in the ranks Lisa B gives them', () => {
     const participants = harness.read((db) => participantsOf(db, openRoundId));
     expect(participants.map((p) => `${p.rankAtPublication} ${p.partnerName}`)).toEqual([
