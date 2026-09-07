@@ -20,11 +20,12 @@ specialists edit it directly.
 
 | | |
 |---|---|
-| **[`docs/kaskaadi-ariloogika.md`](docs/kaskaadi-ariloogika.md)** | The business logic: 78 numbered rules, decisions with their alternatives, a traceability appendix, and a worked example (Lisa B). **The source of truth.** |
+| **[`docs/kaskaadi-ariloogika.md`](docs/kaskaadi-ariloogika.md)** | The business logic: 83 numbered rules, decisions with their alternatives, a traceability appendix, and a worked example (Lisa B). **The source of truth.** |
 | **[`PLAN.md`](PLAN.md)** | Why the design is what it is, and what is deliberately structural |
 | **`src/`** | The application: buyer and partner screens, the round engine, the table import, the test harness |
 | **[`demo/`](demo/)** | The v1 single-file HTML demo of the *sequential* cascade — still useful, no server needed |
-| **[kaskaadhankija.fly.dev](https://kaskaadhankija.fly.dev)** | The running test environment — pick a persona and walk the whole process |
+| **[kaskaadhankija.fly.dev](https://kaskaadhankija.fly.dev)** | The accepted v2 test environment — pick a persona and walk the whole process |
+| **[kaskaadhankija-v3.fly.dev](https://kaskaadhankija-v3.fly.dev)** | The v3 line: sign-in by e-mail code, representatives, real mail, round upload, cap kinds |
 
 ## Try it
 
@@ -74,6 +75,44 @@ compare the screens against the document as you go.
 6. Confirm. Each partner now has an order, and a partner whose marked training
    went elsewhere is told so without a name or a reason.
 
+### Signing in for real
+
+The personas are the test environment's shortcut. Alongside them, **Logi
+sisse** on the opening screen (and `/sisene`) signs a real person in with a
+six-digit code sent to their address — anyone on the buyer team (*Meeskond*)
+or on a partner's uploaded list of representatives (*Esindajad*). The code
+goes through the mail transport directly and never appears in any log; a live
+session outranks a persona, and choosing a persona ends the session. Outside
+the test environment there are no personas and `/` is the sign-in.
+
+### Representatives, and who gets the mail
+
+As the buyer: **Esindajad → Impordi esindajad**, or download the template
+prefilled with the framework contacts. Each row is one person acting for a
+company — `registrikood, esindaja, e_post, roll (esindaja | asendaja),
+telefon`. Every formal notice a partner receives is e-mailed to all of its
+active representatives, with the lot contact as the fallback, and the
+*Teavitused* log shows what happened to each copy — sent, failed and retried,
+suppressed by the test environment's allowlist, or never attempted for want of
+a mail server — with a manual re-send.
+
+### Uploading a whole round
+
+As the buyer: **Voorud → Uus voor → Laadi skeem üles**. One workbook describes
+one round: a *Voor* sheet (lot, visibility, which cap kinds partners may use,
+extra working days, a note) and a *Koolitused* sheet in the calendar-import
+layout. The template downloads prefilled with the lot's unassigned trainings.
+The upload creates a **draft** — all or nothing — and publishing stays the
+audited act in the application it always was.
+
+### Caps by trainings or by trainees
+
+A round offers its partners a ceiling of one kind, both, or none — the buyer's
+choice per round, defaulting from the lot: "kuni N koolitust" or "kuni N
+osalejat" (trainees across the trainings they would receive). A trainee
+budget skips a training that does not fit and keeps going, so a later smaller
+one can still be taken. The seeded OSA-2 round offers both.
+
 ### Uploading a procurement table
 
 As the buyer: **Koolitused → Impordi**. Upload a `.csv` or `.xlsx` with Estonian
@@ -88,14 +127,16 @@ to see the diagnostics.
 
 ```bash
 pnpm typecheck
-pnpm test                       # 232 domain and engine tests, named after spec rules
+pnpm test                       # 293 domain and engine tests, named after spec rules
 pnpm build
 
 node scripts/verify-harness.mjs # personas, strip, clock, reset, DEMO_MODE off
 node scripts/verify-partner.mjs # Lisa B from three partner personas
-node scripts/e2e.mjs            # Lisa B to the end, and a round built from an upload
+node scripts/e2e.mjs            # Lisa B to the end, a round from an uploaded table, a round from an uploaded scheme
+node scripts/verify-admin.mjs   # representatives (list, template, upload, toggle) and the buyer team
+node scripts/verify-auth.mjs    # sign-in by e-mail code, in the test environment and in production posture
 node scripts/verify-container.mjs  # restart survival on a volume, production posture
-pnpm verify:all                 # build, then all four in order
+pnpm verify:all                 # build, then all six in order
 
 pnpm db:seed                    # load the sample data into ./data
 pnpm datasets:build             # regenerate the XLSX twins from the CSVs
@@ -160,13 +201,32 @@ create machines.
 
 To run it as a real deployment rather than a test one, remove `DEMO_MODE` from
 `fly.toml`: no personas, no strip, no virtual clock, and the demo-only actions
-refuse. Mail can be added later without redeploying anything else, with
-`fly secrets set SMTP_HOST=… SMTP_USER=… SMTP_PASS=… EMAIL_FROM=…`.
+refuse; `/` becomes the sign-in.
+
+### Mail
+
+The v3 workflow pushes the mail settings to the v3 app from repository
+secrets, so nothing needs `flyctl`: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`,
+`SMTP_PASS`, `EMAIL_FROM`, and for the test environment
+`EMAIL_ALLOWED_RECIPIENTS` — the addresses and `@domains` that may receive
+real mail; anything else is recorded as *suppressed*, and an empty list sends
+nothing at all. Optional: `TEAM_NOTIFICATIONS_EMAIL` for the buyer team's
+copies, and `SEED_REPRESENTATIVES` (`registrikood,nimi,e-post[,roll];…`) so
+a reset of the sample data keeps the team's own sign-ins. `AUTH_SECRET`, which
+signs the codes and sessions, is generated once by the workflow.
+
+Any SMTP relay works — the test phase uses a public one with a verified sender
+address; the Riigikantselei server later is the same variables with different
+values. The e-mails' copy lives in `src/domain/round-templates.ts`, and the
+`/api/health` endpoint reports `mail: smtp | dev | off`.
 
 ## Before go-live
 
-The per-lot cascade parameters — response deadline, the workload threshold, and
-whether the sealed visibility mode is ever wanted — are configuration, not
-assumptions in the code, and should be checked against the framework's own
-alusdokumendid. The specification marks the four questions awaiting legal or
-specialist input as **[L-01]**, **[L-05]**, **[L-07]** and **[L-10]**.
+The per-lot cascade parameters — response deadline, the workload threshold,
+which cap kinds partners are offered, and whether the sealed visibility mode is
+ever wanted — are configuration, not assumptions in the code, and should be
+checked against the framework's own alusdokumendid. The specification marks
+the questions awaiting legal or specialist input as **[L-01]**, **[L-05]**,
+**[L-07]** and **[L-10]**; **[L-08]** notes that an e-mail code identifies a
+mailbox, not a qualified signatory, and names the one seam to change if the
+legal review wants TARA or Smart-ID.

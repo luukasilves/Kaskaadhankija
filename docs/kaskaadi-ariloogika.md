@@ -72,7 +72,7 @@ Koosolekult tulenevad siduvad piirangud, mida iga reegel allpool järgib:
 ## R — Rollid
 
 - **[R-01] Tellija.** Tellimismeeskonna kasutajad (rollid *admin* ja *liige*). Loovad ja avaldavad voorud, näevad vooru kohta **kõike**, vaatavad jaotusettepaneku üle ja kinnitavad lõpliku jaotuse.
-- **[R-02] Partneri kontaktisik.** Näeb ainult oma hankeosa voorusid, oma märkeid ja kinnitusi ning (dünaamilises režiimis) kõrgema kohaga partnerite märgete **mõju** — mitte nende identiteeti. Tegutseb MVP-s isikliku tokeniga lingi kaudu; hiljem võimalik kasutajakonto (L-08).
+- **[R-02] Partneri kontaktisik.** Näeb ainult oma hankeosa voorusid, oma märkeid ja kinnitusi ning (dünaamilises režiimis) kõrgema kohaga partnerite märgete **mõju** — mitte nende identiteeti. Logib sisse oma e-posti aadressiga (ühekordne kood), kui see aadress on tellija üleslaaditud esindajate loendis (L-08, L-18). Esindajad ja asendajad kuuluvad partnerile (ettevõttele), mitte hankeosale.
 - **[R-03] Süsteem.** Arvutab prognoosid ja jaotusettepaneku, jõustab tähtaja, saadab teavitused, kirjutab auditijälge. Süsteem ei tee kunagi kaalutlusotsuseid tellija asemel.
 
 ---
@@ -180,7 +180,8 @@ Koosolekult tulenevad siduvad piirangud, mida iga reegel allpool järgib:
 - **[D-06] Vooru muudatused.** Tähtaja pikendamine, koolituse eemaldamine, vooru tühistamine → kõigile partneritele koos põhjendusega.
 - **[D-07] Kinnitatud jaotus.** Igale määratud partnerile tellimuse dokument (T-05); igale partnerile, kelle märgitud koolitus läks teisele, neutraalne teade (N-08); tellimismeeskonnale koond ja jääk.
 - **[D-08] Auditijälg on ainult lisatav.** Iga peatükkide V–T sündmus salvestatakse ajatempli, tegutseja, vooru, koolituse ning enne/pärast seisuga. Andmebaas keelab kirjete muutmise ja kustutamise. Auditijälg on **esmane tõend**; tellimuse dokumendid tuletatakse sellest.
-- **[D-09] Partneri toimingute tuvastamine.** Salvestatakse tegutsev kontaktisik (nimi, e-post hankeosa partneri andmetest) ning IP-aadress ja brauseri tunnus — ainult hanke tõendina, mitte muuks otstarbeks.
+- **[D-09] Partneri toimingute tuvastamine.** Salvestatakse tegutsev isik — sisse loginud esindaja nimi ja e-post; näidiskeskkonna persooniga tegutsedes hankeosa kontaktisik — ning IP-aadress ja brauseri tunnus — ainult hanke tõendina, mitte muuks otstarbeks.
+- **[D-10] Teavituste saajad ja kättetoimetamise tõend.** Partneri formaalsed teated (D-01…D-07) saadetakse e-postiga **kõigile partneri aktiivsetele esindajatele** (L-18); esindajate puudumisel hankeosa kontaktisikule. Tellimismeeskonna koopiad lähevad meeskonna postkasti või aktiivsetele adminidele. Iga saaja kohta salvestatakse eraldi kättetoimetamise kirje — saadetud, ebaõnnestus, testkeskkonnas maha surutud (L-19) või saatmata transpordi puudumisel —, ebaõnnestunud saatmist korratakse automaatselt (5 ja 30 minuti pärast, kokku kolm katset) ja tellija võib kirja logist käsitsi uuesti saata. Rakendusesisene logi jääb esmaseks kanaliks ja teate sisu tõendiks. Sisenemiskoodid (L-08) ei ole teavitused ja neid ei kirjutata ühtegi logisse.
 
 ---
 
@@ -240,9 +241,11 @@ Iga punkt kirjeldab **tehtud valiku**, **alternatiive** ja **seisu**. Muudatus t
   **Alternatiivid:** kõigi hankeosade peale kokku; kalendrikuu kohta; kindla perioodi kohta.
   **Seis:** **vajab erialast sisendit** — „25“ millise perioodi ja ulatuse kohta?
 
-- **[L-08] Partneri autentimine.**
-  **Valik MVP-s:** isiklik tokeniga link (nagu v1-s). **Hiljem:** kasutajakonto.
-  **Seis:** otsustatakse veebi-MVP planeerimisel.
+- **[L-08] Autentimine.**
+  **Valik:** sisselogimine e-posti aadressile saadetava ühekordse kuuekohalise koodiga; aadress peab kuuluma tellimismeeskonna kasutajale või partneri aktiivsele esindajale (L-18). Sessioon kestab 30 päeva; kood kehtib 10 minutit ja ühe korra, viies vale katse kustutab koodi, päringute sagedus aadressi ja IP kohta on piiratud; salvestatakse ainult koodi võtmega räsi (HMAC) ja sessioonitunnuse räsi. Vastus koodipäringule on sama olenemata sellest, kas aadress on loendis. Näidiskeskkonnas jääb persoonivalik alles: kehtiv sessioon on persoonist ülimuslik ja persooni valimine lõpetab sessiooni.
+  **Alternatiivid:** (a) isiklik tokeniga link (v1); (b) kasutajakonto parooliga; (c) riiklik autentimine (TARA / Smart-ID / Mobiil-ID).
+  **Märkus:** e-posti kood tuvastab postkasti, mitte kvalifitseeritud allkirjaõigust. Kui õiguslik hinnang nõuab tugevamat tuvastamist, on koodis selleks üks liides — `sessionActor()` —, mida vahetada; ülejäänud rakendus küsib ainult „kes tegutseb“.
+  **Seis:** otsustatud tellija tiimiga (september 2026); tugevama tuvastamise vajadus jääb õigusliku ülevaatuse küsimuseks.
 
 - **[L-09] Tellija ülevaatuse aeg.**
   **Valik:** vaikimisi 2 tööpäeva pärast tähtaega (T-07). Raamlepingus alust ei tuvastatud.
@@ -286,6 +289,21 @@ Iga punkt kirjeldab **tehtud valiku**, **alternatiive** ja **seisu**. Muudatus t
   **Alternatiivid:** (a) partner võib kasutada mõlemat liiki korraga („kuni N koolitust ja kuni M osalejat“); (b) osalejate eelarve puhul peatuda esimese mittemahtuva koolituse juures — lihtsam sõnastada, aga jätab eelarvet kasutamata; (c) tellija ülevaatuse piirang (T-02) ka osalejate arvuna — praegu ainult koolituste arv.
   **Märkus:** üksiku töötoa osalejate ülempiir (raamlepingus 75) on koolituse enda omadus ja rakendus seda ei kontrolli. Enne v2.2 külmutatud hetktõmmised ei sisalda koolituste osalejate arve; need täiendatakse lugemisel koolituse andmetest, mis jaotust ei muuda, sest neis voorudes osalejate piirmäära ei olnud.
   **Seis:** otsustatud tellija tiimiga (september 2026).
+
+- **[L-18] Partneri esindajate loend.**
+  **Valik:** tellija laadib üles partnerite lepinguliste esindajate ja asendajate loendi (registrikood, nimi, e-post, roll, telefon). Identiteet on (partner, e-post): uuesti laadimine uuendab, mitte ei dubleeri. Aadress võib olla aktiivne ainult ühe partneri esindajana ega tohi kattuda tellimismeeskonna kasutaja aadressiga. Esindajad on ühtaegu teadete saajad (D-10) ja sisselogijad (L-08). Hankeosa kontaktisik raamlepingu andmetes jääb tõendiks ja varusaajaks.
+  **Alternatiiv:** esindajad hankeosa kohta — täpsem, aga sama inimene esindab ettevõtet tavaliselt kõigis hankeosades.
+  **Seis:** otsustatud tellija tiimiga (september 2026).
+
+- **[L-19] Testkeskkonna lubatud saajad.**
+  **Valik:** näidiskeskkonnas (DEMO_MODE) saadetakse e-kirju ainult seadistatud lubatud aadressidele või domeenidele; tühi loend tähendab, et ei saadeta midagi, ja iga muu saaja kohta salvestatakse kirje „maha surutud“. Näidisstsenaariumide taasesitatud teadete kirju ei saadeta kunagi — need on ajaloo rekonstruktsioon, mitte praegu toimuvad sündmused.
+  **Põhjendus:** näidispartnerite aadressid on väljamõeldud, tiimi enda aadressid päris; ükski lähtestamine ega katsetus ei tohi saata kirja võõrale.
+  **Seis:** otsustatud.
+
+- **[L-20] Vooru skeemi üleslaadimine tabelina.**
+  **Valik:** tellija võib ühe kaskaadivooru kirjeldada Exceli töövihikuna (leht „Voor“ — hankeosa, nähtavus, piirmäära liigid, lisatööpäevad, märkus; leht „Koolitused“ — koolituskalendri impordi veerud). Üleslaadimine loob **mustandi**: koolitused luuakse või uuendatakse sama koodi kaudu, mida kasutab koolituskalendri import, ja voor luuakse nende peale. **Avaldamine on eraldi, auditeeritav toiming rakenduses** — avaldamise hetk, tähtaeg ja partnerite järjestuse külmutamine ei ole kunagi failis. Import on kõik-või-midagi: ühegi veaga rea, teise hankeosa koolituse või juba voorus oleva koolituse puhul vooru ei looda.
+  **Alternatiivid:** (a) lubada osaline import (korras read vooru, vigased välja) — kiirem, aga tekitab vooru, mis ei vasta skeemile; (b) lubada failis avaldamise kuupäeva — võtaks tellijalt ära hetke, mil ta vaatab mustandi üle.
+  **Seis:** otsustatud tellija tiimiga (september 2026). Mall laaditakse alla rakendusest, eeltäidetud hankeosa jaotamata koolitustega.
 
 ---
 
@@ -371,4 +389,5 @@ Kinnitamisel (T-04) luuakse kolm tellimust (T-05), C saab teate oma kolmest kool
 | Versioon | Kuupäev | Muudatus |
 |---|---|---|
 | 2.0 (mustand) | 27.08.2026 | Esimene paralleelse kaskaadi äriloogika versioon spetsialistide koosoleku ja tellija tiimi otsuste alusel. Asendab v1 järjestikuse kaskaadi kui põhimudeli; järjestikune režiim jääb alles (V-08). |
+| 2.2 | 07.09.2026 | Sisselogimine, esindajad, e-post ja piirmäära liigid: **K-06** (piirmäära liigid — koolituste või osalejate arv, tellija valik vooru kohta, osalejate eelarve puhul vahelejätmine), **E-04**, **J-02** (protseduur täiendatud), **J-07**; **R-02** ja **D-09** (tegutseb sisse loginud esindaja); uus **D-10** (teavituste saajad on esindajad; kättetoimetamise kirje iga saaja kohta, kordused, käsitsi uuesti saatmine); **L-08** lahendatud (e-posti ühekordne kood, sessioon; tugevama tuvastamise märkus); uued **L-17** (piirmäära liik), **L-18** (esindajate loend), **L-19** (testkeskkonna lubatud saajad), **L-20** (vooru skeem tabelina loob mustandi). |
 | 2.1 | 03.09.2026 | Veebirakenduse ehitamisel tehtud tõlgendused kirja pandud: uued **L-11** (olekuveerg järgib mustandit), **L-12** (suletud vooru ei tühistata), **L-13** (prognoosi muutuse teate saajad), **L-14** (näidiskünnis 4), **L-15** (tellimus on prinditav HTML), **L-16** (näidisandmed koostatakse päris mootorikutsetega); täpsustused **J-01** (kaasav tähtaja hetk), **V-04** (märked jäetakse välja sisendi koostamisel, kinnitusi ei muudeta), **E-03** (üleküsimine ja kande liik), **N-08** (neutraalne sõnastus ilma „eesõiguse alusel“), **T-05** (prinditav HTML). Reeglid ise ei muutunud. |

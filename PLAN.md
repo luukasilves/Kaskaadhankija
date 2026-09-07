@@ -29,7 +29,7 @@ partners' confirmed marks — never their identity — so it can plan around wha
 realistically still available.
 
 The business logic is specified, in Estonian, in
-[`docs/kaskaadi-ariloogika.md`](docs/kaskaadi-ariloogika.md): **78 numbered
+[`docs/kaskaadi-ariloogika.md`](docs/kaskaadi-ariloogika.md): **83 numbered
 rules** with stable IDs (`[J-04]`, `[N-03]`, …), a traceability appendix mapping
 verbatim quotes from the specialists' meeting to the rules they justify, and a
 worked example (**Lisa B**) that doubles as the acceptance test. The document is
@@ -81,8 +81,8 @@ One container, one SQLite file, no outside services.
 | Styling | Tailwind v4 design tokens, light and dark, print stylesheet for orders |
 | Time | a virtual clock offset in the database; the domain never reads a clock |
 | Scheduling | in-process timer started on the first request, plus lazy checks on round pages and after any clock move — idempotent from all three |
-| Email | optional `nodemailer` over configurable SMTP; the in-app notification log is the primary channel and each row records what happened to its email |
-| Identity | one `getActor()` seam; personas in the test deployment, real auth later [L-08] |
+| Email | one `sendMail` over configurable SMTP, below the notification log; one delivery row per recipient with retries and a manual re-send [D-10]; the test environment mails only an allowlist [L-19] |
+| Identity | one `getActor()` seam; a session opened by an e-mail code for a buyer user or a partner's representative [L-08][L-18], with personas as the test deployment's fallback |
 | Tests | vitest for domain and engine, plain Node + Playwright for the browser suites |
 
 ### Constraints the implementation expresses structurally
@@ -139,10 +139,12 @@ with the rank-3 partner holding an unconfirmed draft — which is where the
 
 | Suite | What it holds to account |
 |---|---|
-| `pnpm test` — 232 tests | one `describe` per rule ID; Lisa B.1–B.4 exactly; the append-only triggers; the seed *is* Lisa B |
+| `pnpm test` — 293 tests | one `describe` per rule ID; Lisa B.1–B.4 exactly; the append-only triggers; the seed *is* Lisa B; migrations against a populated database |
 | `node scripts/verify-harness.mjs` | personas, the strip, the clock, reset, and the production posture with `DEMO_MODE` off |
 | `node scripts/verify-partner.mjs` | Lisa B walked from three partner personas — every cell of B.2, then A's B.3 revision flipping a training to B; a sealed round shows no states; no page names a competitor |
-| `node scripts/e2e.mjs` | Lisa B to the end (close → the T-01 warning → cap → B.4 → confirm → orders), and a second round built from an uploaded table with a deliberately broken row |
+| `node scripts/e2e.mjs` | Lisa B to the end (close → the T-01 warning → cap → B.4 → confirm → orders); a second round built from an uploaded table with a deliberately broken row, offering both cap kinds, where a partner tries a trainee budget; a third round from an uploaded scheme, refused whole while a row is wrong |
+| `node scripts/verify-admin.mjs` | the representatives' list, template and upload (two broken rows), switching one off and on; the buyer team; the seeded notices addressed to a partner's representatives and nobody else's |
+| `node scripts/verify-auth.mjs` | sign-in by e-mail code with the code read from the server log — wrong code, lock after five, unknown address, rate limit, persona over session — and the production posture where `/` is the sign-in |
 | `node scripts/verify-container.mjs` | what only the container does, on the standalone build it runs: surviving a SIGKILL restart on a volume without re-seeding or re-migrating, and the production posture with `DEMO_MODE` unset |
 
 ## Deployment
@@ -163,6 +165,26 @@ started with a volume at `/data`, `/api/health` ok, six partner personas and the
 buyer on the opening screen, and `/tellija` unreachable without a persona. A
 deploy that "succeeded" while serving the wrong thing is the failure worth
 catching.
+
+## The v3 line
+
+Built on the v2 test deployment, as a second Fly app so the accepted v2 stays
+comparable ([kaskaadhankija-v3.fly.dev](https://kaskaadhankija-v3.fly.dev)):
+
+- **Mail that sends** — a public SMTP relay now, the Riigikantselei server
+  later, config only. One `email_deliveries` row per recipient is the evidence
+  that a formal step reached a person [D-10]; the test environment cannot mail
+  anyone outside its allowlist, and replayed sample history is never sent [L-19].
+- **Representatives** — the uploaded list of each partner's contractual
+  representatives is both the recipient list and the sign-in list [L-18].
+- **Sign-in by e-mail code** — hashed codes, sessions, rate limits, no
+  enumeration; the representative who acted is who the audit trail and the
+  confirmations name [L-08][D-09]. Personas survive in the test environment.
+- **Caps by trainings or trainees** — the buyer offers per round which kinds a
+  partner may use; a trainee budget skips what does not fit and continues,
+  inside the same pure `allocate()` [K-06][L-17].
+- **A round from a workbook** — a *Voor* sheet and a *Koolitused* sheet yield a
+  draft, all or nothing; publication stays the application's act [L-20].
 
 ## Open questions
 
