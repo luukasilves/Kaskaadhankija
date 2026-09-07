@@ -143,6 +143,15 @@ right: exactly one machine, started, with a volume at `/data`; `/api/health`
 reporting ok; the opening screen offering six partner personas and the buyer;
 and `/tellija` unreachable without a persona.
 
+Two environments run from the same workflow. Pushes to `main` and
+`claude/parallel-cascade-spec` deploy the accepted **v2** at
+[kaskaadhankija.fly.dev](https://kaskaadhankija.fly.dev); pushes to
+`claude/cascade-miniprocurement-mvp-plan-re21yp` deploy the **v3** line, where
+sign-in, representatives, e-mail and the round upload are being built, at
+[kaskaadhankija-v3.fly.dev](https://kaskaadhankija-v3.fly.dev). Each has its
+own machine, volume, database and secrets, so the team can compare them side by
+side. The mapping is the `resolve` step of `deploy.yml`.
+
 Two things that bite. Fly app names are **globally unique** — if `kaskaadhankija`
 is taken, re-run the workflow with a different name in its `app` input, and
 change both `app` and `APP_BASE_URL` in `fly.toml` (the latter is what

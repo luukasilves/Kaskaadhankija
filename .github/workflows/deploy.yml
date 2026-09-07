@@ -1,15 +1,25 @@
 name: Deploy to Fly.io
 
-# Deploys the test environment: one machine, one SQLite file on a volume.
+# Deploys a test environment: one machine, one SQLite file on a volume.
+#
+# Two environments run side by side from this one workflow, so the accepted v2
+# stays up while v3 is built and compared against it:
+#
+#   main, claude/parallel-cascade-spec          → kaskaadhankija      (v2)
+#   claude/cascade-miniprocurement-mvp-plan-…   → kaskaadhankija-v3   (v3)
+#
+# Each app has its own volume, database and secrets. The mapping lives in the
+# `resolve` step below; the `app` input of a manual run overrides it. fly.toml
+# carries the v2 defaults, and the deploy step overrides the app name and
+# APP_BASE_URL for whichever app is being deployed.
 #
 # Requires a single repository secret, FLY_API_TOKEN, scoped to the account or
 # the organisation — not an app-scoped deploy token, because the bootstrap job
 # may have to create the app itself.
 #
-# On the branch trigger: `workflow_dispatch` is only offered for workflows that
-# already exist on the default branch, so until this is merged the push trigger
-# is the only way to run it. Drop `claude/parallel-cascade-spec` from the list
-# once it is on main.
+# On the branch triggers: `workflow_dispatch` is only offered for workflows that
+# already exist on the default branch, so until a branch is merged the push
+# trigger is the only way to run it for that branch.
 
 on:
   workflow_dispatch:
@@ -19,11 +29,15 @@ on:
         required: false
         default: ''
   push:
-    branches: [main, claude/parallel-cascade-spec]
+    branches:
+      - main
+      - claude/parallel-cascade-spec
+      - claude/cascade-miniprocurement-mvp-plan-re21yp
 
 concurrency:
-  # One deploy at a time: two concurrent runs would fight over one machine.
-  group: fly-deploy
+  # One deploy at a time per app: two concurrent runs would fight over one
+  # machine. v2 and v3 deploys do not need to wait for each other.
+  group: fly-deploy-${{ inputs.app || (github.ref_name == 'claude/cascade-miniprocurement-mvp-plan-re21yp' && 'kaskaadhankija-v3' || 'kaskaadhankija') }}
   cancel-in-progress: false
 
 env:
@@ -31,6 +45,9 @@ env:
   FLY_REGION: arn # Stockholm — the closest Fly region to Tallinn
   VOLUME_NAME: kh_data
   VOLUME_SIZE_GB: '1'
+  # The v3 line. Everything else deploys to the app named in fly.toml.
+  V3_BRANCH: claude/cascade-miniprocurement-mvp-plan-re21yp
+  V3_APP: kaskaadhankija-v3
 
 jobs:
   # ------------------------------------------------------------------ #
@@ -63,8 +80,12 @@ jobs:
         id: resolve
         run: |
           # The input wins, so a name clash can be worked around without a
-          # commit; otherwise fly.toml is the single source of truth.
+          # commit. Otherwise the branch decides: the v3 branch goes to the v3
+          # app, everything else to the app named in fly.toml.
           APP='${{ inputs.app }}'
+          if [ -z "$APP" ] && [ "$GITHUB_REF_NAME" = "$V3_BRANCH" ]; then
+            APP="$V3_APP"
+          fi
           if [ -z "$APP" ]; then
             APP=$(sed -n 's/^app *= *"\(.*\)"/\1/p' fly.toml | head -1)
           fi
@@ -73,6 +94,7 @@ jobs:
             exit 1
           fi
           echo "app=$APP" >> "$GITHUB_OUTPUT"
+          echo "Branch $GITHUB_REF_NAME → app $APP."
 
           # Most accounts have an org called "personal"; a token scoped to a
           # named organisation does not, so fall back to whatever is listed.
@@ -135,10 +157,13 @@ jobs:
           #                needs no Docker of its own.
           # --ha=false:    exactly one machine. Two would mean two SQLite files
           #                on two volumes behind one hostname.
+          # --env:         fly.toml carries the v2 hostname; notification and
+          #                sign-in links must point at the app being deployed.
           flyctl deploy \
             --app "$APP" \
             --remote-only \
             --ha=false \
+            --env "APP_BASE_URL=https://$APP.fly.dev" \
             --wait-timeout 600
 
   # ------------------------------------------------------------------ #
@@ -196,6 +221,10 @@ jobs:
           cat health.json
           jq -e '.ok == true' health.json > /dev/null \
             || { echo "::error::$BASE/api/health did not report ok."; exit 1; }
+          # The links in every notification are built from this; a v3 machine
+          # still pointing at the v2 hostname would send testers to the wrong app.
+          jq -e --arg base "$BASE" '.baseUrl == $base' health.json > /dev/null \
+            || { echo "::error::APP_BASE_URL is $(jq -r .baseUrl health.json), expected $BASE."; exit 1; }
 
           curl -fsS --max-time 20 "$BASE/" > home.html
           grep -q 'TESTKESKKOND' home.html \
@@ -229,8 +258,12 @@ jobs:
           {
             echo "### Kaskaadhankija is deployed"
             echo
-            echo "**https://$APP.fly.dev**"
+            echo "**https://$APP.fly.dev** (from \`$GITHUB_REF_NAME\`)"
             echo
             echo "One machine in \`$FLY_REGION\`, SQLite on the \`$VOLUME_NAME\` volume."
             echo "The seeded round \`VOOR-2026-003\` is Lisa B of the specification."
+            if [ "$APP" = "$V3_APP" ]; then
+              echo
+              echo "This is the **v3** line; v2 stays at https://kaskaadhankija.fly.dev."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
