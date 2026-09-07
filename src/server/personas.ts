@@ -134,7 +134,7 @@ export function listPersonas(): PersonaRoster {
       }
 
       const latest = latestConfirmation(db, round.id, participant.lotPartnerId);
-      const state = responseStateFor(latest, participant.draftMarks, participant.draftCap);
+      const state = responseStateFor(latest, participant.draftMarks, participant.draftCap, participant.draftCapKind);
       const remaining = round.deadlineAt ? formatRemaining(nowMs, round.deadlineAt) : '';
       const when = latest ? ` ${formatDateTimeShort(latest.confirmedAt)}` : '';
       statusLines.push(

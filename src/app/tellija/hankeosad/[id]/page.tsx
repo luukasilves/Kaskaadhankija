@@ -71,6 +71,7 @@ export default async function LotDetail({ params }: { params: Promise<{ id: stri
           workloadThreshold: lot.workloadThreshold,
           thresholdNote: lot.thresholdNote,
           defaultVisibilityMode: lot.defaultVisibilityMode,
+          defaultCapOptions: lot.defaultCapOptions,
         }}
         openRoundCodes={openRounds.map((r) => r.code)}
       />

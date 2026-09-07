@@ -14,8 +14,8 @@
  * and cannot drift if a partner row changes afterwards [J-03].
  */
 
-import { desc, eq } from 'drizzle-orm';
-import { buyerAdjustments, rounds } from '@/db/schema';
+import { desc, eq, inArray } from 'drizzle-orm';
+import { buyerAdjustments, rounds, trainings } from '@/db/schema';
 import type { AllocationInput, BuyerAdjustment } from '@/domain/allocate';
 import type { Db, Tx } from '../context';
 import { confirmationSnapshotsByPartner, participantsOf, roundTrainingList } from './views';
@@ -106,6 +106,31 @@ export function proposalInput(tx: Reader, roundId: string): AllocationInput {
 }
 
 /**
+ * Snapshots frozen before participant caps existed carry no trainee counts.
+ * Fill them from the trainings table so the display has the figure; the
+ * allocation cannot change, because those rounds hold no participant-kind cap
+ * and a count of 0 is never below a training-count limit [L-17].
+ */
+export function withParticipantCounts(tx: Reader, input: AllocationInput): AllocationInput {
+  const missing = input.trainings.filter((t) => typeof t.participantCount !== 'number').map((t) => t.id);
+  if (missing.length === 0) return input;
+  const counts = new Map(
+    tx
+      .select({ id: trainings.id, participantCount: trainings.participantCount })
+      .from(trainings)
+      .where(inArray(trainings.id, missing))
+      .all()
+      .map((row) => [row.id, row.participantCount] as const),
+  );
+  return {
+    ...input,
+    trainings: input.trainings.map((t) =>
+      typeof t.participantCount === 'number' ? t : { ...t, participantCount: counts.get(t.id) ?? 0 },
+    ),
+  };
+}
+
+/**
  * The final input: the frozen proposal input plus the buyer's adjustments.
  * Never re-reads the participant tables — see the note at the top.
  */
@@ -114,5 +139,8 @@ export function finalInput(tx: Reader, roundId: string): AllocationInput {
   if (!round) throw new Error('Voorust ei leitud.');
   if (!round.proposalSnapshot) throw new Error('Jaotusettepanek puudub — voor ei ole suletud.');
 
-  return { ...round.proposalSnapshot.input, adjustments: effectiveAdjustments(tx, roundId) };
+  return withParticipantCounts(tx, {
+    ...round.proposalSnapshot.input,
+    adjustments: effectiveAdjustments(tx, roundId),
+  });
 }

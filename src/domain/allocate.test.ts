@@ -324,6 +324,89 @@ describe('[K-06] piirmäär ja [E-04] allavoolamine', () => {
   });
 });
 
+describe('[K-06] osalejate arvu piirmäär [L-17]', () => {
+  const sized: AllocationTraining[] = [
+    { id: 'K1', code: 'KK-2026-201', eventDate: '2026-10-05', participantCount: 60 },
+    { id: 'K2', code: 'KK-2026-202', eventDate: '2026-10-07', participantCount: 50 },
+    { id: 'K3', code: 'KK-2026-203', eventDate: '2026-10-12', participantCount: 30 },
+    { id: 'K4', code: 'KK-2026-204', eventDate: '2026-10-14', participantCount: 20 },
+  ];
+  const budgeted = (id: string, rank: number, marks: string[], cap: number): AllocationParticipant =>
+    participant(id, rank, marks, {
+      confirmations: [confirmation({ id: rank * 10, marks, cap, capKind: 'participants' })],
+    });
+
+  it('takes in date order while a training fits, skips one that does not, and keeps going', () => {
+    // 100: K1 (60) fits → 40 left; K2 (50) does not → skipped; K3 (30) fits → 10; K4 (20) does not.
+    const result = allocate(input([budgeted('A', 1, ['K1', 'K2', 'K3', 'K4'], 100)], { trainings: sized }));
+    expect(asMap(result.allocations)).toEqual({ A: ['K1', 'K3'] });
+    const step = result.trace[0]!;
+    expect(step.capKind).toBe('participants');
+    expect(step.participantLimit).toBe(100);
+    expect(step.participantsTaken).toBe(90);
+    expect(step.limit).toBeNull();
+  });
+
+  it('flows the skipped trainings down to the next rank [E-04]', () => {
+    const result = allocate(
+      input([budgeted('A', 1, ['K1', 'K2', 'K3', 'K4'], 100), participant('B', 2, ['K2', 'K4'])], {
+        trainings: sized,
+      }),
+    );
+    expect(asMap(result.allocations)).toEqual({ A: ['K1', 'K3'], B: ['K2', 'K4'] });
+    expect(result.leftover).toEqual([]);
+  });
+
+  it('a budget of 0 takes nothing', () => {
+    const result = allocate(input([budgeted('A', 1, ['K1', 'K2'], 0), participant('B', 2, ['K1'])], { trainings: sized }));
+    expect(asMap(result.allocations)).toEqual({ B: ['K1'] });
+  });
+
+  it('combines with the buyer’s training-count cap [T-02]', () => {
+    // 200 would take all four (160 trainees); the buyer's cap of 2 ends the walk.
+    const result = allocate(
+      input([budgeted('A', 1, ['K1', 'K2', 'K3', 'K4'], 200)], {
+        trainings: sized,
+        adjustments: [{ lotPartnerId: 'A', kind: 'cap', cap: 2 }],
+      }),
+    );
+    expect(asMap(result.allocations)).toEqual({ A: ['K1', 'K2'] });
+    expect(result.trace[0]!.limit).toBe(2);
+  });
+
+  it('shows the partner the training the budget excluded as over_cap [N-03]', () => {
+    const view = partnerView(input([budgeted('A', 1, ['K1', 'K2', 'K3', 'K4'], 100)], { trainings: sized }), 'A', {
+      marks: ['K1', 'K2', 'K3', 'K4'],
+      cap: 100,
+      capKind: 'participants',
+    });
+    expect(viewCell(view, 'K1')).toBe('projected_to_you');
+    expect(viewCell(view, 'K2')).toBe('marked_not_projected/over_cap');
+    expect(viewCell(view, 'K3')).toBe('projected_to_you');
+    expect(viewCell(view, 'K4')).toBe('marked_not_projected/over_cap');
+    expect(view.projectedCount).toBe(2);
+  });
+
+  it('reads a snapshot without a kind as a training-count cap, so Lisa B is unchanged', () => {
+    expect(asMap(allocate(lisaBInput()).allocations)).toEqual({
+      A: LISA_B1_EXPECTED.A,
+      B: LISA_B1_EXPECTED.B,
+      C: LISA_B1_EXPECTED.C,
+    });
+    const result = allocate(input([participant('A', 1, ['K1', 'K2', 'K3'], { cap: 2 })]));
+    expect(result.trace[0]).toMatchObject({ capKind: 'trainings', limit: 2, participantLimit: null });
+  });
+
+  it('treats a training without a trainee count as taking no budget', () => {
+    const mixed: AllocationTraining[] = [
+      { id: 'x', code: 'KK-2026-301', eventDate: '2026-10-05' },
+      { id: 'y', code: 'KK-2026-302', eventDate: '2026-10-06', participantCount: 40 },
+    ];
+    const result = allocate(input([budgeted('A', 1, ['x', 'y'], 40)], { trainings: mixed }));
+    expect(asMap(result.allocations)).toEqual({ A: ['x', 'y'] });
+  });
+});
+
 describe('[K-07] loobumine ja [E-03] tühi kinnitus', () => {
   it('allocates nothing on an explicit decline', () => {
     const result = allocate(

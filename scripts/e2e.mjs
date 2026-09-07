@@ -264,23 +264,47 @@ async function walkImportedRound(page) {
   check('the imported trainings are in the calendar', calendar.includes('KK-2026-901') && calendar.includes('KK-2026-904'));
   check('the broken row was not imported', !calendar.includes('KK-2026-905'));
 
-  /* a round over the four imported trainings */
+  /* a round over the four imported trainings, offering both cap kinds [K-06][L-17] */
   await page.goto(`${BASE}/tellija/voorud/uus?hankeosa=OSA-1`);
   await page.waitForSelector('select[name="visibilityMode"]', { timeout: 20_000 });
+  await page.selectOption('[data-testid="cap-options"]', 'both');
   for (const code of ['KK-2026-901', 'KK-2026-902', 'KK-2026-903', 'KK-2026-904']) {
     await page.locator('tr', { hasText: code }).first().locator('input[type="checkbox"]').check();
   }
   await page.locator('form button:has-text("Loo mustand")').click();
   await page.waitForSelector('[data-testid="publish-round"]', { timeout: 20_000 });
+  check('the buyer sees which cap kinds the round offers', (await appHtml(page)).includes('piirmäär: partner valib'));
   page.once('dialog', (dialog) => dialog.accept());
   await page.getByTestId('publish-round').locator('button').click();
   await page.waitForFunction(() => document.body.textContent.includes('Avatud'), null, { timeout: 20_000 });
   check('the imported round is published to the whole lot', (await page.getByTestId('review-row-1').count()) === 0);
   await page.screenshot({ path: join(SHOTS, '09-imported-round-published.png'), fullPage: true });
 
-  /* koht 1 takes three of the four */
+  /* koht 1 tries a trainee budget first: 901 (20) and 902 (22) fit 45, 903 (18) does not */
   await switchTo(page, OSA1_FIRST);
   check('koht 1 receives the imported round', await openOpenRound(page, 'OSA-1'));
+  check(
+    'the round offers the partner a choice of cap kind',
+    (await page.getByTestId('cap-control').count()) === 1 && (await page.locator('input[name="capKindChoice"]').count()) === 2,
+  );
+  for (const code of ['KK-2026-901', 'KK-2026-902', 'KK-2026-903']) {
+    await page.locator(`input[aria-label="Märgi ${code}"]`).check();
+  }
+  await page.locator('input[name="capKindChoice"][value="participants"]').check();
+  await page.locator('[data-testid="cap-control"] input[type="number"]').fill('45');
+  check('the form totals the trainees in the selection', (await page.getByTestId('cap-control').textContent()).includes('kokku 60 osalejat'));
+  await page.getByTestId('save-draft').locator('button').click();
+  await page.waitForSelector('[data-testid="save-draft"] [data-testid="action-ok"]', { timeout: 20_000 });
+  check(
+    'the training that does not fit the budget shows as over the cap [K-06]',
+    (await stateOf(page, 'KK-2026-903')) === 'Märgitud, prognoosis ei ole (üle sinu piirmäära)',
+    await stateOf(page, 'KK-2026-903'),
+  );
+  check('the ones that fit are projected', (await stateOf(page, 'KK-2026-901')) === 'Prognoosis sinule' && (await stateOf(page, 'KK-2026-902')) === 'Prognoosis sinule');
+  await page.screenshot({ path: join(SHOTS, '09b-trainee-budget.png'), fullPage: true });
+
+  /* then drops the budget and takes all three, as the rest of the walk expects */
+  await page.locator('[data-testid="cap-control"] input[type="number"]').fill('');
   await markAndConfirm(page, ['KK-2026-901', 'KK-2026-902', 'KK-2026-903']);
 
   /* koht 3 sees the effect without seeing who caused it */

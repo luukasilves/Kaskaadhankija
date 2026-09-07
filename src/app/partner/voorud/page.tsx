@@ -38,7 +38,7 @@ export default async function PartnerRoundsPage() {
       ? latestConfirmation(db, round.id, participant.lotPartnerId)
       : undefined;
     const state = participant
-      ? responseStateFor(latest, participant.draftMarks, participant.draftCap)
+      ? responseStateFor(latest, participant.draftMarks, participant.draftCap, participant.draftCapKind)
       : 'none';
     return { round, participant, latest, state };
   });

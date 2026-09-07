@@ -35,8 +35,8 @@ import {
   trainings,
   type OrderDocument,
 } from '@/db/schema';
-import { allocate, partnerView, type AllocationResult } from '@/domain/allocate';
-import {
+import { type CapKind, allocate, partnerView, type AllocationResult } from '@/domain/allocate';
+import { CAP_KIND_LABELS, allowedCapKinds, type CapOptions,
   canEnterRound,
   canTransitionRound,
   roundDisplayCode,
@@ -164,6 +164,8 @@ export interface CreateRoundInput {
   trainingIds: string[];
   note?: string;
   visibilityMode?: VisibilityMode;
+  /** [K-06][L-17] which cap kinds partners may use; the lot's default otherwise */
+  capOptions?: CapOptions;
   /** created from another round's jääk [T-06] */
   originRoundId?: string | null;
 }
@@ -182,6 +184,7 @@ export function createRound(ctx: Ctx, input: CreateRoundInput): string {
       lotId: lot.id,
       status: 'draft',
       visibilityMode: input.visibilityMode ?? lot.defaultVisibilityMode,
+      capOptions: input.capOptions ?? lot.defaultCapOptions,
       workloadThresholdSnapshot: lot.workloadThreshold,
       responseWorkingDaysSnapshot: lot.responseDeadlineWorkingDays,
       note: input.note ?? '',
@@ -379,6 +382,7 @@ export function publishRound(ctx: Ctx, roundId: string, input: PublishRoundInput
         trainingCount: trainingsInRound.length,
         trainingLines: lines,
         visibilityDynamic: visibilityMode === 'dynamic',
+        capOptionsText: capOptionsText(round.capOptions),
         decisionText: formatDateTimeShort(expectedDecisionAt),
       }),
     });
@@ -487,9 +491,66 @@ function validMarks(ctx: Ctx, roundId: string, marks: readonly string[]): string
   return [...new Set(marks)].filter((id) => available.has(id));
 }
 
-function currentProjection(ctx: Ctx, roundId: string, lotPartnerId: string, marks: string[], cap: number | null) {
+function currentProjection(
+  ctx: Ctx,
+  roundId: string,
+  lotPartnerId: string,
+  marks: string[],
+  cap: number | null,
+  capKind: CapKind,
+) {
   const input = projectionInput(ctx.tx, roundId, ctx.at);
-  return partnerView(input, lotPartnerId, { marks, cap });
+  return partnerView(input, lotPartnerId, { marks, cap, capKind });
+}
+
+/** The partner's answer: marks, and an optional ceiling of one kind [K-06]. */
+export interface MarksInput {
+  marks: string[];
+  cap: number | null;
+  /** ignored without a cap; defaults to trainings */
+  capKind?: CapKind;
+}
+
+/** How a round's cap offer reads in the publication notice [D-01]. */
+export function capOptionsText(options: CapOptions): string {
+  switch (options) {
+    case 'none':
+      return 'Selles voorus ülempiiri ei märgita: iga kinnitatud märge on siduv.';
+    case 'participants':
+      return 'Soovi korral saate märkida ülempiiri osalejate arvuna („võtan vastu kuni N osalejat kokku“); koolitus, mis järelejäänud eelarvesse ei mahu, jäetakse vahele ja järgmisi proovitakse edasi.';
+    case 'both':
+      return 'Soovi korral saate märkida ülempiiri kas koolituste arvuna („võtan vastu kuni N koolitust“) või osalejate arvuna („võtan vastu kuni N osalejat kokku“).';
+    default:
+      return 'Soovi korral saate märkida ülempiiri („võtan vastu kuni N koolitust“).';
+  }
+}
+
+/**
+ * [K-06][L-17] The cap the partner asked for, checked against what the round
+ * offers. Returns the normalised kind, or the refusal to hand back.
+ */
+function resolveCap(
+  round: { code: string; capOptions: CapOptions },
+  input: MarksInput,
+): { cap: number | null; capKind: CapKind } | { ok: false; reason: string; message: string } {
+  if (input.cap === null) return { cap: null, capKind: 'trainings' };
+  if (!Number.isInteger(input.cap) || input.cap < 0) {
+    return failure('invalid_cap', 'Piirmäär peab olema täisarv, null või suurem.');
+  }
+  const capKind: CapKind = input.capKind ?? 'trainings';
+  const allowed = allowedCapKinds(round.capOptions);
+  if (allowed.length === 0) {
+    return failure('cap_not_allowed', `Voorus ${round.code} piirmäära ei kasutata — kõik kinnitatud märked on siduvad.`);
+  }
+  if (!allowed.includes(capKind)) {
+    const unit = allowed[0] === 'participants' ? 'osalejate arvuna' : 'koolituste arvuna';
+    return failure('cap_not_allowed', `Voorus ${round.code} saab piirmäära määrata ainult ${unit}.`);
+  }
+  return { cap: input.cap, capKind };
+}
+
+function capSummary(cap: number | null, capKind: CapKind): string {
+  return cap !== null ? `, piirmäär ${cap} ${CAP_KIND_LABELS[capKind]}` : '';
 }
 
 /** [K-02] Save the editable draft. Does not bind anything. */
@@ -497,28 +558,31 @@ export function saveDraftMarks(
   ctx: Ctx,
   roundId: string,
   partnerId: string,
-  input: { marks: string[]; cap: number | null },
+  input: MarksInput,
 ): PartnerActionResult {
   const guard = guardPartnerAction(ctx, roundId, partnerId);
   if (!guard.ok) return guard;
+  const resolved = resolveCap(guard.round, input);
+  if ('ok' in resolved) return resolved;
+  const { cap, capKind } = resolved;
 
   const marks = validMarks(ctx, roundId, input.marks);
   ctx.tx
     .update(roundParticipants)
-    .set({ draftMarks: marks, draftCap: input.cap, draftUpdatedAt: ctx.at })
+    .set({ draftMarks: marks, draftCap: cap, draftCapKind: capKind, draftUpdatedAt: ctx.at })
     .where(eq(roundParticipants.id, guard.participant.id))
     .run();
 
   logAudit(ctx, {
     eventType: 'marks.draft_saved',
-    summary: `${guard.participant.partnerName} salvestas mustandi (${marks.length} märget${input.cap !== null ? `, piirmäär ${input.cap}` : ''})`,
+    summary: `${guard.participant.partnerName} salvestas mustandi (${marks.length} märget${capSummary(cap, capKind)})`,
     roundId,
     lotId: guard.lot.id,
     lotPartnerId: guard.participant.lotPartnerId,
-    after: { marks, cap: input.cap },
+    after: { marks, cap, capKind },
   });
 
-  const view = currentProjection(ctx, roundId, guard.participant.lotPartnerId, marks, input.cap);
+  const view = currentProjection(ctx, roundId, guard.participant.lotPartnerId, marks, cap, capKind);
   return { ok: true, projectedCount: view.projectedCount };
 }
 
@@ -532,11 +596,14 @@ export function confirmMarks(
   ctx: Ctx,
   roundId: string,
   partnerId: string,
-  input: { marks: string[]; cap: number | null },
+  input: MarksInput,
 ): PartnerActionResult {
   const guard = guardPartnerAction(ctx, roundId, partnerId);
   if (!guard.ok) return guard;
   const { round, lot, participant } = guard;
+  const resolved = resolveCap(round, input);
+  if ('ok' in resolved) return resolved;
+  const { cap, capKind } = resolved;
 
   const marks = validMarks(ctx, roundId, input.marks);
   // [E-03] confirming an empty set is a decline, and the UI asks first.
@@ -551,7 +618,8 @@ export function confirmMarks(
       lotPartnerId: participant.lotPartnerId,
       kind,
       marks,
-      cap: input.cap,
+      cap,
+      capKind,
       confirmedAt: ctx.at,
       actorLabel: ctx.actor.label,
       contactEmail: participant.contactEmail,
@@ -563,22 +631,22 @@ export function confirmMarks(
 
   ctx.tx
     .update(roundParticipants)
-    .set({ draftMarks: marks, draftCap: input.cap, draftUpdatedAt: ctx.at })
+    .set({ draftMarks: marks, draftCap: cap, draftCapKind: capKind, draftUpdatedAt: ctx.at })
     .where(eq(roundParticipants.id, participant.id))
     .run();
 
-  const view = currentProjection(ctx, roundId, participant.lotPartnerId, marks, input.cap);
+  const view = currentProjection(ctx, roundId, participant.lotPartnerId, marks, cap, capKind);
 
   logAudit(ctx, {
     eventType: kind === 'confirm' ? 'marks.confirmed' : 'marks.declined_all',
     summary:
       kind === 'confirm'
-        ? `${participant.partnerName} kinnitas ${marks.length} märget${input.cap !== null ? ` (piirmäär ${input.cap})` : ''}, prognoos ${view.projectedCount}`
+        ? `${participant.partnerName} kinnitas ${marks.length} märget${cap !== null ? ` (piirmäär ${cap} ${CAP_KIND_LABELS[capKind]})` : ''}, prognoos ${view.projectedCount}`
         : `${participant.partnerName} loobus kõigist vooru koolitustest`,
     roundId,
     lotId: lot.id,
     lotPartnerId: participant.lotPartnerId,
-    after: { kind, marks, cap: input.cap, projectedCount: view.projectedCount },
+    after: { kind, marks, cap, capKind, projectedCount: view.projectedCount },
   });
 
   const receipt =
@@ -592,8 +660,10 @@ export function confirmMarks(
           confirmedAtText: formatDateTimeShort(ctx.at),
           trainingLines: trainingLines(ctx, marks),
           capText:
-            input.cap !== null
-              ? `Märkisite ülempiiri: võtate vastu kuni ${input.cap} koolitust.`
+            cap !== null
+              ? capKind === 'participants'
+                ? `Märkisite ülempiiri: võtate vastu koolitusi kokku kuni ${cap} osalejale. Koolitus, mis eelarvesse ei mahu, jäetakse vahele ja järgmisi proovitakse edasi.`
+                : `Märkisite ülempiiri: võtate vastu kuni ${cap} koolitust.`
               : 'Ülempiiri te ei märkinud.',
           projectionText:
             round.visibilityMode === 'dynamic'

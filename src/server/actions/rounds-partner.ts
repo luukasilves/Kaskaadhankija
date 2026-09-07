@@ -8,29 +8,34 @@
  * decline on behalf of anyone else — the client never supplies that identity.
  */
 
-import { confirmMarks, declineAll, saveDraftMarks } from '../rounds/engine';
+import type { CapKind } from '@/domain/allocate';
+import { confirmMarks, declineAll, saveDraftMarks, type MarksInput } from '../rounds/engine';
 import { buyerWrite, describeError, fail, fieldList, fieldNumber, fieldText, ok, partnerWrite, type ActionOutcome } from './helpers';
 
 const ROUNDS = '/partner/voorud';
 
-/** A cap of 0 is meaningful ("nothing this round"); an empty field is "no cap". */
-function readCap(form: FormData): number | null {
+/**
+ * A cap of 0 is meaningful ("nothing this round"); an empty field is "no cap".
+ * The kind says what it counts [K-06]; the engine checks it against the round.
+ */
+function readCap(form: FormData): Pick<MarksInput, 'cap' | 'capKind'> {
+  const capKind: CapKind = fieldText(form, 'capKind') === 'participants' ? 'participants' : 'trainings';
   const raw = fieldText(form, 'cap');
-  if (!raw) return null;
+  if (!raw) return { cap: null, capKind };
   const value = fieldNumber(form, 'cap');
-  if (value === null || value < 0) return null;
-  return Math.floor(value);
+  if (value === null || value < 0) return { cap: null, capKind };
+  return { cap: Math.floor(value), capKind };
 }
 
 /** [K-02] Save the working draft. Binds nothing. */
 export async function saveDraftAction(form: FormData): Promise<ActionOutcome<number>> {
   const roundId = fieldText(form, 'roundId');
   const marks = fieldList(form, 'marks');
-  const cap = readCap(form);
+  const { cap, capKind } = readCap(form);
 
   try {
     const result = await partnerWrite(
-      (ctx, actor) => saveDraftMarks(ctx, roundId, actor.partnerId, { marks, cap }),
+      (ctx, actor) => saveDraftMarks(ctx, roundId, actor.partnerId, { marks, cap, capKind }),
       [`${ROUNDS}/${roundId}`, ROUNDS],
     );
     if (!result.ok) return fail(result.message);
@@ -47,11 +52,11 @@ export async function saveDraftAction(form: FormData): Promise<ActionOutcome<num
 export async function confirmMarksAction(form: FormData): Promise<ActionOutcome<number>> {
   const roundId = fieldText(form, 'roundId');
   const marks = fieldList(form, 'marks');
-  const cap = readCap(form);
+  const { cap, capKind } = readCap(form);
 
   try {
     const result = await partnerWrite(
-      (ctx, actor) => confirmMarks(ctx, roundId, actor.partnerId, { marks, cap }),
+      (ctx, actor) => confirmMarks(ctx, roundId, actor.partnerId, { marks, cap, capKind }),
       [`${ROUNDS}/${roundId}`, ROUNDS, '/partner/teavitused'],
     );
     if (!result.ok) return fail(result.message);

@@ -66,6 +66,8 @@ export function renderRoundPublished(
     trainingCount: number;
     trainingLines: string[];
     visibilityDynamic: boolean;
+    /** which cap kinds this round offers [K-06][L-17] */
+    capOptionsText: string;
     decisionText: string;
   },
 ): RenderedNotice {
@@ -75,7 +77,7 @@ export function renderRoundPublished(
       `Lugupeetud ${input.contactName}`,
       `Riigikantselei esitab ${FRAMEWORK} alusel, hankeosas ${input.lotLabel}, ettevõttele ${input.partnerName} järgmised koolitused (${input.trainingCount}).`,
       list(input.trainingLines),
-      `Palume märkida koolitused, mida olete valmis läbi viima, ja oma valik kinnitada hiljemalt ${input.deadlineText}. Soovi korral saate märkida ülempiiri („võtan vastu kuni N koolitust“).`,
+      `Palume märkida koolitused, mida olete valmis läbi viima, ja oma valik kinnitada hiljemalt ${input.deadlineText}. ${input.capOptionsText}`,
       input.visibilityDynamic
         ? 'Voor on avatud kõigile hankeosa partneritele korraga. Kuni tähtajani näete oma valiku juures esialgset prognoosi: kas koolitus on saadaval, kas selle on märkinud eesõigusega partner ja mida te praeguse seisuga saaksite. Prognoos on esialgne ja võib muutuda kuni tähtajani.'
         : 'Voor on avatud kõigile hankeosa partneritele korraga. Jaotus selgub pärast vastamistähtaega.',

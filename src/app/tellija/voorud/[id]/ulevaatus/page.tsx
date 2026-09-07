@@ -103,6 +103,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
       excluded: participant.excludedAt !== null,
       markCount: latest && latest.kind === 'confirm' ? latest.marks.length : 0,
       cap: latest?.cap ?? null,
+      capKind: latest?.capKind ?? ('trainings' as const),
       proposedCount: proposed.length,
       finalTrainings: final.map((trainingId) => ({
         code: trainingById.get(trainingId)?.code ?? '',

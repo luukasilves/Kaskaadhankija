@@ -16,11 +16,19 @@
  * Rule IDs in comments refer to that document; the tests are named after them.
  */
 
+/** How a partner's ceiling is counted [K-06][L-17]. */
+export type CapKind = 'trainings' | 'participants';
+
 /** One training in the round. `eventDate` is an ISO day, 'YYYY-MM-DD'. */
 export interface AllocationTraining {
   id: string;
   code: string;
   eventDate: string;
+  /**
+   * Trainees. Absent in snapshots frozen before participant caps existed; they
+   * cannot contain such a cap, so the figure only matters for display there.
+   */
+  participantCount?: number;
 }
 
 /** One row of the append-only `confirmations` table, as the algorithm sees it. */
@@ -30,8 +38,10 @@ export interface ConfirmationSnapshot {
   kind: 'confirm' | 'decline_all';
   /** training ids the partner marked */
   marks: string[];
-  /** "võtan vastu kuni N koolitust", or null for no limit [K-06] */
+  /** "võtan vastu kuni N koolitust" / "kuni N osalejat", or null for no limit [K-06] */
   cap: number | null;
+  /** what `cap` counts; absent means trainings (the only kind before v2.2) */
+  capKind?: CapKind;
   confirmedAt: number;
 }
 
@@ -75,8 +85,14 @@ export interface AllocationTraceStep {
   outcome: ParticipantOutcome;
   /** confirmed marks still unallocated when their turn came, in take order */
   wanted: string[];
-  /** effective limit (own cap ∧ buyer cap), or null for unlimited */
+  /** effective limit on the *number* of trainings (own training cap ∧ buyer cap), or null */
   limit: number | null;
+  /** the partner's own cap kind, or null without a cap of their own */
+  capKind: CapKind | null;
+  /** the partner's trainee budget, when their cap counts participants */
+  participantLimit: number | null;
+  /** trainees in the trainings taken */
+  participantsTaken: number;
   taken: string[];
   /** which confirmation was binding [K-04] */
   usedConfirmationId: number | null;
@@ -145,6 +161,7 @@ export function allocate(input: AllocationInput): AllocationResult {
   const ordered = sortTrainings(input.trainings);
   const validIds = new Set(ordered.map((t) => t.id));
   const takeOrder = ordered.map((t) => t.id);
+  const sizeOf = new Map(ordered.map((t) => [t.id, t.participantCount ?? 0] as const));
 
   const skipped = new Set(
     input.adjustments.filter((a) => a.kind === 'skip').map((a) => a.lotPartnerId),
@@ -171,6 +188,9 @@ export function allocate(input: AllocationInput): AllocationResult {
       outcome: 'confirmed',
       wanted: [],
       limit: null,
+      capKind: null,
+      participantLimit: null,
+      participantsTaken: 0,
       taken: [],
       usedConfirmationId: null,
     };
@@ -208,13 +228,32 @@ export function allocate(input: AllocationInput): AllocationResult {
 
     const marked = new Set(marks);
     step.wanted = takeOrder.filter((id) => marked.has(id) && unallocated.has(id));
+
+    // The partner's own cap counts either trainings or trainees [K-06]; the
+    // buyer's cap [T-02] always counts trainings, and combines with either.
+    const ownCap = binding.cap ?? null;
+    const ownKind: CapKind = binding.capKind ?? 'trainings';
+    step.capKind = ownCap === null ? null : ownKind;
     step.limit = effectiveLimit(
-      binding.cap ?? null,
+      ownCap !== null && ownKind === 'trainings' ? ownCap : null,
       buyerCaps.get(participant.lotPartnerId) ?? null,
     );
+    step.participantLimit = ownCap !== null && ownKind === 'participants' ? ownCap : null;
 
-    const take = step.limit === null ? step.wanted : step.wanted.slice(0, Math.max(0, step.limit));
+    // Date order throughout. A count limit ends the walk; a trainee budget
+    // skips what does not fit and keeps going, so a small later training can
+    // still be taken — deterministic, and it uses the budget better [L-17].
+    const take: string[] = [];
+    let budget = step.participantLimit ?? Number.POSITIVE_INFINITY;
+    for (const id of step.wanted) {
+      if (step.limit !== null && take.length >= Math.max(0, step.limit)) break;
+      const size = sizeOf.get(id) ?? 0;
+      if (size > budget) continue;
+      take.push(id);
+      budget -= size;
+    }
     step.taken = take;
+    step.participantsTaken = take.reduce((sum, id) => sum + (sizeOf.get(id) ?? 0), 0);
     for (const id of take) {
       unallocated.delete(id);
       byTraining[id] = participant.lotPartnerId;
@@ -279,7 +318,7 @@ export interface PartnerView {
 export function partnerView(
   input: AllocationInput,
   lotPartnerId: string,
-  own: { marks: string[]; cap: number | null },
+  own: { marks: string[]; cap: number | null; capKind?: CapKind },
 ): PartnerView {
   const self = input.participants.find((p) => p.lotPartnerId === lotPartnerId);
   if (!self) {
@@ -306,6 +345,7 @@ export function partnerView(
             kind: own.marks.length === 0 ? 'decline_all' : 'confirm',
             marks: own.marks,
             cap: own.cap,
+            capKind: own.capKind ?? 'trainings',
             confirmedAt: input.cutAt,
           },
         ],

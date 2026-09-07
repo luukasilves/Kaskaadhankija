@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { ActionForm } from '@/components/action-form';
+import { CAP_OPTIONS_LABELS, CAP_OPTIONS_VALUES, type CapOptions } from '@/domain/round-statuses';
 import { createRoundAction } from '@/server/actions/rounds-buyer';
 
 export interface TrainingOption {
@@ -24,6 +25,7 @@ export interface LotInfo {
   responseDeadlineWorkingDays: number;
   deadlineLocalTime: string;
   defaultVisibilityMode: 'dynamic' | 'sealed';
+  defaultCapOptions: CapOptions;
   activePartnerCount: number;
 }
 
@@ -85,6 +87,21 @@ export function NewRoundForm({
               Dünaamiline režiim näitab partnerile, kas koolituse on juba märkinud eesõigusega
               partner — ilma nime avaldamata. Suletud režiim on olemas juhuks, kui see ei sobi
               raamlepingu sõnastusega.
+            </span>
+          </label>
+          <label className="block">
+            <span className="text-[12.5px] font-semibold">Piirmäära liigid partneritele</span>
+            <select name="capOptions" defaultValue={lot.defaultCapOptions} className="kh-input mt-1" data-testid="cap-options">
+              {CAP_OPTIONS_VALUES.map((value) => (
+                <option key={value} value={value}>
+                  {CAP_OPTIONS_LABELS[value]}
+                </option>
+              ))}
+            </select>
+            <span className="mt-1 block text-[12px] text-[var(--color-muted)]">
+              Partner võib oma kinnitatud märkeid piirata koolituste arvuga või määratavate koolituste
+              osalejate koguarvuga. Osalejate eelarve puhul jäetakse mittemahtuv koolitus vahele ja
+              järgmisi proovitakse edasi. Vaikeväärtus tuleb hankeosa seadetest.
             </span>
           </label>
           <label className="block">

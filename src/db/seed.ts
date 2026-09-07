@@ -90,6 +90,8 @@ const LOT_SEED = [
     responseDeadlineWorkingDays: 3,
     workloadThreshold: 4,
     thresholdNote: 'Näidise testväärtus — päris raamlepingus on lähtekohaks 25 koolitust.',
+    // Both cap kinds, so the seeded Lisa B round shows the choice [L-17].
+    defaultCapOptions: 'both' as const,
   },
   {
     code: 'OSA-3',
@@ -133,6 +135,7 @@ function seedLotsAndUsers(ctx: Ctx): void {
         workloadThreshold: lot.workloadThreshold,
         thresholdNote: lot.thresholdNote,
         defaultVisibilityMode: 'dynamic',
+        defaultCapOptions: 'defaultCapOptions' in lot ? lot.defaultCapOptions : 'trainings',
         isActive: true,
         createdAt: ctx.at,
       })

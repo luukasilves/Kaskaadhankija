@@ -94,6 +94,7 @@ export default async function NewRoundPage({
           responseDeadlineWorkingDays: selectedLot.responseDeadlineWorkingDays,
           deadlineLocalTime: selectedLot.deadlineLocalTime,
           defaultVisibilityMode: selectedLot.defaultVisibilityMode,
+          defaultCapOptions: selectedLot.defaultCapOptions,
           activePartnerCount: activePartners.length,
         }}
         trainings={available.map((t) => ({

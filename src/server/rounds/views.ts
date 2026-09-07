@@ -18,7 +18,7 @@ import {
   trainings,
 } from '@/db/schema';
 import type { ResponseState } from '@/domain/round-statuses';
-import type { AllocationTraining, ConfirmationSnapshot } from '@/domain/allocate';
+import type { CapKind, AllocationTraining, ConfirmationSnapshot } from '@/domain/allocate';
 import type { Db, Tx } from '../context';
 
 type Reader = Tx | Db;
@@ -60,6 +60,7 @@ export function confirmationSnapshotsByPartner(
       kind: row.kind,
       marks: row.marks,
       cap: row.cap,
+      capKind: row.capKind,
       confirmedAt: row.confirmedAt,
     });
     grouped.set(row.lotPartnerId, list);
@@ -70,7 +71,12 @@ export function confirmationSnapshotsByPartner(
 /** Non-withdrawn trainings of a round, in the shape `allocate` expects. [V-04] */
 export function roundTrainingList(tx: Reader, roundId: string): AllocationTraining[] {
   return tx
-    .select({ id: trainings.id, code: trainings.code, eventDate: trainings.eventDate })
+    .select({
+      id: trainings.id,
+      code: trainings.code,
+      eventDate: trainings.eventDate,
+      participantCount: trainings.participantCount,
+    })
     .from(roundTrainings)
     .innerJoin(trainings, eq(trainings.id, roundTrainings.trainingId))
     .where(and(eq(roundTrainings.roundId, roundId), isNull(roundTrainings.withdrawnAt)))
@@ -85,9 +91,12 @@ export function roundTrainingList(tx: Reader, roundId: string): AllocationTraini
  * confirmation is a trap unless it is made obvious.
  */
 export function responseStateFor(
-  latest: { kind: 'confirm' | 'decline_all'; marks: string[]; cap: number | null } | undefined,
+  latest:
+    | { kind: 'confirm' | 'decline_all'; marks: string[]; cap: number | null; capKind?: CapKind }
+    | undefined,
   draftMarks: string[],
   draftCap: number | null,
+  draftCapKind: CapKind = 'trainings',
 ): ResponseState {
   const draftSorted = [...draftMarks].sort();
 
@@ -98,7 +107,10 @@ export function responseStateFor(
   const sameMarks =
     confirmedSorted.length === draftSorted.length &&
     confirmedSorted.every((id, index) => id === draftSorted[index]);
-  const sameCap = (latest.cap ?? null) === (draftCap ?? null);
+  // The kind only matters while there is a cap to count.
+  const sameCap =
+    (latest.cap ?? null) === (draftCap ?? null) &&
+    ((draftCap ?? null) === null || (latest.capKind ?? 'trainings') === draftCapKind);
 
   if (!sameMarks || !sameCap) return 'unconfirmed_changes';
   return latest.kind === 'decline_all' ? 'declined_all' : 'confirmed';
@@ -116,6 +128,7 @@ export interface ParticipantRow {
   excludedReason: string;
   draftMarks: string[];
   draftCap: number | null;
+  draftCapKind: CapKind;
   outcomeAtClose: string | null;
   reminderSentAt: number | null;
   lastProjectionCount: number | null;
@@ -137,6 +150,7 @@ export function participantsOf(tx: Reader, roundId: string): ParticipantRow[] {
       excludedReason: roundParticipants.excludedReason,
       draftMarks: roundParticipants.draftMarks,
       draftCap: roundParticipants.draftCap,
+      draftCapKind: roundParticipants.draftCapKind,
       outcomeAtClose: roundParticipants.outcomeAtClose,
       reminderSentAt: roundParticipants.reminderSentAt,
       lastProjectionCount: roundParticipants.lastProjectionCount,

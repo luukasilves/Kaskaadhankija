@@ -98,7 +98,7 @@ Koosolekult tulenevad siduvad piirangud, mida iga reegel allpool järgib:
 - **[K-03] Ainult kinnitatud märked loevad.** Tähtaja hetkel kinnitamata mustandimuudatused jäetakse kõrvale; kehtib viimane kinnitus. Kasutajaliides peab kinnitamata muudatuste seisu kuvama **väga nähtavalt** („kinnitamata muudatused“) ja 24 tunni meeldetuletus (D-05) kordab seda.
 - **[K-04] Märkeid võib muuta ja uuesti kinnitada piiramatult kuni tähtajani.** Siduv on **viimane kinnitus enne tähtaega**. *See on otsus, millel on alternatiivid — vt L-01.* Iga uus kinnitus muudab dünaamilises režiimis seda, mida madalama kohaga partnerid näevad **potentsiaalselt** saadavalolevana (N-05).
 - **[K-05] Kinnitatud märge on siduv vastuvõtt.** Kui jaotusalgoritm määrab koolituse partnerile, on partner kohustatud selle raamlepingu tingimustel läbi viima. Teist vastuvõtusammu ei ole. *Alternatiiv — vt L-02.*
-- **[K-06] Piirmäär.** Partner võib vooru kohta määrata ülempiiri „võtan vastu kuni N koolitust“. Vaikimisi piirmäära ei ole (= kõik kinnitatud märked). Piirmäära sees jaotatakse koolitused **toimumiskuupäeva järjekorras** (varasem enne), võrdsete kuupäevade puhul koolituse tunnuse järjekorras. *Alternatiiv — vt L-03.*
+- **[K-06] Piirmäär.** Partner võib vooru kohta määrata ülempiiri. Tellija valib vooru loomisel (vaikimisi hankeosa seadistusest), millised piirmäära **liigid** on voorus lubatud: **koolituste arv** („võtan vastu kuni N koolitust“), **osalejate arv kokku** („võtan vastu kuni N osalejat“ — määratavate koolituste osalejate arvude summa), mõlemad (partner valib ühe) või mitte ükski. Vaikimisi piirmäära ei ole (= kõik kinnitatud märked). Piirmäära sees jaotatakse koolitused **toimumiskuupäeva järjekorras** (varasem enne), võrdsete kuupäevade puhul koolituse tunnuse järjekorras. Osalejate arvu piirmäära puhul jäetakse koolitus, mis järelejäänud eelarvesse ei mahu, **vahele ja järgmisi proovitakse edasi**. Üksiku töötoa osalejate ülempiir (raamlepingus 75) on koolituse enda omadus, mida rakendus ei kontrolli. *Alternatiivid — vt L-03, L-17.*
 - **[K-07] Sõnaselge loobumine.** „Loobun kõigist selle vooru koolitustest“ salvestatakse **loobumisteatena**, mis erineb vaikimisest. Loobumist saab kuni tähtajani muuta nagu iga kinnitust (K-04).
 - **[K-08] Vastamata jätmine.** Partner, kellel tähtaja hetkel ei ole ühtegi kinnitust, saab oleku **„ei vastanud“** (loobumine vaikimisi). Ta ei saa selles voorus midagi. Olek salvestatakse eraldi sõnaselgest loobumisest.
 - **[K-09] Auditijälg.** Iga märke lisamine ja eemaldamine, piirmäära muutmine, kinnitus ja loobumine kirjutatakse auditijälge ajatempli ja tegutseva kontaktisiku andmetega.
@@ -140,15 +140,20 @@ Koosolekult tulenevad siduvad piirangud, mida iga reegel allpool järgib:
   iga partneri p kohta järjestuses 1..N:
       kui tellija on p selles voorus vahele jätnud: jätka järgmisega
       soovitud := p kinnitatud märked ∩ jaotamata, sorteeritud (toimumiskuupäev, tunnus)
-      võta     := soovitud esimesed min(|soovitud|, p piirmäär, tellija piir p-le) tk
+      võta     := tühi ; eelarve := p osalejate piirmäär (kui liik on osalejate arv, muidu ∞)
+      iga koolituse k kohta soovitud järjekorras:
+          kui |võta| ≥ min(p koolituste piirmäär, tellija piir p-le): lõpeta
+          kui k osalejate arv > eelarve: jäta k vahele, jätka järgmisega
+          võta := võta + k ; eelarve := eelarve − k osalejate arv
       määra võta → p ; jaotamata := jaotamata − võta
   jääk := jaotamata
   ```
+  *Täpsustus (v2.2):* koolituste arvu piir lõpetab läbikäimise; osalejate eelarve jätab mittemahtuva koolituse vahele ja jätkab (K-06, L-17). Tellija piir (T-02) on alati koolituste arv ja kehtib koos partneri piirmääraga, olgu selle liik milline tahes.
 - **[J-03] Determineeritus.** Samad sisendid annavad alati sama tulemuse. Iga jaotusettepaneku ja lõpliku jaotusega salvestatakse sisendite hetktõmmis, et tulemust saaks hiljem taasarvutada ja kontrollida.
 - **[J-04] Range järjestus.** Madalama kohaga partner saab koolituse ainult siis, kui iga kõrgema kohaga partner kas ei kinnitanud sellele märget, oli oma piirmäära täis või jäeti tellija poolt vahele või piirati (T-02). **Vastamise kiirus ei loe kunagi.** Rotatsiooni (väiksema koormusega partneri eelistamist) paralleelses režiimis ei kasutata — vt L-06.
 - **[J-05] Üks protseduur, kolm lõikehetke.** **Prognoos** — lõikehetk on „praegu“, tellija kohandusi ei ole (kuvatakse akna ajal). **Jaotusettepanek** — lõikehetk on tähtaeg, kohandusi ei ole (külmutatakse V-06 järgi). **Lõplik jaotus** — lõikehetk on tähtaeg, tellija kohandused rakendatud (T-04). Kuva ei näita kunagi midagi, mida algoritm ei ole arvutanud.
 - **[J-06] Jääk.** Koolitus, millele ühelgi partneril ei ole sobivat kinnitatud märget, jääb **jaotamata** ja liigub tellija otsusele (T-06).
-- **[J-07] Invariandid.** Koolitus määratakse maksimaalselt ühele partnerile. Partneri jaotus ühest voorust ei ületa kunagi tema piirmäära ega tellija määratud piiri.
+- **[J-07] Invariandid.** Koolitus määratakse maksimaalselt ühele partnerile. Partneri jaotus ühest voorust ei ületa kunagi tema piirmäära — koolituste arvuna ega osalejate arvuna — ega tellija määratud piiri.
 
 ---
 
@@ -185,7 +190,7 @@ Koosolekult tulenevad siduvad piirangud, mida iga reegel allpool järgib:
 - **[E-02] Ükski partner ei kinnita.** Kõik koolitused jäävad jääki → T-06.
 - **[E-03] Tühja märgete komplekti kinnitamine** = loobumine (K-07).
   *Täpsustus (v2.1):* liides küsib enne kinnitamist üle („Ühtegi koolitust ei ole märgitud. Kinnitada loobumine kõigist vooru koolitustest?“) ja salvestab kande liigiga *loobumine*, mitte tühja kinnitusena — nii on loobumine hiljem eristatav vastamata jätmisest (K-08).
-- **[E-04] Piirmäär on märgetest väiksem.** Jaotatakse piirmäära sees kuupäeva järjekorras; piirmäära ületavad märked loetakse madalama kohaga partnerite suhtes märkimata koolitusteks (need „voolavad alla“).
+- **[E-04] Piirmäär on märgetest väiksem.** Jaotatakse piirmäära sees kuupäeva järjekorras; piirmäära ületavad märked — koolituste arvu puhul järjekorras järgmised, osalejate arvu puhul need, mis eelarvesse ei mahtunud — loetakse madalama kohaga partnerite suhtes märkimata koolitusteks (need „voolavad alla“).
 - **[E-05] Toiming pärast tähtaega.** Lükatakse tagasi selge teatega ja logitakse.
 - **[E-06] Aeg.** Kõik tähtajad Tallinna aja järgi; tööpäevad Eesti riigipühade alusel (kasutatakse sama arvutust kui v1-s: `src/domain/working-days.ts`). *Kalendri- või tööpäevad — vt L-10.*
 - **[E-07] Tellimuse muutmine pärast kinnitamist.** Tellija võib määratud koolituse tühistada põhjusega (partnerit teavitatakse; koolitus võib minna uude vooru). Kui partner loobub pärast kinnitamist, salvestatakse see eraldi sündmusena („partner loobus pärast kinnitamist“) ja märgitakse lepingulise järelmenetluse jaoks — menetlus ise toimub väljaspool rakendust.
@@ -275,6 +280,12 @@ Iga punkt kirjeldab **tehtud valiku**, **alternatiive** ja **seisu**. Muudatus t
   **Valik:** näidisstsenaariumid koostatakse **päris mootorikutsetega tagasikeritud virtuaalkellal**, mitte käsitsi kirjutatud ridadena, ja koolitus märgitakse läbiviiduks ainult siis, kui selle toimumiskuupäev on möödas.
   **Põhjendus:** auditijälg, teavituste logi ja külmutatud hetktõmmised peavad olema tõesed ka näidiskeskkonnas — vastasel juhul näidatakse spetsialistidele midagi, mida süsteem tegelikult ei tee.
   **Seis:** otsustatud.
+
+- **[L-17] Piirmäära liik: koolituste või osalejate arv.**
+  **Valik:** tellija määrab vooru kohta (vaikimisi hankeosa seadistusest), millised piirmäära liigid on partneritele lubatud — koolituste arv, osalejate arv kokku, mõlemad või mitte ükski; partner valib kinnitamisel ühe liigi ja väärtuse (K-06). Osalejate eelarve puhul jäetakse mittemahtuv koolitus vahele ja proovitakse järgmisi — deterministlik ja kasutab eelarvet paremini kui peatumine.
+  **Alternatiivid:** (a) partner võib kasutada mõlemat liiki korraga („kuni N koolitust ja kuni M osalejat“); (b) osalejate eelarve puhul peatuda esimese mittemahtuva koolituse juures — lihtsam sõnastada, aga jätab eelarvet kasutamata; (c) tellija ülevaatuse piirang (T-02) ka osalejate arvuna — praegu ainult koolituste arv.
+  **Märkus:** üksiku töötoa osalejate ülempiir (raamlepingus 75) on koolituse enda omadus ja rakendus seda ei kontrolli. Enne v2.2 külmutatud hetktõmmised ei sisalda koolituste osalejate arve; need täiendatakse lugemisel koolituse andmetest, mis jaotust ei muuda, sest neis voorudes osalejate piirmäära ei olnud.
+  **Seis:** otsustatud tellija tiimiga (september 2026).
 
 ---
 

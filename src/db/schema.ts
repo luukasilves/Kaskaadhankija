@@ -34,9 +34,10 @@ import type {
   TargetGroup,
   TrainingStatus,
   VisibilityMode,
+  CapOptions,
 } from '../domain/round-statuses';
 import type { County, OrderLanguage, WorkshopType } from '../domain/statuses';
-import type { AllocationInput, AllocationResult } from '../domain/allocate';
+import type { AllocationInput, AllocationResult, CapKind } from '../domain/allocate';
 
 const uuid = () => text().$defaultFn(() => crypto.randomUUID());
 
@@ -86,6 +87,11 @@ export const lots = sqliteTable(
       .$type<VisibilityMode>()
       .notNull()
       .default('dynamic'),
+    /**
+     * [K-06][L-17] which cap kinds a new round offers by default. Validated in
+     * code rather than by a CHECK: adding a constraint would rebuild the table.
+     */
+    defaultCapOptions: text('default_cap_options').$type<CapOptions>().notNull().default('trainings'),
     /** set when the threshold is a deliberately low test value */
     thresholdNote: text('threshold_note').notNull().default(''),
     isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
@@ -270,6 +276,8 @@ export const rounds = sqliteTable(
       .references(() => lots.id),
     status: text().$type<RoundStatus>().notNull().default('draft'),
     visibilityMode: text('visibility_mode').$type<VisibilityMode>().notNull().default('dynamic'),
+    /** [K-06][L-17] the cap kinds partners may use in this round; fixed at creation */
+    capOptions: text('cap_options').$type<CapOptions>().notNull().default('trainings'),
     /** [V-03] config frozen at publication, so later lot edits cannot change a live round */
     workloadThresholdSnapshot: integer('workload_threshold_snapshot').notNull().default(25),
     responseWorkingDaysSnapshot: integer('response_working_days_snapshot').notNull().default(3),
@@ -352,6 +360,7 @@ export const roundParticipants = sqliteTable(
     /** [K-02] the partner's editable draft; only confirmations bind */
     draftMarks: text('draft_marks', { mode: 'json' }).$type<string[]>().notNull().default(sql`'[]'`),
     draftCap: integer('draft_cap'),
+    draftCapKind: text('draft_cap_kind').$type<CapKind>().notNull().default('trainings'),
     draftUpdatedAt: integer('draft_updated_at'),
     /** [E-01] deactivated mid-round */
     excludedAt: integer('excluded_at'),
@@ -391,8 +400,10 @@ export const confirmations = sqliteTable(
       .references(() => lotPartners.id),
     kind: text().$type<'confirm' | 'decline_all'>().notNull(),
     marks: text({ mode: 'json' }).$type<string[]>().notNull(),
-    /** [K-06] "võtan vastu kuni N koolitust" */
+    /** [K-06] "võtan vastu kuni N koolitust" / "kuni N osalejat" */
     cap: integer(),
+    /** what `cap` counts [L-17]; a plain column so the append-only triggers survive the migration */
+    capKind: text('cap_kind').$type<CapKind>().notNull().default('trainings'),
     confirmedAt: integer('confirmed_at').notNull(),
     actorLabel: text('actor_label').notNull(),
     contactEmail: text('contact_email').notNull().default(''),

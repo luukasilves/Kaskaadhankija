@@ -20,7 +20,8 @@
 import { useMemo, useState } from 'react';
 import { ActionForm } from '@/components/action-form';
 import { StatusBadge } from '@/components/status-badge';
-import type { StatusTone } from '@/domain/round-statuses';
+import type { CapKind } from '@/domain/allocate';
+import { allowedCapKinds, type CapOptions, type StatusTone } from '@/domain/round-statuses';
 import {
   confirmMarksAction,
   declineAllAction,
@@ -52,10 +53,13 @@ export function MarkingForm({
   editable,
   dynamic,
   responseState,
+  capOptions,
   draftMarks,
   draftCap,
+  draftCapKind,
   confirmedMarks,
   confirmedCap,
+  confirmedCapKind,
   confirmedAt,
   confirmedKind,
   deadlineText,
@@ -66,10 +70,14 @@ export function MarkingForm({
   editable: boolean;
   dynamic: boolean;
   responseState: string;
+  /** which cap kinds this round offers [K-06][L-17] */
+  capOptions: CapOptions;
   draftMarks: string[];
   draftCap: number | null;
+  draftCapKind: CapKind;
   confirmedMarks: string[];
   confirmedCap: number | null;
+  confirmedCapKind: CapKind | null;
   confirmedAt: string | null;
   confirmedKind: 'confirm' | 'decline_all' | null;
   deadlineText: string;
@@ -77,8 +85,12 @@ export function MarkingForm({
   finalMine: string[] | null;
   trainings: MarkingTraining[];
 }) {
+  const allowedKinds = allowedCapKinds(capOptions);
   const [selected, setSelected] = useState<Set<string>>(new Set(draftMarks));
   const [cap, setCap] = useState<string>(draftCap === null ? '' : String(draftCap));
+  const [capKind, setCapKind] = useState<CapKind>(
+    allowedKinds.includes(draftCapKind) ? draftCapKind : (allowedKinds[0] ?? 'trainings'),
+  );
 
   const confirmedSet = useMemo(() => new Set(confirmedMarks), [confirmedMarks]);
   const finalSet = useMemo(() => new Set(finalMine ?? []), [finalMine]);
@@ -96,9 +108,16 @@ export function MarkingForm({
     const sameMarks =
       chosen.length === bound.length && chosen.every((id, index) => id === bound[index]);
     const capValue = cap.trim() === '' ? null : Number(cap);
-    const sameCap = capValue === confirmedCap;
+    const sameCap =
+      capValue === confirmedCap && (capValue === null || capKind === (confirmedCapKind ?? 'trainings'));
     return !sameMarks || !sameCap;
-  }, [selected, confirmedSet, cap, confirmedCap]);
+  }, [selected, confirmedSet, cap, capKind, confirmedCap, confirmedCapKind]);
+
+  /** Trainees in the working selection, for the participants-kind cap. */
+  const selectedParticipants = useMemo(
+    () => trainings.filter((t) => selected.has(t.id)).reduce((sum, t) => sum + t.participants, 0),
+    [selected, trainings],
+  );
 
   const toggle = (id: string) => {
     if (!editable) return;
@@ -262,31 +281,59 @@ export function MarkingForm({
           <h2>Kinnita oma valik</h2>
           <p className="mt-1 max-w-[80ch] text-[13px] text-[var(--color-muted)]">
             Kinnitatud märge on siduv: kui koolitus teile määratakse, olete kohustatud selle
-            raamlepingu tingimustel läbi viima. Ülempiir kaitseb teid liigse mahu eest — piirmäära
-            sees jaotatakse koolitused toimumiskuupäeva järjekorras. Valikut saab muuta ja uuesti
-            kinnitada kuni {deadlineText || 'tähtajani'}.
+            raamlepingu tingimustel läbi viima.{' '}
+            {allowedKinds.length > 0
+              ? 'Ülempiir kaitseb teid liigse mahu eest — piirmäära sees jaotatakse koolitused toimumiskuupäeva järjekorras.'
+              : 'Selles voorus ülempiiri ei kasutata: iga kinnitatud märge on siduv.'}{' '}
+            Valikut saab muuta ja uuesti kinnitada kuni {deadlineText || 'tähtajani'}.
           </p>
 
-          <div className="mt-3 grid gap-4 sm:grid-cols-2">
-            <label className="block">
-              <span className="text-[12.5px] font-semibold">
-                Ülempiir — võtan vastu kuni N koolitust
-              </span>
-              <input
-                type="number"
-                min={0}
-                max={trainings.length}
-                value={cap}
-                onChange={(event) => setCap(event.target.value)}
-                placeholder="piirmäära ei ole"
-                className="kh-input mt-1"
-              />
-              <span className="mt-1 block text-[12px] text-[var(--color-muted)]">
-                Jäta tühjaks, kui piirangut ei ole. Piirmäära ületavad märked jäävad varuvariandiks
-                ja liiguvad järjestuses allapoole.
-              </span>
-            </label>
-          </div>
+          {allowedKinds.length > 0 && (
+            <div className="mt-3 grid gap-4 sm:grid-cols-2">
+              <div className="block" data-testid="cap-control">
+                <span className="text-[12.5px] font-semibold">
+                  Ülempiir —{' '}
+                  {allowedKinds.length === 1
+                    ? allowedKinds[0] === 'participants'
+                      ? 'võtan vastu koolitusi kokku kuni N osalejale'
+                      : 'võtan vastu kuni N koolitust'
+                    : 'võtan vastu kuni'}
+                </span>
+                {allowedKinds.length > 1 && (
+                  <div className="mt-1 flex flex-wrap gap-4 text-[13px]" role="radiogroup" aria-label="Piirmäära liik">
+                    {allowedKinds.map((kind) => (
+                      <label key={kind} className="flex items-center gap-1.5">
+                        <input
+                          type="radio"
+                          name="capKindChoice"
+                          value={kind}
+                          checked={capKind === kind}
+                          onChange={() => setCapKind(kind)}
+                        />
+                        {kind === 'participants' ? 'N osalejat kokku' : 'N koolitust'}
+                      </label>
+                    ))}
+                  </div>
+                )}
+                <input
+                  type="number"
+                  min={0}
+                  max={capKind === 'participants' ? undefined : trainings.length}
+                  value={cap}
+                  onChange={(event) => setCap(event.target.value)}
+                  placeholder="piirmäära ei ole"
+                  aria-label="Piirmäär"
+                  className="kh-input mt-1"
+                />
+                <span className="mt-1 block text-[12px] text-[var(--color-muted)]">
+                  Jäta tühjaks, kui piirangut ei ole.{' '}
+                  {capKind === 'participants'
+                    ? `Valitud koolitustes on kokku ${selectedParticipants} osalejat. Koolitus, mis eelarvesse ei mahu, jäetakse vahele ja järgmisi proovitakse edasi; vahelejäänud märked liiguvad järjestuses allapoole.`
+                    : 'Piirmäära ületavad märked jäävad varuvariandiks ja liiguvad järjestuses allapoole.'}
+                </span>
+              </div>
+            </div>
+          )}
 
           <div className="mt-4 flex flex-wrap items-start gap-3">
             <ActionForm
@@ -298,7 +345,7 @@ export function MarkingForm({
                   ? 'Ühtegi koolitust ei ole märgitud. Kinnitada loobumine kõigist vooru koolitustest?'
                   : undefined
               }
-              hidden={{ roundId, cap }}
+              hidden={{ roundId, cap, capKind }}
               testId="confirm-marks"
             >
               {hiddenMarks}
@@ -307,7 +354,7 @@ export function MarkingForm({
             <ActionForm
               action={saveDraftAction}
               submitLabel="Salvesta mustand"
-              hidden={{ roundId, cap }}
+              hidden={{ roundId, cap, capKind }}
               testId="save-draft"
             >
               {hiddenMarks}

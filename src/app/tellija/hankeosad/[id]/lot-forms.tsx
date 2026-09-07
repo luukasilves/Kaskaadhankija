@@ -2,6 +2,7 @@
 
 import { ActionButton, ActionForm } from '@/components/action-form';
 import { RankChip, StatusBadge } from '@/components/status-badge';
+import { CAP_OPTIONS_LABELS, CAP_OPTIONS_VALUES, type CapOptions } from '@/domain/round-statuses';
 import { updateLotConfigAction } from '@/server/actions/lots';
 import { deactivateLotPartnerAction } from '@/server/actions/rounds-buyer';
 
@@ -18,6 +19,7 @@ export function LotConfigForm({
     workloadThreshold: number;
     thresholdNote: string;
     defaultVisibilityMode: 'dynamic' | 'sealed';
+    defaultCapOptions: CapOptions;
   };
   openRoundCodes: string[];
 }) {
@@ -117,6 +119,22 @@ export function LotConfigForm({
           <span className="mt-1 block text-[12px] text-[var(--color-muted)]">
             Suletud režiim on olemas selleks, et dünaamilise nähtavuse kooskõla raamlepingu
             sõnastusega saaks lahendada ilma koodi muutmata.
+          </span>
+        </label>
+
+        <label className="block sm:col-span-2 lg:col-span-3">
+          <span className="text-[12.5px] font-semibold">Vaikimisi piirmäära liigid uues voorus</span>
+          <select name="defaultCapOptions" defaultValue={lot.defaultCapOptions} className="kh-input mt-1">
+            {CAP_OPTIONS_VALUES.map((value) => (
+              <option key={value} value={value}>
+                {CAP_OPTIONS_LABELS[value]}
+              </option>
+            ))}
+          </select>
+          <span className="mt-1 block text-[12px] text-[var(--color-muted)]">
+            Mida partner võib oma märgetele ülempiiriks seada: koolituste arvu, määratavate
+            koolituste osalejate koguarvu, kummagi omal valikul või mitte midagi. Igal voorul saab
+            valikut loomisel muuta.
           </span>
         </label>
       </div>

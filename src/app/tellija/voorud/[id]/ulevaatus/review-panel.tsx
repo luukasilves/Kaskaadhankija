@@ -27,6 +27,7 @@ export interface ReviewRow {
   excluded: boolean;
   markCount: number;
   cap: number | null;
+  capKind: 'trainings' | 'participants';
   proposedCount: number;
   finalTrainings: Array<{ code: string; eventDate: string }>;
   finalCount: number;
@@ -128,7 +129,7 @@ export function ReviewPanel({
                     {row.markCount}
                     {row.cap !== null && (
                       <span className="ml-1 text-[12px] text-[var(--color-muted)]">
-                        (piir {row.cap})
+                        (piir {row.cap} {row.capKind === 'participants' ? 'osalejat' : 'koolitust'})
                       </span>
                     )}
                   </td>

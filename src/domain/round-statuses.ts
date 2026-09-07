@@ -6,7 +6,7 @@
  * means. Mirrors sections M, V and N of `docs/kaskaadi-ariloogika.md`.
  */
 
-import type { NotProjectedReason, TrainingViewState } from './allocate';
+import type { CapKind, NotProjectedReason, TrainingViewState } from './allocate';
 
 /* ------------------------------------------------------------------ *
  * voor [V-02]
@@ -100,6 +100,51 @@ export const PARTICIPANT_OUTCOME_LABELS: Record<ParticipantOutcomeAtClose, strin
 };
 
 export type ResponseState = 'none' | 'draft_only' | 'confirmed' | 'declined_all' | 'unconfirmed_changes';
+
+/* ------------------------------------------------------------------ *
+ * piirmäära liigid [K-06][L-17]
+ * ------------------------------------------------------------------ */
+
+/** Which cap kinds the buyer offers the partners in a round. */
+export type CapOptions = 'none' | 'trainings' | 'participants' | 'both';
+
+export const CAP_OPTIONS_VALUES: readonly CapOptions[] = ['none', 'trainings', 'participants', 'both'];
+
+export const CAP_OPTIONS_LABELS: Record<CapOptions, string> = {
+  none: 'Piirmäära ei kasutata',
+  trainings: 'Koolituste arv („kuni N koolitust“)',
+  participants: 'Osalejate arv kokku („kuni N osalejat“)',
+  both: 'Partner valib: koolituste arv või osalejate arv',
+};
+
+/** The unit word after a cap value. */
+export const CAP_KIND_LABELS: Record<CapKind, string> = {
+  trainings: 'koolitust',
+  participants: 'osalejat',
+};
+
+export function allowedCapKinds(options: CapOptions): CapKind[] {
+  switch (options) {
+    case 'none':
+      return [];
+    case 'trainings':
+      return ['trainings'];
+    case 'participants':
+      return ['participants'];
+    default:
+      return ['trainings', 'participants'];
+  }
+}
+
+export function isCapOptions(value: string): value is CapOptions {
+  return (CAP_OPTIONS_VALUES as readonly string[]).includes(value);
+}
+
+/** "3 koolitust", "120 osalejat", or "—". */
+export function capLabel(cap: number | null | undefined, kind: CapKind | null | undefined): string {
+  if (cap === null || cap === undefined) return '—';
+  return `${cap} ${CAP_KIND_LABELS[kind ?? 'trainings']}`;
+}
 
 /** Wording for the partner's own status while the round is open. [K-03] */
 export const RESPONSE_STATE_LABELS: Record<ResponseState, string> = {

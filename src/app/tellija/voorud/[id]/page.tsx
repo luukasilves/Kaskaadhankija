@@ -15,7 +15,7 @@ import { getDb } from '@/db';
 import { lots, roundTrainings, rounds, trainings } from '@/db/schema';
 import { allocate } from '@/domain/allocate';
 import { formatDateTimeShort, formatEur, formatIsoDay } from '@/domain/format';
-import {
+import { CAP_OPTIONS_LABELS, capLabel,
   PARTICIPANT_OUTCOME_LABELS,
   RESPONSE_STATE_LABELS,
   ROUND_STATUS_LABELS,
@@ -47,6 +47,7 @@ export default async function RoundDetail({ params }: { params: Promise<{ id: st
       status: rounds.status,
       note: rounds.note,
       visibilityMode: rounds.visibilityMode,
+      capOptions: rounds.capOptions,
       publishedAt: rounds.publishedAt,
       deadlineAt: rounds.deadlineAt,
       expectedDecisionAt: rounds.expectedDecisionAt,
@@ -99,7 +100,7 @@ export default async function RoundDetail({ params }: { params: Promise<{ id: st
 
   const partnerColumns = participants.map((participant) => {
     const latest = latestConfirmation(db, id, participant.lotPartnerId);
-    const state = responseStateFor(latest, participant.draftMarks, participant.draftCap);
+    const state = responseStateFor(latest, participant.draftMarks, participant.draftCap, participant.draftCapKind);
     const confirmedMarks = new Set(latest && latest.kind === 'confirm' ? latest.marks : []);
     const draftMarks = new Set(participant.draftMarks);
     const projected =
@@ -112,6 +113,7 @@ export default async function RoundDetail({ params }: { params: Promise<{ id: st
       draftMarks,
       projectedCount: projected.length,
       cap: latest?.cap ?? participant.draftCap ?? null,
+      capKind: latest?.capKind ?? participant.draftCapKind,
     };
   });
 
@@ -143,7 +145,8 @@ export default async function RoundDetail({ params }: { params: Promise<{ id: st
           )}
         </div>
         <p className="mt-1 text-[var(--color-muted)]">
-          {round.lotCode} — {round.lotName} · {VISIBILITY_MODE_LABELS[round.visibilityMode]}
+          {round.lotCode} — {round.lotName} · {VISIBILITY_MODE_LABELS[round.visibilityMode]} · piirmäär:{' '}
+          {CAP_OPTIONS_LABELS[round.capOptions].toLowerCase()}
         </p>
       </div>
 
@@ -304,7 +307,7 @@ export default async function RoundDetail({ params }: { params: Promise<{ id: st
                       </span>
                     )}
                   </td>
-                  <td className="kh-td tabular-nums">{column.cap ?? '—'}</td>
+                  <td className="kh-td tabular-nums">{capLabel(column.cap, column.capKind)}</td>
                   <td className="kh-td font-semibold tabular-nums">{column.projectedCount}</td>
                 </tr>
               ))}

@@ -21,7 +21,7 @@ import { getDb } from '@/db';
 import { lots, orders, roundTrainings, rounds, trainings } from '@/db/schema';
 import { partnerView } from '@/domain/allocate';
 import { formatDateTime, formatDateTimeShort, formatEur, formatIsoDay } from '@/domain/format';
-import { TARGET_GROUPS, viewStateParts, VIEW_STATE_TONES } from '@/domain/round-statuses';
+import { capLabel, TARGET_GROUPS, viewStateParts, VIEW_STATE_TONES } from '@/domain/round-statuses';
 import { LANGUAGE_LABELS, WORKSHOP_TYPE_LABELS } from '@/domain/statuses';
 import { Countdown } from '@/components/countdown';
 import { RankChip, StatusBadge } from '@/components/status-badge';
@@ -54,6 +54,7 @@ export default async function PartnerRoundPage({ params }: { params: Promise<{ i
       code: rounds.code,
       status: rounds.status,
       visibilityMode: rounds.visibilityMode,
+      capOptions: rounds.capOptions,
       publishedAt: rounds.publishedAt,
       deadlineAt: rounds.deadlineAt,
       expectedDecisionAt: rounds.expectedDecisionAt,
@@ -99,7 +100,7 @@ export default async function PartnerRoundPage({ params }: { params: Promise<{ i
     .sort((a, b) => a.eventDate.localeCompare(b.eventDate) || a.code.localeCompare(b.code));
 
   const latest = latestConfirmation(db, id, participant.lotPartnerId);
-  const state = responseStateFor(latest, participant.draftMarks, participant.draftCap);
+  const state = responseStateFor(latest, participant.draftMarks, participant.draftCap, participant.draftCapKind);
   const history = allConfirmations(db, id).filter(
     (row) => row.lotPartnerId === participant.lotPartnerId,
   );
@@ -114,6 +115,7 @@ export default async function PartnerRoundPage({ params }: { params: Promise<{ i
       ? partnerView(projectionInput(db, id, nowMs), participant.lotPartnerId, {
           marks: participant.draftMarks,
           cap: participant.draftCap,
+          capKind: participant.draftCapKind,
         })
       : null;
   const confirmedView =
@@ -121,6 +123,7 @@ export default async function PartnerRoundPage({ params }: { params: Promise<{ i
       ? partnerView(projectionInput(db, id, nowMs), participant.lotPartnerId, {
           marks: latest.kind === 'confirm' ? latest.marks : [],
           cap: latest.cap,
+          capKind: latest.capKind,
         })
       : null;
 
@@ -323,10 +326,13 @@ export default async function PartnerRoundPage({ params }: { params: Promise<{ i
         editable={isOpen}
         dynamic={showsStates}
         responseState={state}
+        capOptions={round.capOptions}
         draftMarks={participant.draftMarks}
         draftCap={participant.draftCap}
+        draftCapKind={participant.draftCapKind}
         confirmedMarks={latest && latest.kind === 'confirm' ? latest.marks : []}
         confirmedCap={latest?.cap ?? null}
+        confirmedCapKind={latest?.capKind ?? null}
         confirmedAt={latest ? formatDateTimeShort(latest.confirmedAt) : null}
         confirmedKind={latest?.kind ?? null}
         deadlineText={round.deadlineAt ? formatDateTime(round.deadlineAt) : ''}
@@ -386,7 +392,7 @@ export default async function PartnerRoundPage({ params }: { params: Promise<{ i
                       {row.kind === 'confirm' ? 'Kinnitus' : 'Loobumine'}
                     </td>
                     <td className="kh-td tabular-nums">{row.marks.length}</td>
-                    <td className="kh-td tabular-nums">{row.cap ?? '—'}</td>
+                    <td className="kh-td tabular-nums">{capLabel(row.cap, row.capKind)}</td>
                     <td className="kh-td">
                       {index === 0 && <StatusBadge label="Kehtib" tone="success" />}
                     </td>

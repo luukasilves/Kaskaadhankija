@@ -182,6 +182,72 @@ describe('[V-01] a round goes to every active partner of the lot', () => {
   });
 });
 
+describe('[K-06][L-17] piirmäära liigid voorus', () => {
+  const openWith = (capOptions: 'none' | 'trainings' | 'participants' | 'both') =>
+    harness.write((ctx) => {
+      const roundId = createRound(ctx, { lotId: fx.lotId, trainingIds: fx.trainingIds, capOptions });
+      publishRound(ctx, roundId);
+      return roundId;
+    });
+
+  it('defaults to the lot’s offer and states it in the publication notice', () => {
+    const roundId = openRound();
+    expect(roundRow(roundId)?.capOptions).toBe('trainings');
+    const notice = harness.read((db) =>
+      db.select().from(notifications).where(and(eq(notifications.roundId, roundId), eq(notifications.type, 'round_published'))).get(),
+    );
+    expect(notice?.body).toContain('kuni N koolitust');
+  });
+
+  it('refuses a cap in a round that offers none, and a kind the round does not offer', () => {
+    const none = openWith('none');
+    const refused = harness.write((ctx) => confirmMarks(ctx, none, fx.partnerIds[0]!, { marks: [fx.trainingIds[0]!], cap: 1 }));
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) expect(refused.message).toMatch(/piirmäära ei kasutata/);
+
+    // A training sits in one round at a time [E-09], so the second round needs its own lot.
+    const other = seedLotWithPartners(harness, { code: 'OSA-3', partnerCount: 2, trainingCount: 2 });
+    const countsOnly = harness.write((ctx) => {
+      const roundId = createRound(ctx, { lotId: other.lotId, trainingIds: other.trainingIds, capOptions: 'trainings' });
+      publishRound(ctx, roundId);
+      return roundId;
+    });
+    const wrongKind = harness.write((ctx) =>
+      confirmMarks(ctx, countsOnly, other.partnerIds[0]!, { marks: [other.trainingIds[0]!], cap: 40, capKind: 'participants' }),
+    );
+    expect(wrongKind.ok).toBe(false);
+    if (!wrongKind.ok) expect(wrongKind.message).toMatch(/koolituste arvuna/);
+    // No confirmation was recorded for either refusal.
+    expect(harness.read((db) => db.select().from(confirmations).all())).toHaveLength(0);
+  });
+
+  it('records a participants cap, allocates within the budget at close, and says so in the receipt', () => {
+    const roundId = openWith('participants');
+    // Fixture trainings hold 20 trainees each: 50 admits two, the third does not fit, nor any later one.
+    const answer = harness.write((ctx) =>
+      confirmMarks(ctx, roundId, fx.partnerIds[0]!, { marks: fx.trainingIds, cap: 50, capKind: 'participants' }),
+    );
+    expect(answer).toMatchObject({ ok: true, projectedCount: 2 });
+    harness.write((ctx) => confirmMarks(ctx, roundId, fx.partnerIds[1]!, { marks: fx.trainingIds, cap: null }));
+
+    const stored = harness.read((db) => db.select().from(confirmations).where(eq(confirmations.lotPartnerId, fx.lotPartnerIds[0]!)).get());
+    expect(stored).toMatchObject({ cap: 50, capKind: 'participants' });
+    const receipt = harness.read((db) =>
+      db.select().from(notifications).where(and(eq(notifications.roundId, roundId), eq(notifications.type, 'confirmation_receipt'))).get(),
+    );
+    expect(receipt?.body).toContain('kuni 50 osalejale');
+
+    harness.now = roundRow(roundId)!.deadlineAt! + 1;
+    harness.write((ctx) => closeRound(ctx, roundId));
+    const proposal = roundRow(roundId)!.proposalSnapshot!;
+    const byPartner = Object.fromEntries(proposal.result.allocations.map((a) => [a.lotPartnerId, a.trainingIds.length]));
+    expect(byPartner[fx.lotPartnerIds[0]!]).toBe(2);
+    expect(byPartner[fx.lotPartnerIds[1]!]).toBe(4);
+    // The frozen input carries the trainee counts the budget was applied to.
+    expect(proposal.input.trainings.every((t) => t.participantCount === 20)).toBe(true);
+  });
+});
+
 describe('[V-03] the response deadline', () => {
   it('defaults to the lot’s working days at its local time', () => {
     const roundId = openRound();

@@ -11,7 +11,7 @@
 
 import { eq } from 'drizzle-orm';
 import { lots } from '@/db/schema';
-import type { VisibilityMode } from '@/domain/round-statuses';
+import { isCapOptions, type VisibilityMode } from '@/domain/round-statuses';
 import { logAudit } from '../audit';
 import { buyerWrite, describeError, fail, fieldNumber, fieldText, ok, type ActionOutcome } from './helpers';
 
@@ -22,6 +22,9 @@ export async function updateLotConfigAction(form: FormData): Promise<ActionOutco
   const reviewWorkingDays = fieldNumber(form, 'reviewWorkingDays');
   const workloadThreshold = fieldNumber(form, 'workloadThreshold');
   const defaultVisibilityMode = fieldText(form, 'defaultVisibilityMode') as VisibilityMode;
+  const rawCapOptions = fieldText(form, 'defaultCapOptions') || 'trainings';
+  if (!isCapOptions(rawCapOptions)) return fail('Tundmatu piirmäära valik.');
+  const defaultCapOptions = rawCapOptions;
 
   if (!responseDeadlineWorkingDays || responseDeadlineWorkingDays < 1) {
     return fail('Vastamistähtaeg peab olema vähemalt üks tööpäev.');
@@ -50,13 +53,14 @@ export async function updateLotConfigAction(form: FormData): Promise<ActionOutco
             reviewWorkingDays,
             workloadThreshold,
             defaultVisibilityMode,
+            defaultCapOptions,
           })
           .where(eq(lots.id, lotId))
           .run();
 
         logAudit(ctx, {
           eventType: 'lot.config_changed',
-          summary: `${before.code} kaskaadi seaded muudetud: ${responseDeadlineWorkingDays} tööpäeva kell ${deadlineLocalTime}, töömahu piir ${workloadThreshold}, nähtavus ${defaultVisibilityMode === 'dynamic' ? 'dünaamiline' : 'suletud'}`,
+          summary: `${before.code} kaskaadi seaded muudetud: ${responseDeadlineWorkingDays} tööpäeva kell ${deadlineLocalTime}, töömahu piir ${workloadThreshold}, nähtavus ${defaultVisibilityMode === 'dynamic' ? 'dünaamiline' : 'suletud'}, piirmäära liigid ${defaultCapOptions}`,
           lotId,
           before: {
             responseDeadlineWorkingDays: before.responseDeadlineWorkingDays,
@@ -64,6 +68,7 @@ export async function updateLotConfigAction(form: FormData): Promise<ActionOutco
             reviewWorkingDays: before.reviewWorkingDays,
             workloadThreshold: before.workloadThreshold,
             defaultVisibilityMode: before.defaultVisibilityMode,
+            defaultCapOptions: before.defaultCapOptions,
           },
           after: {
             responseDeadlineWorkingDays,
@@ -71,6 +76,7 @@ export async function updateLotConfigAction(form: FormData): Promise<ActionOutco
             reviewWorkingDays,
             workloadThreshold,
             defaultVisibilityMode,
+            defaultCapOptions,
           },
         });
       },

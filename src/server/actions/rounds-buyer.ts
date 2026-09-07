@@ -29,6 +29,7 @@ import {
 } from '../rounds/engine';
 import { runDueJobs } from '../rounds/jobs';
 import type { VisibilityMode } from '@/domain/round-statuses';
+import { isCapOptions } from '@/domain/round-statuses';
 import {
   buyerWrite,
   describeError,
@@ -49,14 +50,17 @@ export async function createRoundAction(form: FormData): Promise<ActionOutcome> 
   const trainingIds = fieldList(form, 'trainingIds');
   const note = fieldText(form, 'note');
   const visibilityMode = (fieldText(form, 'visibilityMode') || undefined) as VisibilityMode | undefined;
+  const rawCapOptions = fieldText(form, 'capOptions');
+  const capOptions = rawCapOptions ? (isCapOptions(rawCapOptions) ? rawCapOptions : null) : undefined;
 
   if (!lotId) return fail('Vali hankeosa.');
   if (trainingIds.length === 0) return fail('Vali vähemalt üks koolitus.');
+  if (capOptions === null) return fail('Tundmatu piirmäära valik.');
 
   let roundId: string;
   try {
     roundId = await buyerWrite(
-      (ctx) => createRound(ctx, { lotId, trainingIds, note, visibilityMode }),
+      (ctx) => createRound(ctx, { lotId, trainingIds, note, visibilityMode, capOptions }),
       [ROUNDS, DASHBOARD, '/tellija/koolitused'],
     );
   } catch (error) {
