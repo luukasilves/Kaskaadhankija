@@ -9,7 +9,7 @@
 
 import { sql } from 'drizzle-orm';
 import { getDb } from '@/db';
-import { env } from '@/lib/env';
+import { env, mailMode } from '@/lib/env';
 import { bootOnce } from '@/server/boot';
 
 export const dynamic = 'force-dynamic';
@@ -21,7 +21,7 @@ export async function GET() {
     // `baseUrl` is what every notification link is built from. Reporting it
     // lets a deploy prove the machine points at its own hostname, which matters
     // once two environments run from one fly.toml.
-    return Response.json({ ok: true, baseUrl: env.APP_BASE_URL });
+    return Response.json({ ok: true, baseUrl: env.APP_BASE_URL, mail: mailMode() });
   } catch (error) {
     return Response.json(
       { ok: false, error: error instanceof Error ? error.message : 'unknown' },

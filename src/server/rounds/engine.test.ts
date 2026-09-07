@@ -7,11 +7,12 @@
  * engine rather than the pure function, so the database plumbing is covered too.
  */
 
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   auditEvents,
   confirmations,
+  emailDeliveries,
   lotPartners,
   notifications,
   orderTrainings,
@@ -168,7 +169,16 @@ describe('[V-01] a round goes to every active partner of the lot', () => {
         .all(),
     );
     expect(sent).toHaveLength(3);
-    expect(sent.every((n) => n.emailTo.startsWith('kontakt'))).toBe(true);
+    // One queued e-mail per notice, to the contact of the membership [D-10].
+    const deliveries = harness.read((db) =>
+      db
+        .select()
+        .from(emailDeliveries)
+        .where(inArray(emailDeliveries.notificationId, sent.map((n) => n.id)))
+        .all(),
+    );
+    expect(deliveries).toHaveLength(3);
+    expect(deliveries.every((d) => d.to.startsWith('kontakt') && d.status === 'queued')).toBe(true);
   });
 });
 

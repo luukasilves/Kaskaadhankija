@@ -247,3 +247,12 @@ export const NOTIFICATION_TYPE_LABELS: Record<string, string> = {
   buyer_round_confirmed: 'Jaotus kinnitatud',
   late_action_rejected: 'Hilinenud toiming',
 };
+
+/** What happened to one e-mail, per recipient [D-10]. */
+export const EMAIL_DELIVERY_STATUS_LABELS: Record<string, string> = {
+  queued: 'ootel',
+  sent: 'saadetud',
+  failed: 'saatmine ebaõnnestus',
+  suppressed: 'ei saadetud — testkeskkonna lubatud saajate loendis puudub',
+  skipped: 'e-kirja ei saadetud',
+};

@@ -1,0 +1,85 @@
+/**
+ * Migrations against a database that already holds data — the case the volume
+ * on Fly presents at every deploy, and the one an in-memory test database built
+ * from scratch never exercises.
+ */
+
+import Database from 'better-sqlite3';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
+import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { describe, expect, it } from 'vitest';
+import * as schema from './schema';
+
+const folder = join(process.cwd(), 'drizzle');
+const journal = JSON.parse(readFileSync(join(folder, 'meta/_journal.json'), 'utf8')) as {
+  entries: Array<{ tag: string; when: number }>;
+};
+
+/** Apply one migration file the way the migrator would, statement by statement. */
+function applyRaw(raw: Database.Database, tag: string): void {
+  const text = readFileSync(join(folder, `${tag}.sql`), 'utf8');
+  for (const part of text.split('--> statement-breakpoint')) {
+    const statement = part.trim();
+    if (statement) raw.exec(statement);
+  }
+}
+
+/** A database as v2 left it: the first two migrations applied and recorded. */
+function v2Database(): Database.Database {
+  const raw = new Database(':memory:');
+  raw.pragma('foreign_keys = ON');
+  const [first, second] = journal.entries;
+  applyRaw(raw, first!.tag);
+  applyRaw(raw, second!.tag);
+  raw.exec(
+    'CREATE TABLE "__drizzle_migrations" (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric)',
+  );
+  raw
+    .prepare('INSERT INTO "__drizzle_migrations" (hash, created_at) VALUES (?, ?), (?, ?)')
+    .run('v2-0', first!.when, 'v2-1', second!.when);
+  return raw;
+}
+
+describe('0002_email_deliveries on a populated v2 database', () => {
+  it('carries each notification’s e-mail record into one delivery row [D-10]', () => {
+    const raw = v2Database();
+    const insert = raw.prepare(
+      `INSERT INTO notifications (id, created_at, recipient_kind, type, title, body, email_to, email_status, email_error, email_sent_at)
+       VALUES (?, ?, 'buyer', 'buyer_round_closed', 'Pealkiri', 'Sisu', ?, ?, ?, ?)`,
+    );
+    insert.run('n-sent', 1_000, 'a@riik.ee', 'sent', '', 1_500);
+    insert.run('n-failed', 2_000, 'b@riik.ee', 'failed', 'ECONNREFUSED', null);
+    insert.run('n-inapp', 3_000, '', 'skipped', '', null);
+
+    migrate(drizzle(raw, { schema }), { migrationsFolder: folder });
+
+    const deliveries = raw
+      .prepare('SELECT notification_id, "to", status, attempts, detail, last_attempt_at, sent_at FROM email_deliveries ORDER BY notification_id')
+      .all() as Array<Record<string, unknown>>;
+    expect(deliveries).toEqual([
+      { notification_id: 'n-failed', to: 'b@riik.ee', status: 'failed', attempts: 1, detail: 'ECONNREFUSED', last_attempt_at: 2_000, sent_at: null },
+      { notification_id: 'n-sent', to: 'a@riik.ee', status: 'sent', attempts: 1, detail: '', last_attempt_at: 1_500, sent_at: 1_500 },
+    ]);
+
+    // The notices themselves survive the rebuild, minus the e-mail columns.
+    const notices = raw.prepare('SELECT id, title FROM notifications ORDER BY id').all();
+    expect(notices).toEqual([
+      { id: 'n-failed', title: 'Pealkiri' },
+      { id: 'n-inapp', title: 'Pealkiri' },
+      { id: 'n-sent', title: 'Pealkiri' },
+    ]);
+    const columns = (raw.prepare('PRAGMA table_info(notifications)').all() as Array<{ name: string }>).map((c) => c.name);
+    expect(columns).not.toContain('email_to');
+
+    // The append-only triggers are untouched by a rebuild of another table.
+    const triggers = raw.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type = 'trigger'").get() as { n: number };
+    expect(triggers.n).toBe(6);
+
+    // Nothing was left parked, and the child rows point at existing parents.
+    expect(raw.prepare("SELECT count(*) AS n FROM sqlite_temp_master WHERE name = '__migrate_email'").get()).toEqual({ n: 0 });
+    expect(raw.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+    raw.close();
+  });
+});

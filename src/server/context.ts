@@ -59,17 +59,14 @@ export interface Ctx {
 }
 
 export interface QueuedNotification {
-  /** the in-app row this email belongs to, so its send outcome can be recorded */
+  /** the in-app row these e-mails belong to */
   notificationId: string;
-  recipientKind: 'buyer' | 'partner';
-  recipientLotPartnerId: string | null;
   type: string;
-  roundId: string | null;
-  orderId: string | null;
   title: string;
   body: string;
   bodyHtml: string;
-  emailTo: string;
+  /** one delivery row per recipient, already created inside the transaction */
+  deliveries: Array<{ deliveryId: string; to: string }>;
 }
 
 /** A result type for guarded actions, so a rejection can still be audited. */

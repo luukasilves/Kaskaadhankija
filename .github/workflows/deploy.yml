@@ -150,6 +150,42 @@ jobs:
 
       - uses: superfly/flyctl-actions/setup-flyctl@master
 
+      # The v3 line gets the mail relay and the sign-in secret; the accepted v2
+      # stays mail-less. Only secrets that are set in GitHub are pushed, so an
+      # unset one never blanks a value already on Fly. `--stage` stores them
+      # for the deploy below instead of triggering a release of their own.
+      - name: Push mail and sign-in secrets (v3 only)
+        if: needs.bootstrap.outputs.app == env.V3_APP
+        env:
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          EMAIL_ALLOWED_RECIPIENTS: ${{ secrets.EMAIL_ALLOWED_RECIPIENTS }}
+          TEAM_NOTIFICATIONS_EMAIL: ${{ secrets.TEAM_NOTIFICATIONS_EMAIL }}
+        run: |
+          APP='${{ needs.bootstrap.outputs.app }}'
+          ARGS=()
+          for NAME in SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASS EMAIL_FROM EMAIL_ALLOWED_RECIPIENTS TEAM_NOTIFICATIONS_EMAIL; do
+            VALUE="${!NAME}"
+            if [ -n "$VALUE" ]; then
+              ARGS+=("$NAME=$VALUE")
+              echo "setting $NAME"
+            fi
+          done
+          # Signs one-time sign-in codes and sessions. Generated once and never
+          # rotated by a deploy — rotating it would sign everyone out.
+          if ! flyctl secrets list --app "$APP" 2>/dev/null | grep -qw AUTH_SECRET; then
+            ARGS+=("AUTH_SECRET=$(openssl rand -hex 32)")
+            echo "generating AUTH_SECRET"
+          fi
+          if [ "${#ARGS[@]}" -gt 0 ]; then
+            flyctl secrets set --app "$APP" --stage "${ARGS[@]}"
+          else
+            echo "No secrets to push."
+          fi
+
       - name: Deploy
         run: |
           APP='${{ needs.bootstrap.outputs.app }}'
@@ -225,6 +261,7 @@ jobs:
           # still pointing at the v2 hostname would send testers to the wrong app.
           jq -e --arg base "$BASE" '.baseUrl == $base' health.json > /dev/null \
             || { echo "::error::APP_BASE_URL is $(jq -r .baseUrl health.json), expected $BASE."; exit 1; }
+          echo "Mail transport: $(jq -r .mail health.json)"
 
           curl -fsS --max-time 20 "$BASE/" > home.html
           grep -q 'TESTKESKKOND' home.html \

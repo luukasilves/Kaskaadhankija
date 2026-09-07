@@ -1,6 +1,6 @@
 /**
- * Deadline-driven work: close rounds whose window has passed, and send the
- * 24-hour reminders.
+ * Deadline-driven work: close rounds whose window has passed, send the 24-hour
+ * reminders, and retry e-mails that failed to send.
  *
  * Called from three places, all of which must be safe to overlap:
  *   - the in-process timer started at boot (every minute);
@@ -17,7 +17,7 @@ import { getDb } from '@/db';
 import { rounds } from '@/db/schema';
 import { markJobsRun, readClock } from '../clock';
 import { DEADLINE_ACTOR, NO_EVIDENCE, type Ctx, type Db, type QueuedNotification } from '../context';
-import { dispatchOutbox } from '../notify';
+import { dispatchOutbox, retryFailedDeliveries } from '../notify';
 import { closeRound, sendDeadlineReminder } from './engine';
 
 export interface JobsReport {
@@ -125,7 +125,10 @@ export function runDueJobs(database?: Db): JobsReport {
   }
 
   // Emails are a side effect of committed work: fire and forget.
-  void dispatchOutbox(outbox);
+  void dispatchOutbox(outbox, db);
+
+  /* 3. give failed e-mails another go, on wall-clock backoff [D-10] */
+  void retryFailedDeliveries(db);
 
   return report;
 }

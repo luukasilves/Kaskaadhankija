@@ -27,8 +27,17 @@ const schema = z.object({
   SMTP_SECURE: booleanish,
   EMAIL_FROM: z.string().default('Kaskaadhankija <tellimused@example.ee>'),
   TEAM_NOTIFICATIONS_EMAIL: z.string().optional(),
+  /**
+   * Who may receive real mail: addresses and `@domain` entries, comma-separated.
+   * In the test environment (DEMO_MODE) an unset list means nothing is sent —
+   * the seeded partners have fictional addresses. `*` opens it to everyone.
+   */
+  EMAIL_ALLOWED_RECIPIENTS: z.string().optional(),
+  SMTP_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
   /** log emails to the console instead of sending, for local work */
   EMAIL_DEV_MODE: booleanish,
+  /** signs one-time sign-in codes and session tokens */
+  AUTH_SECRET: z.string().optional(),
   /** first buyer persona created by the seed */
   SEED_ADMIN_EMAIL: z.string().default('mari.tamm@naidis.riigikantselei.ee'),
   SEED_ADMIN_NAME: z.string().default('Mari Tamm'),
@@ -46,8 +55,16 @@ export const env = parsed.data;
 /** True when the test harness is enabled. */
 export const isDemoMode = env.DEMO_MODE;
 
+/** How e-mail leaves the system, if at all. */
+export type MailMode = 'smtp' | 'dev' | 'off';
+
+export function mailMode(): MailMode {
+  if (env.EMAIL_DEV_MODE) return 'dev';
+  return env.SMTP_HOST ? 'smtp' : 'off';
+}
+
 /** True when SMTP is configured well enough to attempt a send. */
-export const hasSmtp = Boolean(env.SMTP_HOST) && !env.EMAIL_DEV_MODE;
+export const hasSmtp = mailMode() === 'smtp';
 
 /** Guard for actions that must never exist in production. */
 export function assertDemoMode(): void {

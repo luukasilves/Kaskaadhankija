@@ -70,7 +70,8 @@ import {
 import { env } from '@/lib/env';
 import { logAudit } from '../audit';
 import { failure, type Ctx, type Db, type Tx } from '../context';
-import { notify, teamEmail } from '../notify';
+import { notify } from '../notify';
+import { partnerRecipients, teamRecipients } from '../recipients';
 import { effectiveAdjustments, finalInput, projectionInput, proposalInput } from './allocation-input';
 import { latestConfirmation, participantsOf, roundTrainingList, workloadFor } from './views';
 
@@ -367,7 +368,7 @@ export function publishRound(ctx: Ctx, roundId: string, input: PublishRoundInput
       recipientLotPartnerId: member.id,
       type: 'round_published',
       roundId,
-      emailTo: member.contactEmail,
+      emailTo: partnerRecipients(ctx.tx, member.id),
       notice: renderRoundPublished({
         roundCode: round.code,
         lotLabel: lotLabel(lot),
@@ -465,7 +466,7 @@ function guardPartnerAction(
       recipientKind: 'buyer',
       type: 'late_action_rejected',
       roundId,
-      emailTo: teamEmail(),
+      emailTo: teamRecipients(ctx.tx),
       notice: renderLateActionRejected({
         roundCode: round.code,
         lotLabel: lotLabel(lot),
@@ -613,7 +614,7 @@ export function confirmMarks(
     recipientLotPartnerId: participant.lotPartnerId,
     type: kind === 'confirm' ? 'confirmation_receipt' : 'decline_receipt',
     roundId,
-    emailTo: participant.contactEmail,
+    emailTo: partnerRecipients(ctx.tx, participant.lotPartnerId),
     notice: receipt,
   });
 
@@ -698,7 +699,7 @@ function notifyProjectionChanges(
       recipientLotPartnerId: participant.lotPartnerId,
       type: 'projection_changed',
       roundId,
-      emailTo: participant.contactEmail,
+      emailTo: partnerRecipients(ctx.tx, participant.lotPartnerId),
       notice: renderProjectionChanged({
         roundCode: round.code,
         lotLabel: lotLabel(lot),
@@ -770,7 +771,7 @@ export function extendDeadline(ctx: Ctx, roundId: string, newDeadlineAt: number,
       recipientLotPartnerId: participant.lotPartnerId,
       type: 'round_changed',
       roundId,
-      emailTo: participant.contactEmail,
+      emailTo: partnerRecipients(ctx.tx, participant.lotPartnerId),
       notice: renderRoundChanged({
         roundCode: round.code,
         lotLabel: lotLabel(lot),
@@ -830,7 +831,7 @@ export function withdrawTraining(ctx: Ctx, roundId: string, trainingId: string, 
       recipientLotPartnerId: participant.lotPartnerId,
       type: 'round_changed',
       roundId,
-      emailTo: participant.contactEmail,
+      emailTo: partnerRecipients(ctx.tx, participant.lotPartnerId),
       notice: renderRoundChanged({
         roundCode: round.code,
         lotLabel: lotLabel(lot),
@@ -875,7 +876,7 @@ export function cancelRound(ctx: Ctx, roundId: string, reason: string): void {
         recipientLotPartnerId: participant.lotPartnerId,
         type: 'round_cancelled',
         roundId,
-        emailTo: participant.contactEmail,
+        emailTo: partnerRecipients(ctx.tx, participant.lotPartnerId),
         notice: renderRoundCancelled({
           roundCode: round.code,
           lotLabel: lotLabel(lot),
@@ -971,7 +972,7 @@ export function closeRound(ctx: Ctx, roundId: string): { closed: boolean; code: 
     recipientKind: 'buyer',
     type: 'buyer_round_closed',
     roundId,
-    emailTo: teamEmail(),
+    emailTo: teamRecipients(ctx.tx),
     notice: renderBuyerRoundClosed({
       roundCode: round.code,
       lotLabel: lotLabel(lot),
@@ -1018,7 +1019,7 @@ export function sendDeadlineReminder(ctx: Ctx, roundId: string): number {
       recipientLotPartnerId: participant.lotPartnerId,
       type: 'reminder_24h',
       roundId,
-      emailTo: participant.contactEmail,
+      emailTo: partnerRecipients(ctx.tx, participant.lotPartnerId),
       notice: renderDeadlineReminder({
         roundCode: round.code,
         lotLabel: lotLabel(lot),
@@ -1287,7 +1288,7 @@ export function confirmAllocation(ctx: Ctx, roundId: string): { orderIds: string
       type: 'order_issued',
       roundId,
       orderId,
-      emailTo: participant.contactEmail,
+      emailTo: partnerRecipients(ctx.tx, participant.lotPartnerId),
       notice: renderOrderIssued({
         roundCode: round.code,
         lotLabel: lotLabel(lot),
@@ -1323,7 +1324,7 @@ export function confirmAllocation(ctx: Ctx, roundId: string): { orderIds: string
       recipientLotPartnerId: participant.lotPartnerId,
       type: 'allocated_elsewhere',
       roundId,
-      emailTo: participant.contactEmail,
+      emailTo: partnerRecipients(ctx.tx, participant.lotPartnerId),
       notice: renderAllocatedElsewhere({
         roundCode: round.code,
         lotLabel: lotLabel(lot),
@@ -1361,7 +1362,7 @@ export function confirmAllocation(ctx: Ctx, roundId: string): { orderIds: string
     recipientKind: 'buyer',
     type: 'buyer_round_confirmed',
     roundId,
-    emailTo: teamEmail(),
+    emailTo: teamRecipients(ctx.tx),
     notice: renderBuyerRoundConfirmed({
       roundCode: round.code,
       lotLabel: lotLabel(lot),
@@ -1496,7 +1497,7 @@ export function deactivateLotPartner(ctx: Ctx, lotPartnerId: string, reason: str
       recipientLotPartnerId: lotPartnerId,
       type: 'participant_excluded',
       roundId: round.id,
-      emailTo: participant.contactEmailSnapshot,
+      emailTo: partnerRecipients(ctx.tx, lotPartnerId),
       notice: renderParticipantExcluded({
         roundCode: round.code,
         lotLabel: lotLabel(lot),
@@ -1510,7 +1511,7 @@ export function deactivateLotPartner(ctx: Ctx, lotPartnerId: string, reason: str
       recipientKind: 'buyer',
       type: 'participant_excluded',
       roundId: round.id,
-      emailTo: teamEmail(),
+      emailTo: teamRecipients(ctx.tx),
       notice: {
         title: `${partner?.name ?? 'Partner'} arvati voorust ${round.code} välja`,
         body: `Partneri osalus hankeosas ${lot.code} lõpetati, seetõttu ei arvestata tema märkeid voorus ${round.code}.`,

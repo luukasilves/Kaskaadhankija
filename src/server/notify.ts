@@ -1,21 +1,24 @@
 /**
- * Notifications [D-01…D-07].
+ * Notifications [D-01…D-07] and their e-mail deliveries [D-10].
  *
  * The in-app log is the primary channel and is written inside the mutation's
  * transaction: a notification is application state, and a partner must be able
  * to see what they were told even if mail was never configured.
  *
- * Email is a side effect and is therefore queued on `ctx.outbox` and dispatched
- * only **after** the transaction commits. A mail server being down must never
- * roll back a confirmation.
+ * E-mail is a side effect. One `email_deliveries` row per recipient is created
+ * in the same transaction as *queued*, and the actual sending happens on
+ * `ctx.outbox` only **after** the transaction commits: a mail server being down
+ * must never roll back a confirmation. Each delivery row then records what
+ * happened to that one message — sent, failed (and retried), suppressed by the
+ * test environment's allowlist, or skipped because there is no transport — so
+ * the log can say, per person, whether a formal step reached them.
  */
 
-import nodemailer, { type Transporter } from 'nodemailer';
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray, lt, sql } from 'drizzle-orm';
 import { getDb } from '@/db';
-import { notifications, type NotificationType } from '@/db/schema';
-import { env, hasSmtp } from '@/lib/env';
-import type { Ctx, QueuedNotification } from './context';
+import { emailDeliveries, notifications, type NotificationType } from '@/db/schema';
+import type { Ctx, Db, QueuedNotification } from './context';
+import { sendMail, type MailMessage, type SendOutcome } from './mail';
 import type { RenderedNotice } from '@/domain/round-templates';
 
 export interface NotifyInput {
@@ -26,15 +29,25 @@ export interface NotifyInput {
   roundId?: string | null;
   orderId?: string | null;
   notice: RenderedNotice;
-  /** partner contact, or the team address; '' to keep it in-app only */
-  emailTo?: string;
+  /** e-mail recipients; empty or absent keeps the notice in-app only */
+  emailTo?: string | readonly string[];
+}
+
+/** Distinct, lowercased, plausible addresses, in a stable order. */
+export function normalizeRecipients(input: string | readonly string[] | undefined): string[] {
+  const list = typeof input === 'string' ? [input] : [...(input ?? [])];
+  const seen = new Set<string>();
+  for (const raw of list) {
+    const address = raw.trim().toLowerCase();
+    if (address.includes('@')) seen.add(address);
+  }
+  return [...seen].sort();
 }
 
 /**
- * Record a notification and queue its email. Called inside the transaction.
+ * Record a notification and queue its e-mails. Called inside the transaction.
  */
 export function notify(ctx: Ctx, input: NotifyInput): void {
-  const emailTo = input.emailTo ?? '';
   const notificationId = crypto.randomUUID();
 
   ctx.tx
@@ -50,113 +63,191 @@ export function notify(ctx: Ctx, input: NotifyInput): void {
       title: input.notice.title,
       body: input.notice.body,
       bodyHtml: input.notice.bodyHtml,
-      emailTo,
-      emailStatus: 'skipped',
     })
     .run();
 
-  if (emailTo) {
-    ctx.outbox.push({
-      notificationId,
-      recipientKind: input.recipientKind,
-      recipientLotPartnerId: input.recipientLotPartnerId ?? null,
-      type: input.type,
-      roundId: input.roundId ?? null,
-      orderId: input.orderId ?? null,
-      title: input.notice.title,
-      body: input.notice.body,
-      bodyHtml: input.notice.bodyHtml,
-      emailTo,
-    });
-  }
-}
+  const recipients = normalizeRecipients(input.emailTo);
+  if (recipients.length === 0) return;
 
-/** The buyer team's address, when one is configured. */
-export function teamEmail(): string {
-  return env.TEAM_NOTIFICATIONS_EMAIL ?? '';
-}
+  const deliveries = recipients.map((to) => ({ deliveryId: crypto.randomUUID(), to }));
+  ctx.tx
+    .insert(emailDeliveries)
+    .values(
+      deliveries.map((d) => ({
+        id: d.deliveryId,
+        notificationId,
+        to: d.to,
+        status: 'queued' as const,
+        createdAt: ctx.at,
+      })),
+    )
+    .run();
 
-let transporter: Transporter | null = null;
-
-function getTransporter(): Transporter | null {
-  if (!hasSmtp) return null;
-  if (!transporter) {
-    transporter = nodemailer.createTransport({
-      host: env.SMTP_HOST,
-      port: env.SMTP_PORT,
-      secure: env.SMTP_SECURE,
-      auth: env.SMTP_USER ? { user: env.SMTP_USER, pass: env.SMTP_PASS } : undefined,
-    });
-  }
-  return transporter;
+  ctx.outbox.push({
+    notificationId,
+    type: input.type,
+    title: input.notice.title,
+    body: input.notice.body,
+    bodyHtml: input.notice.bodyHtml,
+    deliveries,
+  });
 }
 
 /**
- * Send the queued emails. Runs after the transaction has committed, so a
- * failure is reported and logged but changes nothing that was decided.
- *
- * Without SMTP configured this is a no-op beyond a console line in dev: the
- * in-app log already holds every message, which is the intended channel for
- * the test deployment.
+ * Send the queued e-mails. Runs after the transaction has committed, so a
+ * failure is recorded but changes nothing that was decided.
  */
-export async function dispatchOutbox(outbox: QueuedNotification[]): Promise<void> {
-  if (outbox.length === 0) return;
-
-  const mail = getTransporter();
-
+export async function dispatchOutbox(outbox: QueuedNotification[], database?: Db): Promise<void> {
   for (const message of outbox) {
-    if (!mail) {
-      if (env.EMAIL_DEV_MODE) {
-        console.log(
-          `\n--- e-kiri (ei saadetud, EMAIL_DEV_MODE) ---\nSaaja: ${message.emailTo}\nTeema: ${message.title}\n\n${message.body}\n---\n`,
-        );
-      }
-      continue;
-    }
-    try {
-      await mail.sendMail({
-        from: env.EMAIL_FROM,
-        to: message.emailTo,
-        subject: message.title,
-        text: message.body,
-        html: message.bodyHtml,
-      });
-      recordEmailOutcome(message.notificationId, { status: 'sent' });
-    } catch (error) {
-      // The in-app notification already exists; surface the failure loudly and
-      // record it, so the log does not claim a message was delivered.
-      const detail = error instanceof Error ? error.message : String(error);
-      console.error(`[kaskaadhankija] e-kirja saatmine ebaõnnestus (${message.emailTo}): ${detail}`);
-      recordEmailOutcome(message.notificationId, { status: 'failed', error: detail });
+    for (const delivery of message.deliveries) {
+      await attemptDelivery(
+        delivery.deliveryId,
+        { to: delivery.to, subject: message.title, text: message.body, html: message.bodyHtml },
+        database,
+      );
     }
   }
 }
 
+/** One attempt at one recipient, with the outcome written to its delivery row. */
+export async function attemptDelivery(
+  deliveryId: string,
+  message: MailMessage,
+  database?: Db,
+): Promise<SendOutcome> {
+  const outcome = await sendMail(message);
+  recordDeliveryOutcome(deliveryId, outcome, database);
+  return outcome;
+}
+
 /**
- * Write back what happened to one email.
+ * Write back what happened to one e-mail.
  *
- * Runs after the mutation's transaction has committed, on its own connection —
- * the notification log shows this status, so leaving it at the inserted
- * 'skipped' would have the log tell partners nothing was sent when it was.
+ * Runs after the mutation's transaction has committed, on its own connection.
+ * Wall-clock time, not the virtual clock: this is real-world delivery
+ * bookkeeping, not procurement state.
  */
-function recordEmailOutcome(
-  notificationId: string,
-  outcome: { status: 'sent' | 'failed'; error?: string },
-): void {
+function recordDeliveryOutcome(deliveryId: string, outcome: SendOutcome, database?: Db): void {
+  const now = Date.now();
   try {
-    getDb()
-      .update(notifications)
+    (database ?? getDb())
+      .update(emailDeliveries)
       .set({
-        emailStatus: outcome.status,
-        emailError: outcome.error?.slice(0, 500) ?? '',
-        emailSentAt: outcome.status === 'sent' ? Date.now() : null,
+        status: outcome.status,
+        detail: outcome.detail.slice(0, 500),
+        messageId: outcome.messageId,
+        attempts: sql`${emailDeliveries.attempts} + 1`,
+        lastAttemptAt: now,
+        // Kept from an earlier success if a later manual re-send fails.
+        ...(outcome.status === 'sent' ? { sentAt: now } : {}),
       })
-      .where(eq(notifications.id, notificationId))
+      .where(eq(emailDeliveries.id, deliveryId))
       .run();
   } catch (error) {
     // Bookkeeping: never turn a failed status write into a failed request.
     console.error('[kaskaadhankija] e-kirja oleku salvestamine ebaõnnestus', error);
   }
+}
+
+/* ------------------------------------------------------------------ *
+ * retries
+ * ------------------------------------------------------------------ */
+
+export const MAX_DELIVERY_ATTEMPTS = 3;
+
+/** Wait before the next automatic attempt: 5 minutes, then 30. */
+function backoffMs(attempts: number): number {
+  if (attempts <= 1) return 5 * 60_000;
+  if (attempts === 2) return 30 * 60_000;
+  return Number.POSITIVE_INFINITY;
+}
+
+/** Whether a failed delivery is due for another automatic attempt. Pure. */
+export function retryEligible(
+  delivery: { status: string; attempts: number; lastAttemptAt: number | null },
+  nowMs: number,
+): boolean {
+  if (delivery.status !== 'failed') return false;
+  if (delivery.attempts >= MAX_DELIVERY_ATTEMPTS) return false;
+  return (delivery.lastAttemptAt ?? 0) + backoffMs(delivery.attempts) <= nowMs;
+}
+
+/**
+ * Retry failed deliveries that are due. Called from the jobs runner; the
+ * selection is synchronous so a caller that closes the database right after
+ * does not race it, and each attempt records its own outcome.
+ */
+export async function retryFailedDeliveries(database?: Db): Promise<number> {
+  const db = database ?? getDb();
+  const now = Date.now();
+  const rows = db
+    .select({
+      id: emailDeliveries.id,
+      to: emailDeliveries.to,
+      status: emailDeliveries.status,
+      attempts: emailDeliveries.attempts,
+      lastAttemptAt: emailDeliveries.lastAttemptAt,
+      title: notifications.title,
+      body: notifications.body,
+      bodyHtml: notifications.bodyHtml,
+    })
+    .from(emailDeliveries)
+    .innerJoin(notifications, eq(notifications.id, emailDeliveries.notificationId))
+    .where(and(eq(emailDeliveries.status, 'failed'), lt(emailDeliveries.attempts, MAX_DELIVERY_ATTEMPTS)))
+    .all()
+    .filter((row) => retryEligible(row, now));
+
+  for (const row of rows) {
+    await attemptDelivery(
+      row.id,
+      { to: row.to, subject: row.title, text: row.body, html: row.bodyHtml },
+      db,
+    );
+  }
+  return rows.length;
+}
+
+/** A deliberate re-send by the buyer, whatever the row's state. */
+export async function resendDelivery(deliveryId: string, database?: Db): Promise<SendOutcome> {
+  const db = database ?? getDb();
+  const row = db
+    .select({
+      to: emailDeliveries.to,
+      title: notifications.title,
+      body: notifications.body,
+      bodyHtml: notifications.bodyHtml,
+    })
+    .from(emailDeliveries)
+    .innerJoin(notifications, eq(notifications.id, emailDeliveries.notificationId))
+    .where(eq(emailDeliveries.id, deliveryId))
+    .get();
+  if (!row) throw new Error('Saadetist ei leitud.');
+  return attemptDelivery(
+    deliveryId,
+    { to: row.to, subject: row.title, text: row.body, html: row.bodyHtml },
+    db,
+  );
+}
+
+/** Deliveries for a set of notifications, grouped by notification id. */
+export function deliveriesFor(
+  db: Db,
+  notificationIds: readonly string[],
+): Map<string, Array<typeof emailDeliveries.$inferSelect>> {
+  const grouped = new Map<string, Array<typeof emailDeliveries.$inferSelect>>();
+  if (notificationIds.length === 0) return grouped;
+  const rows = db
+    .select()
+    .from(emailDeliveries)
+    .where(inArray(emailDeliveries.notificationId, [...notificationIds]))
+    .orderBy(emailDeliveries.to)
+    .all();
+  for (const row of rows) {
+    const list = grouped.get(row.notificationId) ?? [];
+    list.push(row);
+    grouped.set(row.notificationId, list);
+  }
+  return grouped;
 }
 
 /**

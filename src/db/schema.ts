@@ -549,8 +549,9 @@ export type NotificationType =
   | 'late_action_rejected';
 
 /**
- * In-app notification log — the primary channel in the test deployment. SMTP is
- * attempted only when configured; `emailStatus` records what happened.
+ * In-app notification log — the primary channel, and the record of what each
+ * recipient was told. What happened to the e-mail copies lives per recipient in
+ * `email_deliveries`.
  */
 export const notifications = sqliteTable(
   'notifications',
@@ -566,20 +567,44 @@ export const notifications = sqliteTable(
     body: text().notNull(),
     bodyHtml: text('body_html').notNull().default(''),
     readAt: integer('read_at'),
-    emailTo: text('email_to').notNull().default(''),
-    emailStatus: text('email_status')
-      .$type<'skipped' | 'sent' | 'failed'>()
-      .notNull()
-      .default('skipped'),
-    emailError: text('email_error').notNull().default(''),
-    emailSentAt: integer('email_sent_at'),
   },
   (t) => [
     index('notifications_recipient_idx').on(t.recipientKind, t.recipientLotPartnerId),
     index('notifications_round_idx').on(t.roundId),
     index('notifications_created_idx').on(t.createdAt),
     oneOf('recipient_kind', ['buyer', 'partner']),
-    oneOf('email_status', ['skipped', 'sent', 'failed']),
+  ],
+);
+
+export type EmailDeliveryStatus = 'queued' | 'sent' | 'failed' | 'suppressed' | 'skipped';
+
+/**
+ * One e-mail to one recipient of one notification [D-10]. Created as `queued`
+ * inside the notifying transaction; the outcome of each attempt is written back
+ * afterwards, on wall-clock time. `suppressed` is the test environment's
+ * allowlist refusing an address; `skipped` is the absence of a transport.
+ */
+export const emailDeliveries = sqliteTable(
+  'email_deliveries',
+  {
+    id: uuid().primaryKey(),
+    notificationId: text('notification_id')
+      .notNull()
+      .references(() => notifications.id),
+    to: text().notNull(),
+    status: text().$type<EmailDeliveryStatus>().notNull().default('queued'),
+    attempts: integer().notNull().default(0),
+    /** the server's response, the error, or the rule that stopped it */
+    detail: text().notNull().default(''),
+    lastAttemptAt: integer('last_attempt_at'),
+    sentAt: integer('sent_at'),
+    messageId: text('message_id').notNull().default(''),
+    createdAt: integer('created_at').notNull(),
+  },
+  (t) => [
+    index('email_deliveries_notification_idx').on(t.notificationId),
+    index('email_deliveries_status_idx').on(t.status),
+    oneOf('status', ['queued', 'sent', 'failed', 'suppressed', 'skipped']),
   ],
 );
 
