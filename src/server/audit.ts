@@ -58,6 +58,13 @@ export type AuditEventType =
   // buyer team [R-01]
   | 'team.member_added'
   | 'team.member_updated'
+  // sign-in [L-08] — never the code itself
+  | 'login.code_requested'
+  | 'login.rate_limited'
+  | 'login.succeeded'
+  | 'login.failed'
+  | 'login.locked'
+  | 'login.signed_out'
   // imports
   | 'import.previewed'
   | 'import.trainings_imported'

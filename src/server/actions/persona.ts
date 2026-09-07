@@ -13,6 +13,7 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { assertDemoMode } from '@/lib/env';
 import { PERSONA_COOKIE, resolvePersona } from '../auth/actor';
+import { endSession } from './auth';
 
 const THIRTY_DAYS = 60 * 60 * 24 * 30;
 
@@ -23,6 +24,8 @@ function homeFor(value: string): string {
 async function applyPersona(key: string): Promise<string> {
   assertDemoMode();
   if (!resolvePersona(key)) throw new Error('Tundmatu persoon.');
+  // A live session would otherwise keep winning over the persona [L-08].
+  await endSession();
   const store = await cookies();
   store.set(PERSONA_COOKIE, key, {
     httpOnly: true,
@@ -47,6 +50,7 @@ export async function switchPersona(key: string): Promise<void> {
 
 export async function clearPersona(): Promise<void> {
   assertDemoMode();
+  await endSession();
   const store = await cookies();
   store.delete(PERSONA_COOKIE);
   redirect('/');

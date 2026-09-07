@@ -1,11 +1,13 @@
 /**
  * Who is acting — the single seam between identity and everything else.
  *
- * In the test deployment (`DEMO_MODE`) identity comes from a persona cookie set
- * by the opening screen or the test strip: no passwords, no accounts, and
- * switching personas is the point. In production this is the only file that
- * changes — `sessionActor()` grows a real session lookup — because every page
- * and every server action goes through `getActor`, `requireBuyer` or
+ * Identity comes from a session opened by an e-mail code [L-08]: a buyer user
+ * or a partner's representative, resolved through `sessionActor()`. In the test
+ * deployment (`DEMO_MODE`) a persona cookie set by the opening screen or the
+ * test strip stands in when there is no session, so a tester can be anyone
+ * without an inbox. A live session always wins over a persona, and choosing a
+ * persona ends the session, so identity is never ambiguous. Every page and
+ * every server action goes through `getActor`, `requireBuyer` or
  * `requirePartner` and never inspects a cookie itself.
  *
  * Authorization rule for partners: an action receives a `roundId`, never a
@@ -17,11 +19,14 @@ import { cookies, headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { and, eq } from 'drizzle-orm';
 import { getDb } from '@/db';
-import { lotPartners, lots, partners, users } from '@/db/schema';
+import { lotPartners, lots, partnerRepresentatives, partners, users, type SessionSubjectKind } from '@/db/schema';
 import { isDemoMode } from '@/lib/env';
 import type { ActorRef, Evidence } from '../context';
+import type { Db } from '../context';
+import { resolveSession } from './codes';
 
 export const PERSONA_COOKIE = 'kh_persona';
+export const SESSION_COOKIE = 'kh_session';
 
 export interface BuyerActor {
   kind: 'buyer';
@@ -59,18 +64,29 @@ function buildBuyer(row: typeof users.$inferSelect): BuyerActor {
   };
 }
 
+type Membership = { lotPartnerId: string; lotId: string; lotCode: string; rank: number; contactName: string; contactEmail: string };
+
+/**
+ * The acting person is the signed-in representative when there is one; the
+ * persona fallback names the lot contact. Either way it is what the audit
+ * trail and the confirmations record as who acted [D-09].
+ */
 function buildPartner(
   partner: typeof partners.$inferSelect,
-  memberships: Array<{ lotPartnerId: string; lotId: string; lotCode: string; rank: number; contactName: string; contactEmail: string }>,
+  memberships: Membership[],
+  person?: { name: string; email: string },
 ): PartnerActor {
-  const contact = memberships[0];
+  const contact = person ?? {
+    name: memberships[0]?.contactName ?? '',
+    email: memberships[0]?.contactEmail ?? '',
+  };
   return {
     kind: 'partner',
     partnerId: partner.id,
     partnerName: partner.name,
     regCode: partner.regCode,
-    contactName: contact?.contactName ?? '',
-    contactEmail: contact?.contactEmail ?? '',
+    contactName: contact.name,
+    contactEmail: contact.email,
     lotPartnerIds: memberships.map((m) => m.lotPartnerId),
     memberships: memberships.map(({ lotPartnerId, lotId, lotCode, rank }) => ({
       lotPartnerId,
@@ -78,13 +94,68 @@ function buildPartner(
       lotCode,
       rank,
     })),
-    label: `${contact?.contactName ?? 'kontaktisik'}, ${partner.name}`,
+    label: `${contact.name || 'kontaktisik'}, ${partner.name}`,
   };
 }
 
-/** Production identity. Grows a session lookup when real auth lands (L-08). */
-async function sessionActor(): Promise<Actor | null> {
-  return null;
+function membershipsOf(db: Db, partnerId: string): Membership[] {
+  return db
+    .select({
+      lotPartnerId: lotPartners.id,
+      lotId: lotPartners.lotId,
+      lotCode: lots.code,
+      rank: lotPartners.rank,
+      contactName: lotPartners.contactName,
+      contactEmail: lotPartners.contactEmail,
+    })
+    .from(lotPartners)
+    .innerJoin(lots, eq(lots.id, lotPartners.lotId))
+    .where(and(eq(lotPartners.partnerId, partnerId), eq(lotPartners.isActive, true)))
+    .all()
+    .sort((a, b) => a.lotCode.localeCompare(b.lotCode));
+}
+
+/** The actor a session subject stands for, or null if it has since been deactivated. */
+export function actorForSubject(db: Db, kind: SessionSubjectKind, subjectId: string): Actor | null {
+  if (kind === 'buyer') {
+    const row = db
+      .select()
+      .from(users)
+      .where(and(eq(users.id, subjectId), eq(users.isActive, true)))
+      .get();
+    return row ? buildBuyer(row) : null;
+  }
+  const representative = db
+    .select()
+    .from(partnerRepresentatives)
+    .where(and(eq(partnerRepresentatives.id, subjectId), eq(partnerRepresentatives.isActive, true)))
+    .get();
+  if (!representative) return null;
+  const partner = db
+    .select()
+    .from(partners)
+    .where(and(eq(partners.id, representative.partnerId), eq(partners.isActive, true)))
+    .get();
+  if (!partner) return null;
+  return buildPartner(partner, membershipsOf(db, partner.id), {
+    name: representative.name,
+    email: representative.email,
+  });
+}
+
+/** The signed-in person behind the session cookie, if any [L-08]. */
+export async function getSessionActor(): Promise<Actor | null> {
+  const store = await cookies();
+  const token = store.get(SESSION_COOKIE)?.value;
+  if (!token) return null;
+  const db = getDb();
+  const session = resolveSession(db, token);
+  if (!session) return null;
+  return actorForSubject(db, session.subjectKind, session.subjectId);
+}
+
+export async function hasSession(): Promise<boolean> {
+  return (await getSessionActor()) !== null;
 }
 
 /** Resolve a persona cookie value to a live actor, or null. */
@@ -110,35 +181,28 @@ export function resolvePersona(value: string | undefined): Actor | null {
       .where(and(eq(partners.id, id), eq(partners.isActive, true)))
       .get();
     if (!partner) return null;
-    const memberships = db
-      .select({
-        lotPartnerId: lotPartners.id,
-        lotId: lotPartners.lotId,
-        lotCode: lots.code,
-        rank: lotPartners.rank,
-        contactName: lotPartners.contactName,
-        contactEmail: lotPartners.contactEmail,
-      })
-      .from(lotPartners)
-      .innerJoin(lots, eq(lots.id, lotPartners.lotId))
-      .where(and(eq(lotPartners.partnerId, id), eq(lotPartners.isActive, true)))
-      .all()
-      .sort((a, b) => a.lotCode.localeCompare(b.lotCode));
-    return buildPartner(partner, memberships);
+    return buildPartner(partner, membershipsOf(db, id));
   }
 
   return null;
 }
 
 export async function getActor(): Promise<Actor | null> {
-  if (!isDemoMode) return sessionActor();
+  const signedIn = await getSessionActor();
+  if (signedIn) return signedIn;
+  if (!isDemoMode) return null;
   const store = await cookies();
   return resolvePersona(store.get(PERSONA_COOKIE)?.value);
 }
 
+/** Where someone without the right identity is sent: the gate, or the sign-in. */
+export function signInPath(): string {
+  return isDemoMode ? '/' : '/sisene';
+}
+
 export async function requireBuyer(): Promise<BuyerActor> {
   const actor = await getActor();
-  if (!actor || actor.kind !== 'buyer') redirect('/');
+  if (!actor || actor.kind !== 'buyer') redirect(signInPath());
   return actor;
 }
 
@@ -151,7 +215,7 @@ export async function requireAdmin(): Promise<BuyerActor> {
 
 export async function requirePartner(): Promise<PartnerActor> {
   const actor = await getActor();
-  if (!actor || actor.kind !== 'partner') redirect('/');
+  if (!actor || actor.kind !== 'partner') redirect(signInPath());
   return actor;
 }
 

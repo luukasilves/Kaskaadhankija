@@ -15,7 +15,7 @@
 
 import { formatDateTimeShort } from '@/domain/format';
 import { isDemoMode } from '@/lib/env';
-import { getActor } from '@/server/auth/actor';
+import { getActor, hasSession } from '@/server/auth/actor';
 import { listPersonaOptions, nextDeadlineMs } from '@/server/personas';
 import { TestStripControls } from './test-strip-controls';
 
@@ -27,6 +27,9 @@ export async function TestStrip() {
   // ids — shows the gate instead of a strip naming a persona that is gone.
   const actor = await getActor();
   if (!actor) return null;
+  // A real session outranks the persona cookie; the strip says so, and offers
+  // the way out, because the dropdown alone would look like it had no effect.
+  const signedIn = await hasSession();
 
   let personas: Array<{ key: string; group: string; label: string }> = [];
   let nowMs = Date.now();
@@ -70,6 +73,7 @@ export async function TestStrip() {
         <TestStripControls
           personas={personas}
           currentKey={currentKey}
+          signedInLabel={signedIn ? actor.label : null}
           clockLabel={formatDateTimeShort(nowMs)}
           offsetDays={Math.round(offsetMs / 86_400_000)}
           hasPendingDeadline={pendingDeadline !== null}

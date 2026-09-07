@@ -24,6 +24,7 @@
  */
 
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import { formatDateTimeShort } from '@/domain/format';
 import { isDemoMode } from '@/lib/env';
 import { getActor } from '@/server/auth/actor';
@@ -90,17 +91,8 @@ function Card({ persona, isCurrent }: { persona: PersonaCard; isCurrent: boolean
 }
 
 export default async function OpeningScreen() {
-  if (!isDemoMode) {
-    return (
-      <main className="mx-auto max-w-2xl p-10">
-        <h1>Kaskaadhankija</h1>
-        <p className="mt-3 text-[var(--color-muted)]">
-          Sisselogimine seadistatakse. Testkeskkonna persoonivalik on saadaval ainult
-          näidiskeskkonnas.
-        </p>
-      </main>
-    );
-  }
+  // Outside the test environment there are no personas: the front door is the sign-in.
+  if (!isDemoMode) redirect('/sisene');
 
   // Deliberately no redirect for an existing persona — see the note above.
   const actor = await getActor();
@@ -137,6 +129,14 @@ export default async function OpeningScreen() {
           <strong className="tabular-nums">{formatDateTimeShort(roster.nowMs)}</strong>.
         </p>
       </header>
+
+      <p data-testid="sign-in-link" className="mb-5 text-[13px] text-[var(--color-muted)]">
+        Päris sisselogimine e-posti koodiga:{' '}
+        <Link href="/sisene" className="font-semibold text-[var(--color-brand)]">
+          Logi sisse
+        </Link>{' '}
+        — töötab esindajate või tellimismeeskonna loendis oleva aadressiga.
+      </p>
 
       {actor && (
         <div

@@ -38,6 +38,10 @@ export interface SendOutcome {
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
+export function isEmailAddress(value: string): boolean {
+  return EMAIL_RE.test(value.trim());
+}
+
 /** `EMAIL_ALLOWED_RECIPIENTS` as a list of addresses and `@domain` entries, lowercased. */
 export function parseAllowlist(raw: string | undefined): string[] {
   return (raw ?? '')

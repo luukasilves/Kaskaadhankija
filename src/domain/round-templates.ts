@@ -34,7 +34,7 @@ function escapeHtml(value: string): string {
 }
 
 /** Compose the two renderings from one list of paragraphs. */
-function compose(title: string, paragraphs: string[], link?: { url: string; label: string }): RenderedNotice {
+export function composeNotice(title: string, paragraphs: string[], link?: { url: string; label: string }): RenderedNotice {
   const body = paragraphs.join('\n\n') + (link ? `\n\n${link.label}: ${link.url}` : '');
   const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1c2530;max-width:640px">${paragraphs
     .map((p) => `<p>${escapeHtml(p)}</p>`)
@@ -69,7 +69,7 @@ export function renderRoundPublished(
     decisionText: string;
   },
 ): RenderedNotice {
-  return compose(
+  return composeNotice(
     `Uus koolitustellimuste voor ${input.roundCode} — vastamistähtaeg ${input.deadlineText}`,
     [
       `Lugupeetud ${input.contactName}`,
@@ -95,7 +95,7 @@ export function renderConfirmationReceipt(
     projectionText: string;
   },
 ): RenderedNotice {
-  return compose(
+  return composeNotice(
     `Kinnitus vastu võetud — voor ${input.roundCode}`,
     [
       `Lugupeetud ${input.contactName}`,
@@ -113,7 +113,7 @@ export function renderConfirmationReceipt(
 export function renderDeclineReceipt(
   input: RoundNoticeBase & { contactName: string; confirmedAtText: string },
 ): RenderedNotice {
-  return compose(
+  return composeNotice(
     `Loobumine registreeritud — voor ${input.roundCode}`,
     [
       `Lugupeetud ${input.contactName}`,
@@ -129,7 +129,7 @@ export function renderProjectionChanged(
   input: RoundNoticeBase & { contactName: string; previousCount: number; currentCount: number },
 ): RenderedNotice {
   const direction = input.currentCount > input.previousCount ? 'suurenes' : 'vähenes';
-  return compose(
+  return composeNotice(
     `Prognoos muutus — voor ${input.roundCode}`,
     [
       `Lugupeetud ${input.contactName}`,
@@ -144,7 +144,7 @@ export function renderProjectionChanged(
 export function renderDeadlineReminder(
   input: RoundNoticeBase & { contactName: string; statusText: string; projectionText: string },
 ): RenderedNotice {
-  return compose(
+  return composeNotice(
     `Meeldetuletus: voor ${input.roundCode} sulgub ${input.deadlineText}`,
     [
       `Lugupeetud ${input.contactName}`,
@@ -161,7 +161,7 @@ export function renderDeadlineReminder(
 export function renderRoundChanged(
   input: RoundNoticeBase & { contactName: string; changeText: string; reason: string },
 ): RenderedNotice {
-  return compose(
+  return composeNotice(
     `Muudatus voorus ${input.roundCode}`,
     [
       `Lugupeetud ${input.contactName}`,
@@ -176,7 +176,7 @@ export function renderRoundChanged(
 export function renderRoundCancelled(
   input: Omit<RoundNoticeBase, 'deadlineText'> & { contactName: string; reason: string },
 ): RenderedNotice {
-  return compose(`Voor ${input.roundCode} on tühistatud`, [
+  return composeNotice(`Voor ${input.roundCode} on tühistatud`, [
     `Lugupeetud ${input.contactName}`,
     `Teatame, et voor ${input.roundCode} (${input.lotLabel}) on tellija poolt tühistatud ja teie märkeid ei arvestata.`,
     input.reason ? `Põhjendus: ${input.reason}` : '',
@@ -187,7 +187,7 @@ export function renderRoundCancelled(
 export function renderParticipantExcluded(
   input: Omit<RoundNoticeBase, 'deadlineText'> & { contactName: string; reason: string },
 ): RenderedNotice {
-  return compose(`Teid arvati voorust ${input.roundCode} välja`, [
+  return composeNotice(`Teid arvati voorust ${input.roundCode} välja`, [
     `Lugupeetud ${input.contactName}`,
     `Teatame, et teie osalus hankeosas ${input.lotLabel} on lõpetatud ja seetõttu ei arvestata teie märkeid voorus ${input.roundCode}.`,
     input.reason ? `Põhjendus: ${input.reason}` : '',
@@ -207,7 +207,7 @@ export function renderOrderIssued(
     buyerContact: string;
   },
 ): RenderedNotice {
-  return compose(
+  return composeNotice(
     `Tellimus ${input.orderNumber} — olete määratud täitjana`,
     [
       `Lugupeetud ${input.contactName}`,
@@ -235,7 +235,7 @@ export function renderAllocatedElsewhere(
     allocatedCount: number;
   },
 ): RenderedNotice {
-  return compose(
+  return composeNotice(
     `Voor ${input.roundCode} on kinnitatud`,
     [
       `Lugupeetud ${input.contactName}`,
@@ -263,7 +263,7 @@ export function renderBuyerRoundClosed(
     leftoverCount: number;
   },
 ): RenderedNotice {
-  return compose(
+  return composeNotice(
     `Voor ${input.roundCode} sulgus — jaotusettepanek ootab kinnitust`,
     [
       `Voor ${input.roundCode} (${input.lotLabel}) sulgus ja jaotusettepanek on külmutatud.`,
@@ -288,7 +288,7 @@ export function renderBuyerRoundConfirmed(
     leftoverCount: number;
   },
 ): RenderedNotice {
-  return compose(
+  return composeNotice(
     `Voor ${input.roundCode} on kinnitatud`,
     [
       `Voor ${input.roundCode} (${input.lotLabel}) on kinnitatud ja tellimused loodud.`,
@@ -305,7 +305,7 @@ export function renderBuyerRoundConfirmed(
 export function renderLateActionRejected(
   input: Omit<RoundNoticeBase, 'deadlineText'> & { partnerName: string; attemptedAtText: string },
 ): RenderedNotice {
-  return compose(`Hilinenud toiming voorus ${input.roundCode}`, [
+  return composeNotice(`Hilinenud toiming voorus ${input.roundCode}`, [
     `Partner ${input.partnerName} üritas voorus ${input.roundCode} (${input.lotLabel}) toimingut teha pärast vastamistähtaega (${input.attemptedAtText}). Toiming lükati tagasi ja kanne on auditijäljes.`,
   ]);
 }

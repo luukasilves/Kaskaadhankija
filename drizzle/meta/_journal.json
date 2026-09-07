@@ -29,6 +29,13 @@
       "when": 1788800569096,
       "tag": "0003_partner_representatives",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1788802846763,
+      "tag": "0004_sign_in",
+      "breakpoints": true
     }
   ]
 }

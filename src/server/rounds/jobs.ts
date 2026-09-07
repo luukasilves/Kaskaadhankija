@@ -17,6 +17,7 @@ import { getDb } from '@/db';
 import { rounds } from '@/db/schema';
 import { markJobsRun, readClock } from '../clock';
 import { DEADLINE_ACTOR, NO_EVIDENCE, type Ctx, type Db, type QueuedNotification } from '../context';
+import { purgeAuthRows } from '../auth/codes';
 import { dispatchOutbox, retryFailedDeliveries } from '../notify';
 import { closeRound, sendDeadlineReminder } from './engine';
 
@@ -129,6 +130,13 @@ export function runDueJobs(database?: Db): JobsReport {
 
   /* 3. give failed e-mails another go, on wall-clock backoff [D-10] */
   void retryFailedDeliveries(db);
+
+  /* 4. sweep out spent sign-in codes and ended sessions */
+  try {
+    purgeAuthRows(db);
+  } catch (error) {
+    console.error('[kaskaadhankija] sisselogimise kirjete koristus ebaõnnestus', error);
+  }
 
   return report;
 }

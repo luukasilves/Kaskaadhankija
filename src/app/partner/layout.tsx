@@ -1,4 +1,4 @@
-import { requirePartner } from '@/server/auth/actor';
+import { hasSession, requirePartner } from '@/server/auth/actor';
 import { AppNav } from '@/components/app-nav';
 
 export const dynamic = 'force-dynamic';
@@ -12,6 +12,7 @@ export default async function PartnerLayout({ children }: { children: React.Reac
         title={actor.partnerName}
         subtitle={`Raamlepingu partner · ${actor.memberships.map((m) => `${m.lotCode} koht ${m.rank}`).join(' · ')}`}
         actor={actor.contactName}
+        signedIn={await hasSession()}
         items={[
           { href: '/partner/voorud', label: 'Voorud' },
           { href: '/partner/tellimused', label: 'Tellimused' },

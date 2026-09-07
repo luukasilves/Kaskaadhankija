@@ -1,4 +1,4 @@
-import { requireBuyer } from '@/server/auth/actor';
+import { hasSession, requireBuyer } from '@/server/auth/actor';
 import { AppNav } from '@/components/app-nav';
 import { getDb } from '@/db';
 import { rounds, trainings } from '@/db/schema';
@@ -24,6 +24,7 @@ export default async function BuyerLayout({ children }: { children: React.ReactN
         title="Kaskaadhankija"
         subtitle="Eesti.ai koolitajate tellimine · RHR 10567384"
         actor={actor.label}
+        signedIn={await hasSession()}
         items={[
           { href: '/tellija', label: 'Töölaud', count: closedCount },
           { href: '/tellija/voorud', label: 'Voorud', count: openCount },

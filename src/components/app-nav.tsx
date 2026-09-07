@@ -3,6 +3,7 @@
  */
 
 import Link from 'next/link';
+import { logoutAction } from '@/server/actions/auth';
 
 export interface NavItem {
   href: string;
@@ -16,11 +17,14 @@ export function AppNav({
   subtitle,
   items,
   actor,
+  signedIn = false,
 }: {
   title: string;
   subtitle: string;
   items: NavItem[];
   actor: string;
+  /** a real session, which can be ended here; personas are switched on the strip */
+  signedIn?: boolean;
 }) {
   return (
     <header className="kh-no-print border-b border-[var(--color-border)] bg-[var(--color-surface)]">
@@ -44,7 +48,16 @@ export function AppNav({
             </Link>
           ))}
         </nav>
-        <div className="ml-auto text-[12px] text-[var(--color-muted)]">{actor}</div>
+        <div className="ml-auto flex items-center gap-3 text-[12px] text-[var(--color-muted)]">
+          <span>{actor}</span>
+          {signedIn && (
+            <form action={logoutAction}>
+              <button type="submit" className="kh-btn text-xs" data-testid="sign-out">
+                Logi välja
+              </button>
+            </form>
+          )}
+        </div>
       </div>
     </header>
   );

@@ -285,12 +285,13 @@ async function main() {
   await prodPage.waitForSelector('h1');
   check('no test strip when DEMO_MODE is off', (await prodPage.getByTestId('test-strip').count()) === 0);
   check(
-    'production shows a sign-in placeholder instead of personas',
-    (await prodPage.getByText(/Sisselogimine seadistatakse/).count()) === 1,
+    'production’s front door is the sign-in, not the personas',
+    prodPage.url().includes('/sisene') && (await prodPage.getByTestId('sign-in-form').count()) === 1,
+    prodPage.url(),
   );
-  check('no persona cards in production', (await prodPage.locator('form button').count()) === 0);
+  check('no persona cards in production', (await prodPage.getByTestId('persona-card').count()) === 0);
   await prodPage.goto('http://localhost:3211/tellija');
-  check('the buyer area is not reachable without a persona', !prodPage.url().endsWith('/tellija'), prodPage.url());
+  check('the buyer area sends a stranger to the sign-in', prodPage.url().includes('/sisene'), prodPage.url());
   await prodPage.screenshot({ path: join(SHOTS, '06-production-posture.png'), fullPage: true });
   await prodPage.close();
   prod.child.kill();

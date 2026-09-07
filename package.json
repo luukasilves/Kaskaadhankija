@@ -25,8 +25,9 @@
     "verify:harness": "next build && node scripts/verify-harness.mjs",
     "verify:partner": "next build && node scripts/verify-partner.mjs",
     "e2e": "next build && node scripts/e2e.mjs",
-    "verify:all": "next build && node scripts/verify-harness.mjs && node scripts/verify-partner.mjs && node scripts/e2e.mjs && node scripts/verify-admin.mjs && node scripts/verify-container.mjs",
+    "verify:all": "next build && node scripts/verify-harness.mjs && node scripts/verify-partner.mjs && node scripts/e2e.mjs && node scripts/verify-admin.mjs && node scripts/verify-auth.mjs && node scripts/verify-container.mjs",
     "verify:admin": "next build && node scripts/verify-admin.mjs",
+    "verify:auth": "next build && node scripts/verify-auth.mjs",
     "verify:container": "next build && node scripts/verify-container.mjs"
   },
   "dependencies": {

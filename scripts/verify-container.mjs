@@ -231,15 +231,16 @@ async function main() {
       (await prodPage.locator('section:has(h2:text("Raamlepingu partnerid")) form').count()) === 0,
     );
     check(
-      'the sign-in placeholder is shown instead',
-      (await prodPage.getByText(/[Ss]isselogimine/).count()) > 0,
+      'the sign-in is the front door instead',
+      prodPage.url().includes('/sisene') && (await prodPage.getByTestId('sign-in-form').count()) === 1,
+      prodPage.url(),
     );
 
     await prodPage.goto(`${third.base}/tellija`);
     await prodPage.waitForSelector('h1');
     check(
-      'the buyer area is unreachable without a persona',
-      !prodPage.url().endsWith('/tellija'),
+      'the buyer area sends a stranger to the sign-in',
+      prodPage.url().includes('/sisene'),
       prodPage.url(),
     );
     await prodPage.close();

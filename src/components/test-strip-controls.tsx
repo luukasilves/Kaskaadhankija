@@ -8,6 +8,7 @@
  */
 
 import { useTransition, useState } from 'react';
+import { logoutAction } from '@/server/actions/auth';
 import { clearPersona, switchPersona } from '@/server/actions/persona';
 import { advanceOneDay, advanceOneHour, advanceToNextDeadline } from '@/server/actions/clock';
 import { resetDemoData } from '@/server/actions/demo';
@@ -21,12 +22,15 @@ export interface PersonaOption {
 export function TestStripControls({
   personas,
   currentKey,
+  signedInLabel = null,
   clockLabel,
   offsetDays,
   hasPendingDeadline,
 }: {
   personas: PersonaOption[];
   currentKey: string | null;
+  /** set when the identity comes from a real session rather than a persona */
+  signedInLabel?: string | null;
   clockLabel: string;
   offsetDays: number;
   hasPendingDeadline: boolean;
@@ -115,6 +119,29 @@ export function TestStripControls({
       </div>
 
       <div className="flex items-center gap-2 sm:flex-wrap">
+        {signedInLabel && (
+          <>
+            <span
+              data-testid="signed-in-badge"
+              className="kh-badge bg-[var(--color-brand-soft)] text-[var(--color-brand)]"
+              title="Identiteet tuleb e-posti koodiga avatud sessioonist; persooni valimine lõpetab sessiooni"
+            >
+              Sisse logitud: {signedInLabel}
+            </span>
+            <button
+              type="button"
+              className="kh-btn text-xs"
+              disabled={pending}
+              onClick={() =>
+                startTransition(async () => {
+                  await logoutAction();
+                })
+              }
+            >
+              Logi välja
+            </button>
+          </>
+        )}
         {currentKey !== null && (
           <button
             type="button"

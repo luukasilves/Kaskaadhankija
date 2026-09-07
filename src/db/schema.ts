@@ -692,6 +692,61 @@ export const importBatches = sqliteTable(
 );
 
 /* ------------------------------------------------------------------ *
+ * sign-in [R-01][R-02][L-08] — wall-clock time throughout: these rows are
+ * real-world security state, not procurement state, so the virtual test clock
+ * never touches them.
+ * ------------------------------------------------------------------ */
+
+/**
+ * A one-time sign-in code. Only its HMAC is stored: a six-digit code would be
+ * trivial to brute-force offline from a leaked database.
+ */
+export const loginCodes = sqliteTable(
+  'login_codes',
+  {
+    id: uuid().primaryKey(),
+    /** lowercased */
+    email: text().notNull(),
+    codeHash: text('code_hash').notNull(),
+    createdAt: integer('created_at').notNull(),
+    expiresAt: integer('expires_at').notNull(),
+    attempts: integer().notNull().default(0),
+    /** set on success, and when the attempt limit burns the code */
+    consumedAt: integer('consumed_at'),
+    requestIp: text('request_ip').notNull().default(''),
+  },
+  (t) => [
+    index('login_codes_email_idx').on(t.email, t.createdAt),
+    index('login_codes_ip_idx').on(t.requestIp, t.createdAt),
+  ],
+);
+
+export type SessionSubjectKind = 'buyer' | 'representative';
+
+/** A signed-in person. The token lives only in the cookie; its hash here. */
+export const sessions = sqliteTable(
+  'sessions',
+  {
+    id: uuid().primaryKey(),
+    tokenHash: text('token_hash').notNull(),
+    subjectKind: text('subject_kind').$type<SessionSubjectKind>().notNull(),
+    /** users.id or partner_representatives.id */
+    subjectId: text('subject_id').notNull(),
+    createdAt: integer('created_at').notNull(),
+    expiresAt: integer('expires_at').notNull(),
+    lastSeenAt: integer('last_seen_at').notNull(),
+    ip: text().notNull().default(''),
+    ua: text().notNull().default(''),
+    revokedAt: integer('revoked_at'),
+  },
+  (t) => [
+    uniqueIndex('sessions_token_unique').on(t.tokenHash),
+    index('sessions_subject_idx').on(t.subjectKind, t.subjectId),
+    oneOf('subject_kind', ['buyer', 'representative']),
+  ],
+);
+
+/* ------------------------------------------------------------------ *
  * app state — one row
  * ------------------------------------------------------------------ */
 
