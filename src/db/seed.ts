@@ -18,15 +18,16 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { env } from '@/lib/env';
 import { parseCsv } from '@/server/import/csv';
 import { importTrainingsFromRows } from '@/server/import/trainings-import';
 import { importPartnersFromRows } from '@/server/import/partners-import';
+import { importRepresentativesFromRows } from '@/server/import/representatives-import';
 import { ensureAppState, readSeedVersion, writeSeedVersion } from '@/server/clock';
 import { NO_EVIDENCE, type Ctx } from '@/server/context';
 import { getDb } from './index';
-import { lots, users } from './schema';
+import { emailDeliveries, lots, users } from './schema';
 
 export const SEED_VERSION = 1;
 
@@ -35,7 +36,28 @@ const SEED_DIR = join(process.cwd(), 'seed');
 export const SEED_FILES = {
   trainings: 'naidis-koolituskalender.csv',
   partners: 'naidis-partnerid.csv',
+  representatives: 'naidis-esindajad.csv',
 } as const;
+
+/**
+ * `SEED_REPRESENTATIVES` — `registrikood,nimi,e-post[,roll];…` — as rows the
+ * representatives import accepts. Real people layered over the fictional list
+ * on every seed, so a reset does not wipe the team's sign-ins. Malformed
+ * entries are dropped with a warning rather than failing the boot.
+ */
+export function parseSeedRepresentatives(raw: string | undefined): Array<Record<string, string>> {
+  if (!raw?.trim()) return [];
+  const rows: Array<Record<string, string>> = [];
+  for (const entry of raw.split(';')) {
+    const [registrikood = '', esindaja = '', e_post = '', roll = ''] = entry.split(',').map((f) => f.trim());
+    if (!registrikood || !esindaja || !e_post) {
+      if (entry.trim()) console.warn(`[kaskaadhankija] SEED_REPRESENTATIVES: kirje „${entry.trim()}“ jäeti vahele`);
+      continue;
+    }
+    rows.push({ registrikood, esindaja, e_post, roll });
+  }
+  return rows;
+}
 
 /** The buyer persona the seed creates, and whose label appears in the audit. */
 export const SEED_BUYER = {
@@ -135,6 +157,7 @@ function seedLotsAndUsers(ctx: Ctx): void {
 export interface SeedReport {
   lots: number;
   partners: number;
+  representatives: number;
   trainings: { created: number; updated: number; locked: number };
 }
 
@@ -153,6 +176,31 @@ export function seedBaseData(ctx: Ctx): SeedReport {
     rawRows: partnerFile.rows,
   });
 
+  // The fictional representatives, then the real ones from the deployment's
+  // secrets — the upload path both times, so the seed cannot drift from it.
+  const representativeFile = readSeedFile(SEED_FILES.representatives);
+  const representativeResult = importRepresentativesFromRows(ctx, {
+    fileName: SEED_FILES.representatives,
+    fileSize: representativeFile.size,
+    source: 'seed',
+    rawRows: representativeFile.rows,
+  });
+  let representatives = representativeResult.summary.created + representativeResult.summary.updated;
+  const overlay = parseSeedRepresentatives(env.SEED_REPRESENTATIVES);
+  if (overlay.length > 0) {
+    try {
+      const result = importRepresentativesFromRows(ctx, {
+        fileName: 'SEED_REPRESENTATIVES',
+        fileSize: 0,
+        source: 'seed',
+        rawRows: overlay,
+      });
+      representatives += result.summary.created + result.summary.updated;
+    } catch (error) {
+      console.error('[kaskaadhankija] SEED_REPRESENTATIVES ei õnnestunud laadida', error);
+    }
+  }
+
   const trainingFile = readSeedFile(SEED_FILES.trainings);
   const trainingResult = importTrainingsFromRows(ctx, {
     fileName: SEED_FILES.trainings,
@@ -164,6 +212,7 @@ export function seedBaseData(ctx: Ctx): SeedReport {
   return {
     lots: LOT_SEED.length,
     partners: partnerResult.summary.created + partnerResult.summary.updated,
+    representatives,
     trainings: {
       created: trainingResult.summary.created,
       updated: trainingResult.summary.updated,
@@ -181,6 +230,25 @@ export function loadSampleTrainings(ctx: Ctx) {
     source: 'sample',
     rawRows: file.rows,
   });
+}
+
+/**
+ * The scenarios replay real engine calls, so they queue real e-mails. Those
+ * notices are history being reconstructed, not events happening now, and must
+ * never be sent — least of all to the real representatives layered on top by
+ * `SEED_REPRESENTATIVES`, on every reset. Record them as not sent, and say why.
+ */
+export function settleSeedDeliveries(tx: Ctx['tx'], at: number): number {
+  return tx
+    .update(emailDeliveries)
+    .set({
+      status: 'skipped',
+      detail: 'Näidisandmete taasesitus: e-kirja ei saadetud.',
+      attempts: 1,
+      lastAttemptAt: at,
+    })
+    .where(eq(emailDeliveries.status, 'queued'))
+    .run().changes;
 }
 
 function makeCtx(tx: Ctx['tx'], at: number): Ctx {
@@ -212,6 +280,7 @@ export async function seedIfEmpty(): Promise<(SeedReport & { openRoundId: string
       // Scenario rounds are replayed as real engine calls at past instants, so
       // they must run after the trainings and the ranking exist.
       const scenarios = seedScenarios(tx, now, ctx.actor.label);
+      settleSeedDeliveries(tx, now);
       writeSeedVersion(tx, SEED_VERSION, now);
       return { ...base, openRoundId: scenarios.openRoundId };
     },

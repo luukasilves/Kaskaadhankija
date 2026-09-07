@@ -7,6 +7,7 @@ import {
   parseEstonianDate,
   parseInteger,
   parsePartnerRows,
+  parseRepresentativeRows,
   parseTrainingRows,
   type RawRow,
 } from './import-rows';
@@ -308,6 +309,65 @@ describe('parsePartnerRows', () => {
     ]);
     expect(rows.every((r) => r.value !== null)).toBe(true);
     expect(fileErrors[0].message).toContain('järjestikused');
+  });
+});
+
+describe('parseRepresentativeRows', () => {
+  const KNOWN = ['10000001', '10000002'];
+  const parse = (raws: RawRow[]) => parseRepresentativeRows(raws, { knownRegCodes: KNOWN });
+  const row = (over: Record<string, string> = {}): RawRow => ({
+    registrikood: '10000001',
+    esindaja: 'Jaan Kask',
+    e_post: 'Jaan.Kask@Tehisaru-naidis.ee',
+    roll: 'esindaja',
+    telefon: '+372 5000 0000',
+    ...over,
+  });
+
+  it('accepts a full row, lowercasing the address', () => {
+    const { rows, fileErrors } = parse([row()]);
+    expect(fileErrors).toEqual([]);
+    expect(rows[0]?.value).toEqual({
+      regCode: '10000001',
+      name: 'Jaan Kask',
+      email: 'jaan.kask@tehisaru-naidis.ee',
+      role: 'esindaja',
+      phone: '+372 5000 0000',
+    });
+  });
+
+  it('defaults the role to esindaja and reads the usual spellings', () => {
+    expect(parse([row({ roll: '' })]).rows[0]?.value?.role).toBe('esindaja');
+    expect(parse([row({ roll: 'Lepinguline esindaja' })]).rows[0]?.value?.role).toBe('esindaja');
+    expect(parse([row({ roll: 'Asendaja' })]).rows[0]?.value?.role).toBe('asendaja');
+    const bad = parse([row({ roll: 'direktor' })]).rows[0];
+    expect(bad?.value).toBeNull();
+    expect(bad?.errors[0]?.message).toMatch(/tundmatu roll/);
+  });
+
+  it('works without the optional columns', () => {
+    const { rows } = parse([{ registrikood: '10000002', esindaja: 'Liis Mägi', e_post: 'liis@x.ee' }]);
+    expect(rows[0]?.value).toMatchObject({ regCode: '10000002', role: 'esindaja', phone: '' });
+  });
+
+  it('refuses a partner that is not in the ranking yet', () => {
+    const { rows } = parse([row({ registrikood: '99999999' })]);
+    expect(rows[0]?.value).toBeNull();
+    expect(rows[0]?.errors[0]?.message).toMatch(/tundmatu partner/);
+  });
+
+  it('refuses a bad address and a repeated one', () => {
+    const { rows } = parse([row({ e_post: 'kontakt' }), row(), row({ esindaja: 'Teine Nimi' })]);
+    expect(rows[0]?.errors[0]?.message).toMatch(/ei ole korrektne/);
+    expect(rows[1]?.value).not.toBeNull();
+    expect(rows[2]?.value).toBeNull();
+    expect(rows[2]?.errors[0]?.message).toMatch(/juba real 3/);
+  });
+
+  it('reports a missing required column for the file, not per row', () => {
+    const { rows, fileErrors } = parse([{ registrikood: '10000001', esindaja: 'Jaan Kask' }]);
+    expect(rows).toEqual([]);
+    expect(fileErrors[0]?.message).toMatch(/e_post/);
   });
 });
 

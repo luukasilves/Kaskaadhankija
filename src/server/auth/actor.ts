@@ -142,6 +142,13 @@ export async function requireBuyer(): Promise<BuyerActor> {
   return actor;
 }
 
+/** A buyer with the admin role; throws rather than redirects, for actions. */
+export async function requireAdmin(): Promise<BuyerActor> {
+  const actor = await requireBuyer();
+  if (actor.role !== 'admin') throw new Error('See toiming on ainult tellimismeeskonna adminile.');
+  return actor;
+}
+
 export async function requirePartner(): Promise<PartnerActor> {
   const actor = await getActor();
   if (!actor || actor.kind !== 'partner') redirect('/');

@@ -41,6 +41,12 @@ const schema = z.object({
   /** first buyer persona created by the seed */
   SEED_ADMIN_EMAIL: z.string().default('mari.tamm@naidis.riigikantselei.ee'),
   SEED_ADMIN_NAME: z.string().default('Mari Tamm'),
+  /**
+   * Real representatives to layer over the fictional sample list on every seed,
+   * so a reset of the test environment does not wipe the team's sign-ins:
+   * `registrikood,nimi,e-post[,roll];…`. Lives in the deployment's secrets.
+   */
+  SEED_REPRESENTATIVES: z.string().optional(),
 });
 
 const parsed = schema.safeParse(process.env);

@@ -9,20 +9,36 @@
  */
 
 import { and, eq } from 'drizzle-orm';
-import { lotPartners, users } from '@/db/schema';
+import { lotPartners, partnerRepresentatives, users } from '@/db/schema';
 import { env } from '@/lib/env';
 import type { Db, Tx } from './context';
 
 type Reader = Tx | Db;
 
-/** The addresses a partner's formal notices go to. Empty keeps them in-app only. */
+/**
+ * The addresses a partner's formal notices go to: every active representative
+ * of the company [D-10], else the contact named in the lot membership. Empty
+ * keeps the notice in-app only.
+ */
 export function partnerRecipients(tx: Reader, lotPartnerId: string): string[] {
   const member = tx
-    .select({ contactEmail: lotPartners.contactEmail })
+    .select({ partnerId: lotPartners.partnerId, contactEmail: lotPartners.contactEmail })
     .from(lotPartners)
     .where(eq(lotPartners.id, lotPartnerId))
     .get();
-  return member?.contactEmail ? [member.contactEmail] : [];
+  if (!member) return [];
+
+  const representatives = tx
+    .select({ email: partnerRepresentatives.email })
+    .from(partnerRepresentatives)
+    .where(
+      and(eq(partnerRepresentatives.partnerId, member.partnerId), eq(partnerRepresentatives.isActive, true)),
+    )
+    .all()
+    .map((r) => r.email);
+  if (representatives.length > 0) return representatives;
+
+  return member.contactEmail ? [member.contactEmail] : [];
 }
 
 /**

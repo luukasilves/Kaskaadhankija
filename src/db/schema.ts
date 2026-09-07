@@ -149,6 +149,43 @@ export const lotPartners = sqliteTable(
   ],
 );
 
+/**
+ * The people who may act for a partner company: its contractual representatives
+ * and their deputies, from the list the buyer uploads. They receive the formal
+ * notices [D-10] and they are who can sign in for the company [R-02]. Scoped to
+ * the company, not to a lot; the lot membership keeps the framework-agreement
+ * contact as evidence and as the fallback recipient.
+ */
+export const partnerRepresentatives = sqliteTable(
+  'partner_representatives',
+  {
+    id: uuid().primaryKey(),
+    partnerId: text('partner_id')
+      .notNull()
+      .references(() => partners.id),
+    name: text().notNull(),
+    /** lowercased; unique among active representatives */
+    email: text().notNull(),
+    role: text().$type<RepresentativeRole>().notNull().default('esindaja'),
+    phone: text().notNull().default(''),
+    isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+    deactivatedAt: integer('deactivated_at'),
+    importBatchId: text('import_batch_id'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (t) => [
+    // One person signs in as one company: an address is active for at most one.
+    uniqueIndex('partner_representatives_email_active_unique')
+      .on(t.email)
+      .where(sql`is_active = 1`),
+    index('partner_representatives_partner_idx').on(t.partnerId),
+    oneOf('role', ['esindaja', 'asendaja']),
+  ],
+);
+
+export type RepresentativeRole = 'esindaja' | 'asendaja';
+
 /* ------------------------------------------------------------------ *
  * trainings (koolituskalender)
  * ------------------------------------------------------------------ */
@@ -612,6 +649,8 @@ export const emailDeliveries = sqliteTable(
  * imports
  * ------------------------------------------------------------------ */
 
+export type ImportKind = 'trainings' | 'partners' | 'representatives';
+
 export interface ImportSummary {
   total: number;
   valid: number;
@@ -630,7 +669,7 @@ export const importBatches = sqliteTable(
   'import_batches',
   {
     id: uuid().primaryKey(),
-    kind: text().$type<'trainings' | 'partners'>().notNull(),
+    kind: text().$type<ImportKind>().notNull(),
     fileName: text('file_name').notNull(),
     fileSize: integer('file_size').notNull().default(0),
     source: text().$type<'upload' | 'seed' | 'sample'>().notNull().default('upload'),
@@ -646,7 +685,7 @@ export const importBatches = sqliteTable(
   },
   (t) => [
     index('import_batches_kind_idx').on(t.kind, t.status),
-    oneOf('kind', ['trainings', 'partners']),
+    oneOf('kind', ['trainings', 'partners', 'representatives']),
     oneOf('source', ['upload', 'seed', 'sample']),
     oneOf('status', ['previewed', 'imported', 'discarded']),
   ],

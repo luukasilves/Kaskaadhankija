@@ -72,33 +72,46 @@ export async function parseXlsx(buffer: ArrayBuffer | Buffer): Promise<XlsxParse
   return { headers: headers.filter(Boolean), rows, sheetName: sheet.name };
 }
 
-/** Write rows to an .xlsx buffer, used to derive the sample file's twin. */
+export interface WorkbookSheet {
+  name: string;
+  headers: readonly string[];
+  rows: ReadonlyArray<Record<string, string>>;
+}
+
+function addSheet(workbook: ExcelJS.Workbook, sheet: WorkbookSheet): void {
+  const ws = workbook.addWorksheet(sheet.name);
+  ws.addRow([...sheet.headers]);
+  ws.getRow(1).font = { bold: true };
+  ws.views = [{ state: 'frozen', ySplit: 1 }];
+
+  for (const row of sheet.rows) {
+    ws.addRow(sheet.headers.map((header) => row[header] ?? ''));
+  }
+
+  // Roughly fit each column to its content so the file is readable on opening.
+  sheet.headers.forEach((header, index) => {
+    const longest = sheet.rows.reduce(
+      (max, row) => Math.max(max, (row[header] ?? '').length),
+      header.length,
+    );
+    ws.getColumn(index + 1).width = Math.min(Math.max(longest + 2, 10), 60);
+  });
+}
+
+/** Write one or more sheets to an .xlsx buffer — sample-file twins and templates. */
+export async function buildWorkbook(sheets: readonly WorkbookSheet[]): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'Kaskaadhankija';
+  for (const sheet of sheets) addSheet(workbook, sheet);
+  const out = await workbook.xlsx.writeBuffer();
+  return Buffer.from(out);
+}
+
+/** Write rows to a single-sheet .xlsx buffer, used to derive the sample file's twin. */
 export async function buildXlsx(
   sheetName: string,
   headers: readonly string[],
   rows: ReadonlyArray<Record<string, string>>,
 ): Promise<Buffer> {
-  const workbook = new ExcelJS.Workbook();
-  workbook.creator = 'Kaskaadhankija';
-  const sheet = workbook.addWorksheet(sheetName);
-
-  sheet.addRow([...headers]);
-  sheet.getRow(1).font = { bold: true };
-  sheet.views = [{ state: 'frozen', ySplit: 1 }];
-
-  for (const row of rows) {
-    sheet.addRow(headers.map((header) => row[header] ?? ''));
-  }
-
-  // Roughly fit each column to its content so the file is readable on opening.
-  headers.forEach((header, index) => {
-    const longest = rows.reduce(
-      (max, row) => Math.max(max, (row[header] ?? '').length),
-      header.length,
-    );
-    sheet.getColumn(index + 1).width = Math.min(Math.max(longest + 2, 10), 60);
-  });
-
-  const out = await workbook.xlsx.writeBuffer();
-  return Buffer.from(out);
+  return buildWorkbook([{ name: sheetName, headers, rows }]);
 }

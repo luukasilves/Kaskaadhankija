@@ -19,6 +19,7 @@ import { buildXlsx } from '../src/server/import/xlsx';
 import {
   countRows,
   parsePartnerRows,
+  parseRepresentativeRows,
   parseTrainingRows,
   type ParsedRow,
   type RowDiagnostic,
@@ -75,6 +76,15 @@ async function main(): Promise<void> {
   const partners = parsePartnerRows(partnerCsv.rows, { knownLotCodes: LOT_CODES });
   ok = report('naidis-partnerid.csv', partners.rows, partners.fileErrors) && ok;
   await buildTwin('naidis-partnerid.csv', 'Raamlepingu partnerid');
+
+  const representativeCsv = parseCsv(
+    readFileSync(join(SEED_DIR, 'naidis-esindajad.csv')).toString('utf8'),
+  );
+  const representatives = parseRepresentativeRows(representativeCsv.rows, {
+    knownRegCodes: partners.rows.map((r) => r.value?.regCode ?? '').filter(Boolean),
+  });
+  ok = report('naidis-esindajad.csv', representatives.rows, representatives.fileErrors) && ok;
+  await buildTwin('naidis-esindajad.csv', 'Esindajad');
 
   // Per-lot summary, so a change to the dataset is easy to eyeball.
   const byLot = new Map<string, number>();

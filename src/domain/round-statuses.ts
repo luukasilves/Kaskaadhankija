@@ -248,6 +248,12 @@ export const NOTIFICATION_TYPE_LABELS: Record<string, string> = {
   late_action_rejected: 'Hilinenud toiming',
 };
 
+/** A partner representative's role [R-02]. */
+export const REPRESENTATIVE_ROLE_LABELS: Record<string, string> = {
+  esindaja: 'Lepinguline esindaja',
+  asendaja: 'Asendaja',
+};
+
 /** What happened to one e-mail, per recipient [D-10]. */
 export const EMAIL_DELIVERY_STATUS_LABELS: Record<string, string> = {
   queued: 'ootel',

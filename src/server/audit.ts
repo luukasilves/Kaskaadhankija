@@ -50,10 +50,19 @@ export type AuditEventType =
   | 'partner.rank_changed'
   | 'partner.deactivated'
   | 'partner.activated'
+  // representatives [R-02][D-10]
+  | 'representative.created'
+  | 'representative.updated'
+  | 'representative.deactivated'
+  | 'representative.activated'
+  // buyer team [R-01]
+  | 'team.member_added'
+  | 'team.member_updated'
   // imports
   | 'import.previewed'
   | 'import.trainings_imported'
   | 'import.partners_imported'
+  | 'import.representatives_imported'
   | 'import.discarded'
   // test harness
   | 'clock.advanced'

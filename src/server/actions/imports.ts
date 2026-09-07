@@ -19,6 +19,10 @@ import {
   readTable,
 } from '../import/trainings-import';
 import { applyPartnersImport, previewPartnersImport } from '../import/partners-import';
+import {
+  applyRepresentativesImport,
+  previewRepresentativesImport,
+} from '../import/representatives-import';
 import { buyerWrite, describeError, fail, fieldText, ok, type ActionOutcome } from './helpers';
 
 const MAX_BYTES = 5 * 1024 * 1024;
@@ -136,6 +140,44 @@ export async function confirmPartnersImportAction(form: FormData): Promise<Actio
     ]);
     const { created, updated } = result.summary;
     return ok(`Järjestus imporditud: ${created} uut osalust, ${updated} uuendatud.`);
+  } catch (error) {
+    return fail(describeError(error));
+  }
+}
+
+/* ---------------- partner representatives ---------------- */
+
+export async function previewRepresentativesAction(form: FormData): Promise<ActionOutcome> {
+  const upload = await readUpload(form);
+  if ('error' in upload) return fail(upload.error);
+  const deactivateMissing = fieldText(form, 'deactivateMissing') === 'on';
+
+  let batchId: string;
+  try {
+    batchId = await buyerWrite((ctx) =>
+      previewRepresentativesImport(ctx, {
+        fileName: upload.fileName,
+        fileSize: upload.size,
+        source: 'upload',
+        rawRows: upload.rows,
+        options: { deactivateMissing },
+      }),
+    ).then((r) => r.batchId);
+  } catch (error) {
+    return fail(describeError(error));
+  }
+  redirect(`/tellija/partnerid/esindajad/import?batch=${batchId}`);
+}
+
+export async function confirmRepresentativesImportAction(form: FormData): Promise<ActionOutcome> {
+  const batchId = fieldText(form, 'batchId');
+  try {
+    const result = await buyerWrite((ctx) => applyRepresentativesImport(ctx, batchId), [
+      '/tellija/partnerid/esindajad',
+      '/tellija/partnerid',
+    ]);
+    const { created, updated, withErrors } = result.summary;
+    return ok(`Esindajad imporditud: ${created} uut, ${updated} uuendatud, ${withErrors} veaga rida.`);
   } catch (error) {
     return fail(describeError(error));
   }

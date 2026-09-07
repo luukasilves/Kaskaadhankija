@@ -20,9 +20,9 @@ import {
 import { projectionInput } from '@/server/rounds/allocation-input';
 import { participantsOf } from '@/server/rounds/views';
 import { createHarness, type TestHarness } from '@/server/test-support';
-import { seedBaseData } from './seed';
+import { seedBaseData, settleSeedDeliveries } from './seed';
 import { seedScenarios } from './seed-scenarios';
-import { lots, notifications, orders, rounds, trainings } from './schema';
+import { emailDeliveries, lots, notifications, orders, rounds, trainings } from './schema';
 
 /** A Wednesday, so "2 working days ago" does not cross a weekend. */
 const NOW = Date.UTC(2026, 8, 30, 9, 0);
@@ -288,5 +288,21 @@ describe('ülejäänud stsenaariumid', () => {
     const b = participants.find((p) => p.rankAtPublication === 2)!;
     const projectionNotices = rows.filter((row) => row.type === 'projection_changed');
     expect(projectionNotices.map((row) => row.recipient)).toEqual([b.lotPartnerId]);
+  });
+});
+
+describe('the seed and e-mail [D-10]', () => {
+  it('queues the replayed notices’ e-mails and then records them as not sent, never leaving them queued', () => {
+    // Replayed history queued real deliveries to the sample representatives…
+    const before = harness.read((db) => db.select().from(emailDeliveries).all());
+    expect(before.length).toBeGreaterThan(20);
+    expect(before.some((d) => d.to === 'mari.mets@tehisaru-naidis.ee')).toBe(true);
+    expect(before.every((d) => d.status === 'queued')).toBe(true);
+
+    // …which the seed settles, so nothing is ever sent for reconstructed events.
+    const settled = harness.write((ctx) => settleSeedDeliveries(ctx.tx, ctx.at));
+    expect(settled).toBe(before.length);
+    const after = harness.read((db) => db.select().from(emailDeliveries).all());
+    expect(after.every((d) => d.status === 'skipped' && d.attempts === 1 && d.detail.includes('taasesitus'))).toBe(true);
   });
 });

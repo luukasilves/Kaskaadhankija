@@ -549,6 +549,126 @@ export function parsePartnerRows(
 }
 
 /* ------------------------------------------------------------------ *
+ * partner representatives (esindajad) [R-02][D-10]
+ * ------------------------------------------------------------------ */
+
+export type RepresentativeRoleValue = 'esindaja' | 'asendaja';
+
+export interface RepresentativeRow {
+  regCode: string;
+  name: string;
+  email: string;
+  role: RepresentativeRoleValue;
+  phone: string;
+}
+
+export const REPRESENTATIVE_COLUMNS = ['registrikood', 'esindaja', 'e_post'] as const;
+export const REPRESENTATIVE_OPTIONAL_COLUMNS = ['roll', 'telefon'] as const;
+
+const ROLE_ALIASES: Record<string, RepresentativeRoleValue> = {
+  esindaja: 'esindaja',
+  lepinguline_esindaja: 'esindaja',
+  allkirjaoiguslik: 'esindaja',
+  allkirjaoiguslik_esindaja: 'esindaja',
+  asendaja: 'asendaja',
+  asendusliige: 'asendaja',
+  kontaktisik: 'asendaja',
+};
+
+/** 'esindaja' (default when empty) or 'asendaja', with the usual spellings. */
+export function parseRepresentativeRole(input: string): FieldResult<RepresentativeRoleValue> {
+  const needle = fold(input);
+  if (!needle) return ok('esindaja');
+  const role = ROLE_ALIASES[needle];
+  if (!role) return bad(`tundmatu roll „${input.trim()}“ (lubatud: esindaja, asendaja)`);
+  return ok(role);
+}
+
+export function parseRepresentativeRows(
+  raws: readonly RawRow[],
+  context: { knownRegCodes: readonly string[] },
+): ParseTableResult<RepresentativeRow> {
+  const fileErrors: RowDiagnostic[] = [];
+  if (raws.length === 0) {
+    fileErrors.push({ message: 'Failis ei ole ühtegi andmerida.' });
+    return { rows: [], fileErrors };
+  }
+
+  const present = new Set(Object.keys(foldRow(raws[0])));
+  for (const column of REPRESENTATIVE_COLUMNS) {
+    if (!present.has(column)) {
+      fileErrors.push({ field: column, message: `Failis puudub veerg „${column}“.` });
+    }
+  }
+  if (fileErrors.length > 0) return { rows: [], fileErrors };
+
+  const known = new Set(context.knownRegCodes);
+  /** an address may appear once in the file */
+  const seenEmail = new Map<string, number>();
+  const rows: ParsedRow<RepresentativeRow>[] = [];
+
+  raws.forEach((raw, index) => {
+    const rowNumber = index + 2;
+    const cells = foldRow(raw);
+    const errors: RowDiagnostic[] = [];
+    const warnings: RowDiagnostic[] = [];
+
+    const take = <T>(field: string, result: FieldResult<T>): T | null => {
+      if (!result.ok) {
+        errors.push({ field, message: result.message });
+        return null;
+      }
+      if (result.warning) warnings.push({ field, message: result.warning });
+      return result.value;
+    };
+
+    const rawReg = (cells.registrikood ?? '').replace(/[\s ]/g, '');
+    let regCode: string | null = null;
+    if (!rawReg) {
+      errors.push({ field: 'registrikood', message: 'registrikood on puudu' });
+    } else if (!/^\d{8}$/.test(rawReg)) {
+      errors.push({ field: 'registrikood', message: `registrikood peab olema 8 numbrit, saadi „${rawReg}“` });
+    } else if (!known.has(rawReg)) {
+      errors.push({
+        field: 'registrikood',
+        message: `tundmatu partner registrikoodiga „${rawReg}“ — impordi kõigepealt partnerite järjestus`,
+      });
+    } else {
+      regCode = rawReg;
+    }
+
+    const name = take('esindaja', parseText(cells.esindaja ?? '', 'esindaja nimi', { min: 2, max: 80 }));
+
+    const rawEmail = (cells.e_post ?? '').trim();
+    let email: string | null = null;
+    if (!rawEmail) {
+      errors.push({ field: 'e_post', message: 'e-posti aadress on puudu' });
+    } else if (!EMAIL_RE.test(rawEmail)) {
+      errors.push({ field: 'e_post', message: `e-posti aadress ei ole korrektne: „${rawEmail}“` });
+    } else {
+      email = rawEmail.toLowerCase();
+      const earlier = seenEmail.get(email);
+      if (earlier !== undefined) {
+        errors.push({ field: 'e_post', message: `sama e-posti aadress on juba real ${earlier}` });
+      } else {
+        seenEmail.set(email, rowNumber);
+      }
+    }
+
+    const role = take('roll', parseRepresentativeRole(cells.roll ?? ''));
+    const phone = (cells.telefon ?? '').trim().slice(0, 40);
+
+    let value: RepresentativeRow | null = null;
+    if (errors.length === 0 && regCode !== null && name !== null && email !== null && role !== null) {
+      value = { regCode, name, email, role, phone };
+    }
+    rows.push({ rowNumber, errors, warnings, value });
+  });
+
+  return { rows, fileErrors };
+}
+
+/* ------------------------------------------------------------------ *
  * summary
  * ------------------------------------------------------------------ */
 

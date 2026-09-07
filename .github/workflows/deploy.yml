@@ -164,10 +164,13 @@ jobs:
           EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
           EMAIL_ALLOWED_RECIPIENTS: ${{ secrets.EMAIL_ALLOWED_RECIPIENTS }}
           TEAM_NOTIFICATIONS_EMAIL: ${{ secrets.TEAM_NOTIFICATIONS_EMAIL }}
+          # `registrikood,nimi,e-post[,roll];…` — the team's own sign-ins, layered
+          # over the sample list on every seed so a reset does not wipe them.
+          SEED_REPRESENTATIVES: ${{ secrets.SEED_REPRESENTATIVES }}
         run: |
           APP='${{ needs.bootstrap.outputs.app }}'
           ARGS=()
-          for NAME in SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASS EMAIL_FROM EMAIL_ALLOWED_RECIPIENTS TEAM_NOTIFICATIONS_EMAIL; do
+          for NAME in SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASS EMAIL_FROM EMAIL_ALLOWED_RECIPIENTS TEAM_NOTIFICATIONS_EMAIL SEED_REPRESENTATIVES; do
             VALUE="${!NAME}"
             if [ -n "$VALUE" ]; then
               ARGS+=("$NAME=$VALUE")

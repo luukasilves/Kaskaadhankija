@@ -38,9 +38,14 @@ export default async function PartnersPage() {
             tabelina — sama kujul, nagu hanke tulemused saabuvad.
           </p>
         </div>
-        <Link href="/tellija/partnerid/import" className="kh-btn kh-btn-primary">
-          Impordi järjestus
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <Link href="/tellija/partnerid/esindajad" className="kh-btn">
+            Esindajad
+          </Link>
+          <Link href="/tellija/partnerid/import" className="kh-btn kh-btn-primary">
+            Impordi järjestus
+          </Link>
+        </div>
       </div>
 
       {rows.length === 0 ? (

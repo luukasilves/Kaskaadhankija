@@ -31,8 +31,10 @@ export default async function BuyerLayout({ children }: { children: React.ReactN
           { href: '/tellija/tellimused', label: 'Tellimused' },
           { href: '/tellija/hankeosad', label: 'Hankeosad' },
           { href: '/tellija/partnerid', label: 'Partnerid' },
+          { href: '/tellija/partnerid/esindajad', label: 'Esindajad' },
           { href: '/tellija/teavitused', label: 'Teavitused' },
           { href: '/tellija/auditilogi', label: 'Auditilogi' },
+          { href: '/tellija/meeskond', label: 'Meeskond' },
           ...(leftoverCount > 0
             ? [{ href: '/tellija?jaak=1', label: `Jääk ${leftoverCount}`, alert: true }]
             : []),
