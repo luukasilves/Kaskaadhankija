@@ -30,14 +30,18 @@ export function DraftRoundPanel({
   lotResponseDays,
   lotDeadlineTime,
   visibilityMode,
+  plannedExtraWorkingDays = 0,
   trainings,
 }: {
   roundId: string;
   lotResponseDays: number;
   lotDeadlineTime: string;
   visibilityMode: 'dynamic' | 'sealed';
+  /** from an uploaded scheme [L-20]; offered as the default, still the buyer's call */
+  plannedExtraWorkingDays?: number;
   trainings: TrainingRef[];
 }) {
+  const extraChoices = [...new Set([0, 1, 2, 5, plannedExtraWorkingDays])].sort((a, b) => a - b);
   return (
     <div className="space-y-4">
       <div
@@ -63,13 +67,24 @@ export function DraftRoundPanel({
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block">
               <span className="text-[12.5px] font-semibold">Vastamistähtaeg</span>
-              <select name="extraWorkingDays" defaultValue="0" className="kh-input mt-1">
-                <option value="0">
-                  Hankeosa vaikimisi — {lotResponseDays} tööpäeva, kell {lotDeadlineTime}
-                </option>
-                <option value="1">{lotResponseDays + 1} tööpäeva (+1)</option>
-                <option value="2">{lotResponseDays + 2} tööpäeva (+2)</option>
-                <option value="5">{lotResponseDays + 5} tööpäeva (+5)</option>
+              <select
+                name="extraWorkingDays"
+                defaultValue={String(plannedExtraWorkingDays)}
+                className="kh-input mt-1"
+                data-testid="extra-working-days"
+              >
+                {extraChoices.map((extra) =>
+                  extra === 0 ? (
+                    <option key={extra} value="0">
+                      Hankeosa vaikimisi — {lotResponseDays} tööpäeva, kell {lotDeadlineTime}
+                    </option>
+                  ) : (
+                    <option key={extra} value={String(extra)}>
+                      {lotResponseDays + extra} tööpäeva (+{extra})
+                      {extra === plannedExtraWorkingDays ? ' — skeemis ette nähtud' : ''}
+                    </option>
+                  ),
+                )}
               </select>
               <span className="mt-1 block text-[12px] text-[var(--color-muted)]">
                 Tähtaega saab hiljem ainult pikendada.

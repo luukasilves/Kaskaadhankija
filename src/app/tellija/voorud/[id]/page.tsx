@@ -48,6 +48,7 @@ export default async function RoundDetail({ params }: { params: Promise<{ id: st
       note: rounds.note,
       visibilityMode: rounds.visibilityMode,
       capOptions: rounds.capOptions,
+      plannedExtraWorkingDays: rounds.plannedExtraWorkingDays,
       publishedAt: rounds.publishedAt,
       deadlineAt: rounds.deadlineAt,
       expectedDecisionAt: rounds.expectedDecisionAt,
@@ -205,6 +206,7 @@ export default async function RoundDetail({ params }: { params: Promise<{ id: st
           lotResponseDays={round.lotResponseDays}
           lotDeadlineTime={round.lotDeadlineTime}
           visibilityMode={round.visibilityMode}
+          plannedExtraWorkingDays={round.plannedExtraWorkingDays}
           trainings={trainingRows.map((t) => ({
             id: t.id,
             code: t.code,

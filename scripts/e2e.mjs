@@ -15,12 +15,18 @@
  *     broken, publishes a round over the four good ones, two partners answer,
  *     the deadline passes, the buyer caps the first and confirms.
  *
+ *  3. **A round from an uploaded scheme [L-20].** A workbook built here with
+ *     a "Voor" and a "Koolitused" sheet: first with a row from another lot,
+ *     which must stop the import whole; then clean, which yields a draft with
+ *     the sheet's settings prefilled on the publish form.
+ *
  * The production posture (no strip, no personas, demo actions refused) is
  * covered by `scripts/verify-harness.mjs` and is not repeated here.
  *
  *   pnpm e2e        (builds first)
  */
 
+import ExcelJS from 'exceljs';
 import { chromium } from 'playwright';
 import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -374,6 +380,108 @@ async function walkImportedRound(page) {
 
 /* ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ *
+ * walk 3 — a round from an uploaded scheme [L-20]
+ * ------------------------------------------------------------------ */
+
+const SCHEME_ROW = (kood, over = {}) => ({
+  kood,
+  hankeosa: 'OSA-3',
+  nimetus: `E2E veebikoolitus ${kood.slice(-3)}`,
+  formaat: 'Töötuba 1',
+  kuupaev: '02.11.2026',
+  lopp_kuupaev: '',
+  maakond: 'Harju maakond',
+  asukoht: 'Teams',
+  sihtruhm: 'KOV ametnikud',
+  osalejate_arv: '30',
+  keel: 'et',
+  hinnanguline_maksumus: '760',
+  markused: '',
+  ...over,
+});
+
+/** Write a two-sheet workbook the way the template lays it out. */
+async function writeScheme(path, voorPairs, trainingRows) {
+  const workbook = new ExcelJS.Workbook();
+  const voor = workbook.addWorksheet('Voor');
+  voor.addRow(['väli', 'väärtus']);
+  for (const [field, value] of voorPairs) voor.addRow([field, value]);
+  const koolitused = workbook.addWorksheet('Koolitused');
+  const headers = Object.keys(trainingRows[0]);
+  koolitused.addRow(headers);
+  for (const row of trainingRows) koolitused.addRow(headers.map((h) => row[h]));
+  await workbook.xlsx.writeFile(path);
+  return path;
+}
+
+async function uploadScheme(page, path) {
+  await page.goto(`${BASE}/tellija/voorud/import`);
+  await page.waitForSelector('[data-testid="round-import-upload"]', { timeout: 20_000 });
+  await page.setInputFiles('input[type="file"]', path);
+  await page.locator('[data-testid="round-import-upload"] button').click();
+  await page.waitForSelector('[data-testid="round-import-summary"]', { timeout: 20_000 });
+}
+
+async function walkRoundUpload(page) {
+  await switchTo(page, BUYER);
+
+  const template = await page.request.get(`${BASE}/tellija/voorud/mall?hankeosa=OSA-3`);
+  check(
+    'the round template downloads as a workbook for the lot',
+    template.status() === 200 && (template.headers()['content-type'] ?? '').includes('spreadsheetml') && (await template.body()).length > 2000,
+    String(template.status()),
+  );
+  await page.goto(`${BASE}/tellija/voorud/uus?hankeosa=OSA-3`);
+  check('the new-round page offers the upload alternative', await page.getByTestId('round-upload-offer').isVisible());
+
+  const voorPairs = [
+    ['hankeosa', 'OSA-3'],
+    ['nahtavus', 'dünaamiline'],
+    ['piirmaara_valikud', 'osalejad'],
+    ['lisatoopaevad', '1'],
+    ['markus', 'E2E skeem'],
+  ];
+  const broken = await writeScheme(join(ROOT, 'data', `e2e-voor-vigane-${Date.now()}.xlsx`), voorPairs, [
+    SCHEME_ROW('KK-2026-951'),
+    SCHEME_ROW('KK-2026-952', { hankeosa: 'OSA-1' }),
+  ]);
+  await uploadScheme(page, broken);
+  check('a row from another lot blocks the whole import', await page.getByTestId('round-import-blocked').isVisible());
+  check('and says which row and why', (await page.locator('main').textContent()).includes('kuulub hankeosasse OSA-1'));
+  check('the confirm button is disabled', await page.locator('[data-testid="confirm-round-import"] button').isDisabled());
+  await page.screenshot({ path: join(SHOTS, '12-scheme-blocked.png'), fullPage: true });
+
+  const clean = await writeScheme(join(ROOT, 'data', `e2e-voor-${Date.now()}.xlsx`), voorPairs, [
+    SCHEME_ROW('KK-2026-951'),
+    SCHEME_ROW('KK-2026-952', { kuupaev: '04.11.2026', osalejate_arv: '45' }),
+  ]);
+  await uploadScheme(page, clean);
+  check('a clean scheme can be confirmed', !(await page.locator('[data-testid="confirm-round-import"] button').isDisabled()));
+  const summary = (await page.getByTestId('round-import-summary').textContent()).replace(/\s+/g, ' ');
+  check('the preview states the sheet’s settings', summary.includes('OSA-3') && summary.includes('Osalejate arv') && summary.includes('+1 tööpäeva'));
+  await page.getByTestId('confirm-round-import').locator('button').click();
+  await page.waitForURL(/\/tellija\/voorud\/[0-9a-f-]+$/, { timeout: 20_000 });
+  const draft = await appHtml(page);
+  check('confirming yields a draft round, not a published one', draft.includes('Mustand') && (await page.getByTestId('publish-round').count()) === 1);
+  check('the draft holds the two trainings', draft.includes('KK-2026-951') && draft.includes('KK-2026-952'));
+  check('the draft carries the sheet’s cap offer', draft.includes('piirmäär: osalejate arv'));
+  check(
+    'the publish form is prefilled with the scheme’s extra working day',
+    (await page.locator('[data-testid="extra-working-days"]').inputValue()) === '1',
+    await page.locator('[data-testid="extra-working-days"]').inputValue(),
+  );
+  await page.screenshot({ path: join(SHOTS, '13-scheme-draft.png'), fullPage: true });
+
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByTestId('publish-round').locator('button').click();
+  await page.waitForFunction(() => document.body.textContent.includes('Avatud'), null, { timeout: 20_000 });
+  check('publication stays a separate act in the application', (await appHtml(page)).includes('Avatud'));
+
+  rmSync(broken, { force: true });
+  rmSync(clean, { force: true });
+}
+
 async function main() {
   rmSync(SHOTS, { recursive: true, force: true });
   mkdirSync(SHOTS, { recursive: true });
@@ -406,6 +514,7 @@ async function main() {
 
     await walkLisaB(page);
     await walkImportedRound(page);
+    await walkRoundUpload(page);
 
     check('no failed requests', badResponses.length === 0, badResponses.slice(0, 4).join(' | '));
     check('no console errors', consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' | '));

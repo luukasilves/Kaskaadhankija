@@ -86,6 +86,24 @@ export default async function NewRoundPage({
         ))}
       </nav>
 
+      <section className="kh-card flex flex-wrap items-center justify-between gap-3 p-4" data-testid="round-upload-offer">
+        <div>
+          <h2>Või laadi vooru skeem üles</h2>
+          <p className="mt-1 max-w-[70ch] text-[13px] text-[var(--color-muted)]">
+            Täida Exceli töövihik (leht „Voor“ + leht „Koolitused“) ja laadi üles: koolitused
+            luuakse või uuendatakse ja voor tehakse nende peale mustandina. Avaldamine jääb siia.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <a href={`/tellija/voorud/mall?hankeosa=${selectedLot.code}`} className="kh-btn">
+            Laadi alla mall ({selectedLot.code})
+          </a>
+          <Link href={`/tellija/voorud/import?hankeosa=${selectedLot.code}`} className="kh-btn">
+            Laadi skeem üles
+          </Link>
+        </div>
+      </section>
+
       <NewRoundForm
         lot={{
           id: selectedLot.id,

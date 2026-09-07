@@ -64,7 +64,7 @@ export function fold(value: string): string {
  * Index a raw row by folded header, so `Kuupäev`, `kuupaev` and `KUUPAEV`
  * all reach the same field.
  */
-function foldRow(raw: RawRow): Record<string, string> {
+export function foldRow(raw: RawRow): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(raw)) {
     out[fold(key)] = typeof value === 'string' ? value.trim() : String(value ?? '').trim();

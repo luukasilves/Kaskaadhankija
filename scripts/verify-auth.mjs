@@ -80,6 +80,29 @@ async function enterCode(page, code) {
   await page.waitForLoadState('networkidle');
 }
 
+/** Wait until the sign-in error names the expected text, or give up after 20 s. */
+async function errorSays(page, text) {
+  return page
+    .waitForFunction(
+      (needle) => document.querySelector('[data-testid="sign-in-error"]')?.textContent?.includes(needle) ?? false,
+      text,
+      { timeout: 20_000 },
+    )
+    .then(() => true)
+    .catch(() => false);
+}
+
+/** Poll the database until the predicate holds, or give up after 10 s. */
+async function untilRow(dbPath, email, predicate) {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const row = codeRow(dbPath, email);
+    if (predicate(row)) return row;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  return codeRow(dbPath, email);
+}
+
 /** The latest code row for an address, read straight from the database. */
 function codeRow(dbPath, email) {
   const db = new Database(dbPath, { readonly: true });
@@ -118,7 +141,7 @@ async function testEnvironment(browser) {
     check('the code is nowhere in the notification log', !server.logs.join('').includes('notifications'), '');
 
     await enterCode(page, code === '000000' ? '000001' : '000000');
-    check('a wrong code is refused with a reason', (await page.getByTestId('sign-in-error').textContent()).includes('ei sobi'));
+    check('a wrong code is refused with a reason', await errorSays(page, 'ei sobi'));
     await enterCode(page, code);
     await page.waitForURL(/\/partner\/voorud/, { timeout: 20_000 });
     const header = await headerText(page);
@@ -155,19 +178,24 @@ async function testEnvironment(browser) {
     check('an unknown address gets the same code page', page.url().includes('/sisene/kood'));
     check('but no code is mailed', (await codeFor(server, STRANGER, { expect: false })) === null);
     await enterCode(page, '123456');
-    check('and any code is refused neutrally', (await page.getByTestId('sign-in-error').textContent()).includes('kehtivat koodi'));
+    check('and any code is refused neutrally', await errorSays(page, 'kehtivat koodi'));
 
     /* five wrong guesses burn the code */
     await requestCode(page, BASE, DEPUTY);
     const deputyCode = await codeFor(server, DEPUTY);
     check('a code was mailed to the deputy', /^\d{6}$/.test(deputyCode ?? ''));
     const wrongCode = deputyCode === '111111' ? '222222' : '111111';
-    for (let i = 0; i < 4; i++) await enterCode(page, wrongCode);
-    check('four wrong guesses are counted, and the code still stands', codeRow(DB, DEPUTY)?.attempts === 4 && codeRow(DB, DEPUTY)?.consumedAt === null, JSON.stringify(codeRow(DB, DEPUTY)));
+    for (let i = 0; i < 4; i++) {
+      await enterCode(page, wrongCode);
+      await untilRow(DB, DEPUTY, (row) => row?.attempts === i + 1);
+    }
+    const afterFour = codeRow(DB, DEPUTY);
+    check('four wrong guesses are counted, and the code still stands', afterFour?.attempts === 4 && afterFour?.consumedAt === null, JSON.stringify(afterFour));
     await enterCode(page, wrongCode);
-    check('the fifth wrong guess locks the code', (await page.getByTestId('sign-in-error').textContent()).includes('Liiga palju') && codeRow(DB, DEPUTY)?.consumedAt !== null);
+    const locked = await untilRow(DB, DEPUTY, (row) => row?.consumedAt !== null);
+    check('the fifth wrong guess locks the code', locked?.consumedAt !== null && (await errorSays(page, 'Liiga palju')), JSON.stringify(locked));
     await enterCode(page, deputyCode);
-    check('and the right code is dead afterwards', (await page.getByTestId('sign-in-error').textContent()).includes('kehtivat koodi'));
+    check('and the right code is dead afterwards', await errorSays(page, 'kehtivat koodi'));
 
     /* rate limit: the representative already asked once */
     await requestCode(page, BASE, REPRESENTATIVE);

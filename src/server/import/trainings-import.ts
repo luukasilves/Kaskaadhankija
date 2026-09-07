@@ -148,7 +148,7 @@ export function previewTrainingsImport(
 }
 
 /** Mark rows whose training exists but is no longer importable. */
-function annotateLockState(ctx: Ctx, stored: StoredRow[], summary: ImportSummary): void {
+export function annotateLockState(ctx: Ctx, stored: StoredRow[], summary: ImportSummary): void {
   const codes = stored.map((r) => r.value?.code).filter((c): c is string => Boolean(c));
   if (codes.length === 0) return;
 
@@ -197,7 +197,34 @@ export function applyTrainingsImport(ctx: Ctx, batchId: string): ApplyResult {
 
   const payload = batch.rowsJson as { rows: StoredRow[]; fileErrors: RowDiagnostic[] };
   const rows = payload.rows;
+  const summary = applyTrainingRows(ctx, rows, batchId);
 
+  ctx.tx
+    .update(importBatches)
+    .set({
+      status: 'imported',
+      importedAt: ctx.at,
+      rowsJson: { rows, fileErrors: payload.fileErrors },
+      summary,
+    })
+    .where(eq(importBatches.id, batchId))
+    .run();
+
+  logAudit(ctx, {
+    eventType: 'import.trainings_imported',
+    summary: `Koolituskalender imporditud failist ${batch.fileName}: ${summary.created} uut, ${summary.updated} uuendatud, ${summary.locked} lukus, ${summary.withErrors} veaga`,
+    after: { batchId, fileName: batch.fileName, source: batch.source, summary },
+  });
+
+  return { summary, rows };
+}
+
+/**
+ * Write validated rows: create by code, update where the training is still
+ * importable, refuse to touch one that is in a round or allocated [V-04].
+ * Shared with the round upload, so a training enters the system one way only.
+ */
+export function applyTrainingRows(ctx: Ctx, rows: StoredRow[], batchId: string): ImportSummary {
   const lotIdByCode = new Map(
     ctx.tx
       .select({ id: lots.id, code: lots.code })
@@ -283,24 +310,7 @@ export function applyTrainingsImport(ctx: Ctx, batchId: string): ApplyResult {
     summary.updated += 1;
   }
 
-  ctx.tx
-    .update(importBatches)
-    .set({
-      status: 'imported',
-      importedAt: ctx.at,
-      rowsJson: { rows, fileErrors: payload.fileErrors },
-      summary,
-    })
-    .where(eq(importBatches.id, batchId))
-    .run();
-
-  logAudit(ctx, {
-    eventType: 'import.trainings_imported',
-    summary: `Koolituskalender imporditud failist ${batch.fileName}: ${summary.created} uut, ${summary.updated} uuendatud, ${summary.locked} lukus, ${summary.withErrors} veaga`,
-    after: { batchId, fileName: batch.fileName, source: batch.source, summary },
-  });
-
-  return { summary, rows };
+  return summary;
 }
 
 /** Convenience for the seed and the sample-data button: preview then apply. */

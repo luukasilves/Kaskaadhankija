@@ -70,6 +70,7 @@ export type AuditEventType =
   | 'import.trainings_imported'
   | 'import.partners_imported'
   | 'import.representatives_imported'
+  | 'import.round_imported'
   | 'import.discarded'
   // test harness
   | 'clock.advanced'

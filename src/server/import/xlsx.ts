@@ -38,16 +38,31 @@ function cellToText(value: ExcelJS.CellValue): string {
   return String(value).trim();
 }
 
-export async function parseXlsx(buffer: ArrayBuffer | Buffer): Promise<XlsxParseResult> {
+async function loadWorkbook(buffer: ArrayBuffer | Buffer): Promise<ExcelJS.Workbook> {
   const workbook = new ExcelJS.Workbook();
   // exceljs's bundled typings predate the generic Buffer<ArrayBufferLike>, and
   // it accepts an ArrayBuffer at runtime either way, so bridge the declaration.
   type LoadArg = Parameters<typeof workbook.xlsx.load>[0];
   await workbook.xlsx.load(buffer as unknown as LoadArg);
+  return workbook;
+}
 
+/** Every sheet of a workbook, by name, in the same shape as the CSV reader. */
+export async function parseXlsxSheets(buffer: ArrayBuffer | Buffer): Promise<Map<string, XlsxParseResult>> {
+  const workbook = await loadWorkbook(buffer);
+  const sheets = new Map<string, XlsxParseResult>();
+  for (const sheet of workbook.worksheets) sheets.set(sheet.name, readSheet(sheet));
+  return sheets;
+}
+
+export async function parseXlsx(buffer: ArrayBuffer | Buffer): Promise<XlsxParseResult> {
+  const workbook = await loadWorkbook(buffer);
   const sheet = workbook.worksheets[0];
   if (!sheet) return { headers: [], rows: [], sheetName: '' };
+  return readSheet(sheet);
+}
 
+function readSheet(sheet: ExcelJS.Worksheet): XlsxParseResult {
   const headerRow = sheet.getRow(1);
   const headers: string[] = [];
   headerRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
@@ -76,7 +91,12 @@ export interface WorkbookSheet {
   name: string;
   headers: readonly string[];
   rows: ReadonlyArray<Record<string, string>>;
+  /** drop-down lists for a template, e.g. `{ range: 'B2:B500', values: ['et', 'ru'] }` */
+  validations?: ReadonlyArray<{ range: string; values: readonly string[] }>;
 }
+
+/** Excel caps an inline list at 255 characters; a longer one would corrupt the file. */
+const LIST_FORMULA_LIMIT = 255;
 
 function addSheet(workbook: ExcelJS.Workbook, sheet: WorkbookSheet): void {
   const ws = workbook.addWorksheet(sheet.name);
@@ -86,6 +106,24 @@ function addSheet(workbook: ExcelJS.Workbook, sheet: WorkbookSheet): void {
 
   for (const row of sheet.rows) {
     ws.addRow(sheet.headers.map((header) => row[header] ?? ''));
+  }
+
+  // exceljs exposes range validations at runtime, but its bundled typings only
+  // declare the per-cell form, so name the shape here.
+  const validations = (ws as unknown as {
+    dataValidations: { add(range: string, validation: ExcelJS.DataValidation): void };
+  }).dataValidations;
+  for (const validation of sheet.validations ?? []) {
+    const formula = `"${validation.values.join(',')}"`;
+    if (formula.length > LIST_FORMULA_LIMIT) continue;
+    validations.add(validation.range, {
+      type: 'list',
+      allowBlank: true,
+      formulae: [formula],
+      showErrorMessage: true,
+      errorTitle: 'Lubamatu väärtus',
+      error: `Lubatud: ${validation.values.join(', ')}`,
+    });
   }
 
   // Roughly fit each column to its content so the file is readable on opening.

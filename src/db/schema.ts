@@ -278,6 +278,8 @@ export const rounds = sqliteTable(
     visibilityMode: text('visibility_mode').$type<VisibilityMode>().notNull().default('dynamic'),
     /** [K-06][L-17] the cap kinds partners may use in this round; fixed at creation */
     capOptions: text('cap_options').$type<CapOptions>().notNull().default('trainings'),
+    /** [L-20] from an uploaded scheme: working days to offer beyond the lot default, at publication */
+    plannedExtraWorkingDays: integer('planned_extra_working_days').notNull().default(0),
     /** [V-03] config frozen at publication, so later lot edits cannot change a live round */
     workloadThresholdSnapshot: integer('workload_threshold_snapshot').notNull().default(25),
     responseWorkingDaysSnapshot: integer('response_working_days_snapshot').notNull().default(3),
@@ -660,7 +662,7 @@ export const emailDeliveries = sqliteTable(
  * imports
  * ------------------------------------------------------------------ */
 
-export type ImportKind = 'trainings' | 'partners' | 'representatives';
+export type ImportKind = 'trainings' | 'partners' | 'representatives' | 'round';
 
 export interface ImportSummary {
   total: number;
@@ -696,7 +698,7 @@ export const importBatches = sqliteTable(
   },
   (t) => [
     index('import_batches_kind_idx').on(t.kind, t.status),
-    oneOf('kind', ['trainings', 'partners', 'representatives']),
+    oneOf('kind', ['trainings', 'partners', 'representatives', 'round']),
     oneOf('source', ['upload', 'seed', 'sample']),
     oneOf('status', ['previewed', 'imported', 'discarded']),
   ],
