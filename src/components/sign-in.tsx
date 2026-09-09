@@ -42,8 +42,17 @@ export function SignInRequestForm({
   /** domains that may sign in without being listed first */
   adminDomains?: readonly string[];
 }) {
+  // `data-admin-domains` is what the deploy greps to prove the configured rule
+  // actually reached the machine: a secret that silently failed to arrive would
+  // otherwise look exactly like "nobody can sign in", with no visible cause.
+  // The page names the same domains in prose below, so it discloses nothing new.
   return (
-    <form action={requestLoginCodeAction} className="kh-card space-y-3 p-5" data-testid="sign-in-form">
+    <form
+      action={requestLoginCodeAction}
+      className="kh-card space-y-3 p-5"
+      data-testid="sign-in-form"
+      data-admin-domains={adminDomains.join(' ')}
+    >
       <h1 className="text-[22px]">Logi sisse</h1>
       <p className="text-[13.5px] text-[var(--color-muted)]">
         Sisesta e-posti aadress, mis on partneri esindajate või tellimismeeskonna loendis

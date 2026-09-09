@@ -296,6 +296,20 @@ jobs:
           grep -q 'VOOR-' home.html \
             || { echo '::error::No seeded round on the opening screen.'; exit 1; }
 
+          # The sign-in, and the proof that the buyer-domain rule reached the
+          # machine — a secret that silently failed to arrive would otherwise
+          # look exactly like "nobody can log in", with no visible cause.
+          # Guarded on the app because the v2 line has no sign-in yet; drop the
+          # guard once this branch is on main.
+          if [ "$APP" = "$V3_APP" ]; then
+            curl -fsS --max-time 20 "$BASE/sisene" > signin.html
+            grep -q 'data-testid="sign-in-form"' signin.html \
+              || { echo '::error::/sisene does not serve the sign-in form.'; exit 1; }
+            grep -q 'data-admin-domains="@' signin.html \
+              || { echo '::error::AUTO_ADMIN_EMAIL_DOMAINS did not reach the machine — nobody could sign in without being listed first.'; exit 1; }
+            echo "Sign-in serving, buyer-domain rule configured: $(sed -n 's/.*data-admin-domains="\([^"]*\)".*/\1/p' signin.html | head -1)"
+          fi
+
           # Without a persona chosen, the buyer area must not be reachable.
           CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$BASE/tellija")
           if [ "$CODE" = "200" ]; then
