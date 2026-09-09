@@ -32,13 +32,23 @@ function ErrorLine({ message }: { message?: string }) {
   );
 }
 
-export function SignInRequestForm({ email, error }: { email?: string; error?: string }) {
+export function SignInRequestForm({
+  email,
+  error,
+  adminDomains = [],
+}: {
+  email?: string;
+  error?: string;
+  /** domains that may sign in without being listed first */
+  adminDomains?: readonly string[];
+}) {
   return (
     <form action={requestLoginCodeAction} className="kh-card space-y-3 p-5" data-testid="sign-in-form">
       <h1 className="text-[22px]">Logi sisse</h1>
       <p className="text-[13.5px] text-[var(--color-muted)]">
-        Sisesta e-posti aadress, mis on partneri esindajate või tellimismeeskonna loendis. Saadame
-        sellele kuuekohalise koodi, mis kehtib 10 minutit. Paroole ei ole.
+        Sisesta e-posti aadress, mis on partneri esindajate või tellimismeeskonna loendis
+        {adminDomains.length > 0 ? ` või lõpeb ${adminDomains.join(' / ')}` : ''}. Saadame sellele
+        kuuekohalise koodi, mis kehtib 10 minutit. Paroole ei ole.
       </p>
       <ErrorLine message={error ? REQUEST_ERRORS[error] : undefined} />
       <label className="block">

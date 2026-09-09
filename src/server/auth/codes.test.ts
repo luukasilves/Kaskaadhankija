@@ -6,15 +6,20 @@
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { loginCodes, partnerRepresentatives, sessions, users } from '@/db/schema';
+import { env } from '@/lib/env';
 import {
   CODE_MAX_ATTEMPTS,
   CODE_TTL_MS,
   SESSION_TTL_MS,
   createSession,
+  emailDomainAllowsAdmin,
   findSubjectByEmail,
   generateCode,
   hashCode,
   issueLoginCode,
+  knownButInactive,
+  nameFromEmail,
+  parseAdminDomains,
   purgeAuthRows,
   resolveSession,
   revokeSession,
@@ -48,7 +53,10 @@ beforeEach(() => {
   });
 });
 
-afterEach(() => harness.close());
+afterEach(() => {
+  harness.close();
+  env.AUTO_ADMIN_EMAIL_DOMAINS = undefined;
+});
 
 const issue = (email: string, over: Partial<Parameters<typeof issueLoginCode>[1]> = {}) =>
   harness.write((ctx) => issueLoginCode(ctx.tx, { email, ip: EVIDENCE.ip, now: NOW, ...over }));
@@ -100,7 +108,7 @@ describe('codes', () => {
   it('accepts the right code once, and refuses it a second time', () => {
     const result = issue('jaan@partner.ee');
     if (result.outcome !== 'sent') throw new Error('no code');
-    expect(verify('JAAN@partner.ee', result.code)).toMatchObject({ ok: true, subject: { kind: 'representative', id: 'r-jaan' } });
+    expect(verify('JAAN@partner.ee', result.code)).toMatchObject({ ok: true, who: { existing: { kind: 'representative', id: 'r-jaan' } } });
     expect(verify('jaan@partner.ee', result.code)).toEqual({ ok: false, reason: 'no_code' });
   });
 
@@ -166,5 +174,93 @@ describe('sessions', () => {
     expect(harness.write((ctx) => purgeAuthRows(ctx.tx, NOW + 60_000))).toEqual({ codes: 0, sessions: 0 });
     expect(harness.write((ctx) => purgeAuthRows(ctx.tx, NOW + 40 * 86_400_000))).toEqual({ codes: 1, sessions: 1 });
     expect(codeRows()).toHaveLength(0);
+  });
+});
+
+describe('the buyer-domain rule [L-08]', () => {
+  const DOMAIN = '@riik.ee';
+  const NEWCOMER = 'kirke.kask@riik.ee';
+
+  beforeEach(() => {
+    env.AUTO_ADMIN_EMAIL_DOMAINS = DOMAIN;
+  });
+
+  it('parses domains with or without the @, and matches only the whole domain', () => {
+    expect(parseAdminDomains(' riigikantselei.ee, @Muu.EE ')).toEqual(['@riigikantselei.ee', '@muu.ee']);
+    expect(parseAdminDomains(undefined)).toEqual([]);
+
+    const domains = ['@riigikantselei.ee'];
+    expect(emailDomainAllowsAdmin('Keegi@Riigikantselei.ee', domains)).toBe(true);
+    expect(emailDomainAllowsAdmin('keegi@evil-riigikantselei.ee', domains)).toBe(false);
+    expect(emailDomainAllowsAdmin('keegi@riigikantselei.ee.example', domains)).toBe(false);
+    expect(emailDomainAllowsAdmin('keegi@sub.riigikantselei.ee', domains)).toBe(false);
+    expect(emailDomainAllowsAdmin('mitte-aadress', domains)).toBe(false);
+    // With nothing configured the rule admits nobody.
+    expect(emailDomainAllowsAdmin('keegi@riigikantselei.ee', [])).toBe(false);
+  });
+
+  it('derives a display name from the address, falling back to the address itself', () => {
+    expect(nameFromEmail('kirke.kask@riik.ee')).toBe('Kirke Kask');
+    expect(nameFromEmail('MARI_TAMM@riik.ee')).toBe('Mari Tamm');
+    expect(nameFromEmail('a@riik.ee')).toBe('a@riik.ee');
+  });
+
+  it('sends a code to an unlisted address at the domain, addressed by the derived name', () => {
+    const result = issue(NEWCOMER);
+    expect(result).toMatchObject({ outcome: 'sent', recipientName: 'Kirke Kask', subjectKind: 'buyer', byDomainRule: true });
+    // Nothing is created yet: requesting codes must not populate the team.
+    expect(harness.read((db) => findSubjectByEmail(db, NEWCOMER))).toBeNull();
+  });
+
+  it('still refuses an unlisted address at any other domain', () => {
+    expect(issue('keegi@mujal.ee')).toEqual({ outcome: 'unknown' });
+  });
+
+  it('hands the caller a provisioning intent once the code is verified', () => {
+    const result = issue(NEWCOMER);
+    if (result.outcome !== 'sent') throw new Error('no code');
+    const verified = verify(NEWCOMER, result.code);
+    expect(verified).toEqual({ ok: true, who: { toProvision: { email: NEWCOMER, name: 'Kirke Kask' } } });
+  });
+
+  it('leaves someone already listed with their own identity', () => {
+    // The seeded buyer is at the same domain in this test's configuration.
+    harness.write((ctx) =>
+      ctx.tx.insert(users).values({ id: 'u-domain', name: 'Juba Olemas', email: 'juba@riik.ee', role: 'member', isActive: true, createdAt: ctx.at }).run(),
+    );
+    const result = issue('juba@riik.ee');
+    expect(result).toMatchObject({ outcome: 'sent', recipientName: 'Juba Olemas', byDomainRule: false });
+    if (result.outcome !== 'sent') return;
+    expect(verify('juba@riik.ee', result.code)).toEqual({
+      ok: true,
+      who: { existing: { kind: 'buyer', id: 'u-domain', name: 'Juba Olemas', email: 'juba@riik.ee' } },
+    });
+  });
+
+  it('never resurrects somebody an admin switched off', () => {
+    // `u-endine` is a deactivated user at this very domain.
+    expect(harness.read((db) => knownButInactive(db, 'endine@riik.ee'))).toBe(true);
+    expect(issue('endine@riik.ee')).toEqual({ outcome: 'unknown' });
+
+    // Even a code obtained while they were still active gets them nowhere.
+    harness.write((ctx) => ctx.tx.update(users).set({ isActive: true }).where(eq(users.id, 'u-endine')).run());
+    const result = issue('endine@riik.ee');
+    if (result.outcome !== 'sent') throw new Error('no code');
+    harness.write((ctx) => ctx.tx.update(users).set({ isActive: false }).where(eq(users.id, 'u-endine')).run());
+    expect(verify('endine@riik.ee', result.code)).toEqual({ ok: false, reason: 'subject_gone' });
+  });
+
+  it('leaves a representative at that domain as the partner they are', () => {
+    harness.write((ctx) =>
+      ctx.tx
+        .insert(partnerRepresentatives)
+        .values({ id: 'r-odd', partnerId: fx.partnerIds[0]!, name: 'Kummaline', email: 'kummaline@riik.ee', role: 'esindaja', createdAt: ctx.at, updatedAt: ctx.at })
+        .run(),
+    );
+    const result = issue('kummaline@riik.ee');
+    expect(result).toMatchObject({ outcome: 'sent', byDomainRule: false });
+    if (result.outcome !== 'sent') return;
+    const verified = verify('kummaline@riik.ee', result.code);
+    expect(verified).toMatchObject({ ok: true, who: { existing: { kind: 'representative', id: 'r-odd' } } });
   });
 });

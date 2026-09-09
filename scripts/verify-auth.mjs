@@ -20,6 +20,7 @@ import {
   makeChecker,
   removeDatabase,
   startServer,
+  switchTo,
   waitForHealth,
   watchPage,
 } from './lib/browser-harness.mjs';
@@ -32,9 +33,13 @@ const REPRESENTATIVE = 'jaan.kask@tehisaru-naidis.ee';
 const DEPUTY = 'mari.mets@tehisaru-naidis.ee';
 const BUYER = 'mari.tamm@naidis.riigikantselei.ee';
 const STRANGER = 'keegi@mujal-naidis.ee';
+/** In no list at all — admitted only by the buyer-domain rule [L-08]. */
+const NEWCOMER = 'kirke.kask@naidis.riigikantselei.ee';
+const BUYER_DOMAIN = '@naidis.riigikantselei.ee';
 
 // The child inherits the environment, so this reaches both servers.
 process.env.EMAIL_DEV_MODE = '1';
+process.env.AUTO_ADMIN_EMAIL_DOMAINS = BUYER_DOMAIN;
 
 /** The latest code the server printed for an address, waiting for it to appear. */
 async function codeFor(server, email, { expect = true, timeoutMs = 15_000 } = {}) {
@@ -127,6 +132,8 @@ async function testEnvironment(browser) {
   const BASE = server.base;
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   const watched = watchPage(page);
+  // Deactivating a team member asks first.
+  page.on('dialog', (dialog) => dialog.accept());
   try {
     check('the server boots', await waitForHealth(BASE, 90_000), server.logs.join('').slice(-300));
 
@@ -172,6 +179,47 @@ async function testEnvironment(browser) {
     check('signing out returns to the gate in the test environment', true);
     await page.goto(`${BASE}/tellija`);
     check('the buyer area is closed again', !page.url().endsWith('/tellija'));
+
+    /* the buyer-domain rule: nobody had to list them first [L-08] */
+    note('Domeenireegel');
+    await page.goto(`${BASE}/sisene`);
+    await page.waitForSelector('[data-testid="sign-in-form"]');
+    check('the sign-in page names the domain that may sign in', (await page.locator('[data-testid="sign-in-form"]').textContent()).includes(BUYER_DOMAIN));
+
+    await requestCode(page, BASE, NEWCOMER);
+    const newcomerCode = await codeFor(server, NEWCOMER);
+    check('an unlisted address at the buyer’s domain is mailed a code', /^\d{6}$/.test(newcomerCode ?? ''), String(newcomerCode));
+    await enterCode(page, newcomerCode);
+    await page.waitForURL(/\/tellija$/, { timeout: 20_000 });
+    check('and lands in the buyer area, named from their address', (await headerText(page)).includes('Kirke Kask'), await headerText(page));
+
+    await page.goto(`${BASE}/tellija/meeskond`);
+    await page.waitForSelector('[data-testid="add-team-member"]');
+    const teamRow = page.locator('tbody tr', { hasText: NEWCOMER });
+    check('the first verified code is what created them, as an admin', (await teamRow.count()) === 1 && (await teamRow.textContent()).includes('Admin'), await teamRow.textContent().catch(() => 'no row'));
+    check('the Meeskond screen says the rule is in force', await page.getByTestId('domain-rule-note').isVisible());
+    await page.screenshot({ path: join(SHOTS, 'auth-03-domain-rule.png'), fullPage: true });
+
+    // Deactivating them must stick, rather than being undone by the next
+    // sign-in. The screen hides the toggle for whoever is signed in, so another
+    // admin does it — the buyer persona here, which also ends Kirke's session.
+    // `switchTo` waits for the header to name the new persona; waiting on the
+    // URL would pass instantly, since /tellija/meeskond already matches it.
+    await switchTo(page, 'Mari Tamm');
+    await page.goto(`${BASE}/tellija/meeskond`);
+    await page.waitForSelector('[data-testid="add-team-member"]');
+    const kirke = page.locator('tbody tr', { hasText: NEWCOMER });
+    await kirke.locator('button', { hasText: 'Deaktiveeri' }).click();
+    await kirke.locator('.kh-badge', { hasText: 'Deaktiveeritud' }).waitFor({ timeout: 20_000 });
+    check('another admin can switch them off', (await kirke.textContent()).includes('Deaktiveeritud'));
+
+    await requestCode(page, BASE, NEWCOMER);
+    await new Promise((r) => setTimeout(r, 1_500));
+    check(
+      'a deactivated person is not let back in by the rule',
+      codesPrintedFor(server, NEWCOMER) === 1,
+      `${codesPrintedFor(server, NEWCOMER)} code(s) mailed`,
+    );
 
     /* a stranger learns nothing */
     await requestCode(page, BASE, STRANGER);

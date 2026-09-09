@@ -7,6 +7,7 @@
 import Link from 'next/link';
 import { logoutAction } from '@/server/actions/auth';
 import { getSessionActor } from '@/server/auth/actor';
+import { autoAdminDomains } from '@/server/auth/codes';
 import { SignInRequestForm } from '@/components/sign-in';
 
 export const dynamic = 'force-dynamic';
@@ -40,7 +41,7 @@ export default async function SignInPage({
           </div>
         </section>
       ) : (
-        <SignInRequestForm email={e} error={viga} />
+        <SignInRequestForm email={e} error={viga} adminDomains={autoAdminDomains()} />
       )}
     </main>
   );

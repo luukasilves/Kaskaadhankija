@@ -11,6 +11,13 @@
  *    digits are brute-forceable offline) and the session token's SHA-256.
  *  - **Wall-clock time throughout.** Expiry and rate limits are real-world
  *    security state; the virtual test clock has no business here.
+ *
+ * A configured domain (`AUTO_ADMIN_EMAIL_DOMAINS`) may sign in as a buyer admin
+ * without being listed first — the whole buyer organisation can get in without
+ * anyone maintaining a roster. The user row is created only when a code is
+ * **verified**, so requesting codes for invented colleagues cannot populate the
+ * team; and a deactivated person is never resurrected by the rule, because
+ * switching someone off is a deliberate act.
  */
 
 import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
@@ -59,6 +66,50 @@ export function authSecret(): string {
 
 export function normalizeEmail(raw: string): string {
   return raw.trim().toLowerCase();
+}
+
+/* ------------------------------------------------------------------ *
+ * the buyer-domain rule
+ * ------------------------------------------------------------------ */
+
+/** `@riigikantselei.ee, muu.ee` → ['@riigikantselei.ee', '@muu.ee'] */
+export function parseAdminDomains(raw: string | undefined): string[] {
+  return (raw ?? '')
+    .split(/[,;\s]+/)
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean)
+    .map((entry) => (entry.startsWith('@') ? entry : `@${entry}`));
+}
+
+export function autoAdminDomains(): string[] {
+  return parseAdminDomains(env.AUTO_ADMIN_EMAIL_DOMAINS);
+}
+
+/**
+ * Whether an address's domain admits it as a buyer admin. Matched on the whole
+ * domain, so `@riigikantselei.ee` never admits `@evil-riigikantselei.ee` or
+ * `@riigikantselei.ee.example`.
+ */
+export function emailDomainAllowsAdmin(email: string, domains: readonly string[] = autoAdminDomains()): boolean {
+  const address = normalizeEmail(email);
+  const at = address.lastIndexOf('@');
+  if (at < 1) return false;
+  return domains.includes(address.slice(at));
+}
+
+/**
+ * A display name from an address, for someone the rule admits before anyone has
+ * typed their name: `mari.tamm@…` → 'Mari Tamm'. Falls back to the address when
+ * the local part is too short to be a name.
+ */
+export function nameFromEmail(email: string): string {
+  const local = normalizeEmail(email).split('@')[0] ?? '';
+  const name = local
+    .split(/[._-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+  return name.length >= 2 ? name : normalizeEmail(email);
 }
 
 /** Six digits, uniformly, from the CSPRNG. */
@@ -120,9 +171,33 @@ export function findSubjectByEmail(tx: Reader, rawEmail: string): Subject | null
  * ------------------------------------------------------------------ */
 
 export type IssueResult =
-  | { outcome: 'sent'; code: string; subject: Subject }
+  | {
+      outcome: 'sent';
+      code: string;
+      /** who to address the e-mail to; derived from the address for a domain admin */
+      recipientName: string;
+      subjectKind: SessionSubjectKind;
+      /** true when no row exists yet and the domain rule admitted the address */
+      byDomainRule: boolean;
+    }
   | { outcome: 'unknown' }
   | { outcome: 'rate_limited'; limit: 'email' | 'ip' };
+
+/**
+ * Whether the address belongs to somebody who was deliberately switched off.
+ * Such a person must not be let back in by the domain rule.
+ */
+export function knownButInactive(tx: Reader, rawEmail: string): boolean {
+  const email = normalizeEmail(rawEmail);
+  const user = tx.select({ id: users.id }).from(users).where(sql`lower(${users.email}) = ${email}`).get();
+  if (user) return findSubjectByEmail(tx, email) === null;
+  const representative = tx
+    .select({ id: partnerRepresentatives.id })
+    .from(partnerRepresentatives)
+    .where(eq(partnerRepresentatives.email, email))
+    .get();
+  return representative ? findSubjectByEmail(tx, email) === null : false;
+}
 
 function countSince(tx: Reader, column: 'email' | 'ip', value: string, since: number): number {
   const where =
@@ -152,7 +227,10 @@ export function issueLoginCode(
   }
 
   const subject = findSubjectByEmail(tx, email);
-  if (!subject) return { outcome: 'unknown' };
+  // The domain rule admits an address nobody has listed — but never one that
+  // belongs to somebody an admin switched off.
+  const byDomainRule = subject === null && emailDomainAllowsAdmin(email) && !knownButInactive(tx, email);
+  if (!subject && !byDomainRule) return { outcome: 'unknown' };
 
   const code = generateCode();
   tx.insert(loginCodes)
@@ -166,11 +244,28 @@ export function issueLoginCode(
       requestIp: input.ip,
     })
     .run();
-  return { outcome: 'sent', code, subject };
+  return {
+    outcome: 'sent',
+    code,
+    recipientName: subject?.name ?? nameFromEmail(email),
+    subjectKind: subject?.kind ?? 'buyer',
+    byDomainRule,
+  };
 }
 
 export type VerifyFailure = 'no_code' | 'expired' | 'wrong' | 'locked' | 'subject_gone';
-export type VerifyResult = { ok: true; subject: Subject } | { ok: false; reason: VerifyFailure };
+
+/**
+ * Who proved they control the mailbox: somebody already known, or an address
+ * the domain rule admits and whose user row the caller must still create. The
+ * creation is the caller's, not this module's, so the audit entry is written
+ * with the acting context rather than from underneath it.
+ */
+export type VerifiedWho =
+  | { existing: Subject; toProvision?: undefined }
+  | { existing?: undefined; toProvision: { email: string; name: string } };
+
+export type VerifyResult = { ok: true; who: VerifiedWho } | { ok: false; reason: VerifyFailure };
 
 /**
  * Check a code against the latest unconsumed one for the address. A wrong
@@ -209,8 +304,11 @@ export function verifyLoginCode(
 
   // The address may have been deactivated between request and entry.
   const subject = findSubjectByEmail(tx, email);
-  if (!subject) return { ok: false, reason: 'subject_gone' };
-  return { ok: true, subject };
+  if (subject) return { ok: true, who: { existing: subject } };
+  if (emailDomainAllowsAdmin(email) && !knownButInactive(tx, email)) {
+    return { ok: true, who: { toProvision: { email, name: nameFromEmail(email) } } };
+  }
+  return { ok: false, reason: 'subject_gone' };
 }
 
 /* ------------------------------------------------------------------ *

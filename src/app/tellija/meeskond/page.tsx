@@ -11,6 +11,7 @@ import { users } from '@/db/schema';
 import { formatDateTimeShort } from '@/domain/format';
 import { StatusBadge } from '@/components/status-badge';
 import { requireBuyer } from '@/server/auth/actor';
+import { autoAdminDomains } from '@/server/auth/codes';
 import { AddTeamMemberForm, TeamMemberActiveToggle } from './team-forms';
 
 export const dynamic = 'force-dynamic';
@@ -18,6 +19,7 @@ export const dynamic = 'force-dynamic';
 export default async function TeamPage() {
   const actor = await requireBuyer();
   const isAdmin = actor.role === 'admin';
+  const domains = autoAdminDomains();
   const rows = getDb()
     .select()
     .from(users)
@@ -33,6 +35,19 @@ export default async function TeamPage() {
           saadetava ühekordse koodiga; aadress ei saa samal ajal olla partneri esindaja.
           {isAdmin ? '' : ' Liikmete lisamine ja deaktiveerimine on adminile.'}
         </p>
+        {domains.length > 0 && (
+          <p
+            className="mt-3 max-w-[80ch] rounded-md border px-3 py-2 text-[13px]"
+            style={{ borderColor: 'var(--color-warning)', background: 'var(--color-warning-soft)' }}
+            data-testid="domain-rule-note"
+          >
+            <strong>Domeenireegel on sees.</strong> Iga aadress, mis lõpeb {domains.join(' / ')}, saab
+            ise sisse logida ja lisatakse esimesel sisselogimisel <strong>adminina</strong> — eraldi
+            lisamist ei ole vaja. Loendisse ilmub inimene alles siis, kui on koodi kasutanud.
+            Deaktiveeritud liiget reegel tagasi ei too. Kes tahes selle domeeni postkasti valdaja saab
+            seega voore avaldada ja jaotusi kinnitada; enne päris hanget tuleb reegel üle vaadata.
+          </p>
+        )}
       </div>
 
       {isAdmin && <AddTeamMemberForm />}

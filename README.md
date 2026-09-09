@@ -85,6 +85,17 @@ goes through the mail transport directly and never appears in any log; a live
 session outranks a persona, and choosing a persona ends the session. Outside
 the test environment there are no personas and `/` is the sign-in.
 
+While the buyer organisation is testing, `AUTO_ADMIN_EMAIL_DOMAINS` lets an
+address at a named domain sign in **without being listed first**, and creates
+it as an admin the first time a code is verified — so the whole team can get in
+without anyone maintaining a roster. The row appears only on a verified code,
+never on a request, and the rule never reactivates somebody an admin switched
+off. It also means anyone holding a mailbox at that domain can publish rounds
+and confirm allocations, which is irreversible: **[L-08]** records that as a
+testing-phase decision to revisit before a real procurement, and both the
+sign-in page and *Meeskond* say the rule is in force. Leave the variable empty
+to require a named list.
+
 ### Representatives, and who gets the mail
 
 As the buyer: **Esindajad → Impordi esindajad**, or download the template
@@ -210,9 +221,13 @@ secrets, so nothing needs `flyctl`: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`,
 `SMTP_PASS`, `EMAIL_FROM`, and for the test environment
 `EMAIL_ALLOWED_RECIPIENTS` — the addresses and `@domains` that may receive
 real mail; anything else is recorded as *suppressed*, and an empty list sends
-nothing at all. Optional: `TEAM_NOTIFICATIONS_EMAIL` for the buyer team's
-copies, and `SEED_REPRESENTATIVES` (`registrikood,nimi,e-post[,roll];…`) so
-a reset of the sample data keeps the team's own sign-ins. `AUTH_SECRET`, which
+nothing at all. It gates sign-in codes too, so a domain that may sign in must
+also be allowed to receive mail; a code the transport refused is logged as a
+warning, because the sign-in page deliberately cannot say whether an address
+is known. Optional: `TEAM_NOTIFICATIONS_EMAIL` for the buyer team's
+copies, `SEED_REPRESENTATIVES` (`registrikood,nimi,e-post[,roll];…`) and `SEED_TEAM`
+(`nimi,e-post[,roll];…`) so a reset of the sample data keeps the team's own
+sign-ins — added alongside the fictional Mari Tamm, not instead of her. `AUTH_SECRET`, which
 signs the codes and sessions, is generated once by the workflow.
 
 Any SMTP relay works — the test phase uses a public one with a verified sender

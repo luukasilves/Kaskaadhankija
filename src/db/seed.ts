@@ -24,6 +24,7 @@ import { parseCsv } from '@/server/import/csv';
 import { importTrainingsFromRows } from '@/server/import/trainings-import';
 import { importPartnersFromRows } from '@/server/import/partners-import';
 import { importRepresentativesFromRows } from '@/server/import/representatives-import';
+import { addTeamMember } from '@/server/team';
 import { ensureAppState, readSeedVersion, writeSeedVersion } from '@/server/clock';
 import { NO_EVIDENCE, type Ctx } from '@/server/context';
 import { getDb } from './index';
@@ -57,6 +58,63 @@ export function parseSeedRepresentatives(raw: string | undefined): Array<Record<
     rows.push({ registrikood, esindaja, e_post, roll });
   }
   return rows;
+}
+
+/**
+ * `SEED_TEAM` — `nimi,e-post[,roll];…` — the buyer team's real members, added on
+ * every seed so a reset does not wipe the people who actually sign in.
+ *
+ * These are *additional* users: the fictional Mari Tamm persona stays exactly as
+ * she is, because the scenarios are replayed as her and the demo must keep
+ * showing the specialists what they reviewed [L-16]. Malformed entries are
+ * dropped with a warning rather than failing the boot — a typo in a secret must
+ * not leave the environment unusable.
+ */
+export interface SeedTeamMember {
+  name: string;
+  email: string;
+  role: 'admin' | 'member';
+}
+
+export function parseSeedTeam(raw: string | undefined): SeedTeamMember[] {
+  if (!raw?.trim()) return [];
+  const members: SeedTeamMember[] = [];
+  for (const entry of raw.split(';')) {
+    if (!entry.trim()) continue;
+    const [name = '', email = '', role = ''] = entry.split(',').map((field) => field.trim());
+    if (!name || !email) {
+      console.warn(`[kaskaadhankija] SEED_TEAM: kirje „${entry.trim()}“ jäeti vahele`);
+      continue;
+    }
+    const folded = role.toLowerCase();
+    if (folded && folded !== 'admin' && folded !== 'liige' && folded !== 'member') {
+      console.warn(`[kaskaadhankija] SEED_TEAM: tundmatu roll „${role}“ (${email}) — lisatakse adminina`);
+    }
+    // Admin by default: the point of the secret is that somebody can still
+    // manage the team and the partners after a reset.
+    members.push({ name, email, role: folded === 'liige' || folded === 'member' ? 'member' : 'admin' });
+  }
+  return members;
+}
+
+/**
+ * Add the configured team members through the same function the Meeskond screen
+ * uses, so the seed cannot bypass its checks — an address that already belongs
+ * to a partner's representative is refused here too. Returns how many landed.
+ */
+export function applySeedTeam(ctx: Ctx, raw: string | undefined): number {
+  let added = 0;
+  for (const member of parseSeedTeam(raw)) {
+    try {
+      addTeamMember(ctx, member);
+      added += 1;
+    } catch (error) {
+      console.warn(
+        `[kaskaadhankija] SEED_TEAM: ${member.email} jäi lisamata — ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+  return added;
 }
 
 /** The buyer persona the seed creates, and whose label appears in the audit. */
@@ -159,6 +217,7 @@ function seedLotsAndUsers(ctx: Ctx): void {
 
 export interface SeedReport {
   lots: number;
+  teamMembers: number;
   partners: number;
   representatives: number;
   trainings: { created: number; updated: number; locked: number };
@@ -170,6 +229,11 @@ export interface SeedReport {
  */
 export function seedBaseData(ctx: Ctx): SeedReport {
   seedLotsAndUsers(ctx);
+
+  // Before the representatives are imported: an address that appears in both
+  // lists belongs to the buyer team, and the representatives import then
+  // refuses it rather than quietly making a colleague somebody's partner.
+  const teamMembers = applySeedTeam(ctx, env.SEED_TEAM);
 
   const partnerFile = readSeedFile(SEED_FILES.partners);
   const partnerResult = importPartnersFromRows(ctx, {
@@ -214,6 +278,7 @@ export function seedBaseData(ctx: Ctx): SeedReport {
 
   return {
     lots: LOT_SEED.length,
+    teamMembers,
     partners: partnerResult.summary.created + partnerResult.summary.updated,
     representatives,
     trainings: {
@@ -307,7 +372,7 @@ async function main(): Promise<void> {
     return;
   }
   console.log(
-    `Seemendatud: ${report.lots} hankeosa, ${report.partners} partneri osalust, ${report.trainings.created} koolitust.`,
+    `Seemendatud: ${report.lots} hankeosa, ${report.teamMembers} tellija liiget seadistusest, ${report.partners} partneri osalust, ${report.representatives} esindajat, ${report.trainings.created} koolitust.`,
   );
 }
 

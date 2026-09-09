@@ -162,15 +162,28 @@ jobs:
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
           EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
-          EMAIL_ALLOWED_RECIPIENTS: ${{ secrets.EMAIL_ALLOWED_RECIPIENTS }}
+          # Who may receive real mail from the test environment. Defaults cover
+          # the buyer organisation and the team building this, so a code can
+          # actually arrive; set the secret to override.
+          EMAIL_ALLOWED_RECIPIENTS: ${{ secrets.EMAIL_ALLOWED_RECIPIENTS || '@riigikantselei.ee, @agenticstate.org' }}
           TEAM_NOTIFICATIONS_EMAIL: ${{ secrets.TEAM_NOTIFICATIONS_EMAIL }}
           # `registrikood,nimi,e-post[,roll];…` — the team's own sign-ins, layered
           # over the sample list on every seed so a reset does not wipe them.
           SEED_REPRESENTATIVES: ${{ secrets.SEED_REPRESENTATIVES }}
+          # `nimi,e-post[,roll];…` — the buyer team's own members, added on every
+          # seed alongside the fictional Mari Tamm rather than replacing her.
+          SEED_TEAM: ${{ secrets.SEED_TEAM }}
+          # Anyone at these domains may sign in as an admin without being listed
+          # first: the buyer organisation, and the team building the tool. A
+          # testing-phase convenience, not an access model for a real
+          # procurement (see [L-08]) — before go-live this becomes the buyer's
+          # domain alone, or a named list. Set the secret to override, or to a
+          # single space to switch the rule off entirely.
+          AUTO_ADMIN_EMAIL_DOMAINS: ${{ secrets.AUTO_ADMIN_EMAIL_DOMAINS || '@riigikantselei.ee, @agenticstate.org' }}
         run: |
           APP='${{ needs.bootstrap.outputs.app }}'
           ARGS=()
-          for NAME in SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASS EMAIL_FROM EMAIL_ALLOWED_RECIPIENTS TEAM_NOTIFICATIONS_EMAIL SEED_REPRESENTATIVES; do
+          for NAME in SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASS EMAIL_FROM EMAIL_ALLOWED_RECIPIENTS TEAM_NOTIFICATIONS_EMAIL SEED_REPRESENTATIVES SEED_TEAM AUTO_ADMIN_EMAIL_DOMAINS; do
             VALUE="${!NAME}"
             if [ -n "$VALUE" ]; then
               ARGS+=("$NAME=$VALUE")

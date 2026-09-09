@@ -38,6 +38,13 @@ const schema = z.object({
   EMAIL_DEV_MODE: booleanish,
   /** signs one-time sign-in codes and session tokens */
   AUTH_SECRET: z.string().optional(),
+  /**
+   * Domains whose addresses may sign in as buyer admins without being listed
+   * first, e.g. `@riigikantselei.ee`. Comma-separated; empty means only people
+   * on the team or representatives lists can sign in. The user row is created
+   * when a code is verified, never when one is requested.
+   */
+  AUTO_ADMIN_EMAIL_DOMAINS: z.string().optional(),
   /** first buyer persona created by the seed */
   SEED_ADMIN_EMAIL: z.string().default('mari.tamm@naidis.riigikantselei.ee'),
   SEED_ADMIN_NAME: z.string().default('Mari Tamm'),
@@ -47,6 +54,11 @@ const schema = z.object({
    * `registrikood,nimi,e-post[,roll];…`. Lives in the deployment's secrets.
    */
   SEED_REPRESENTATIVES: z.string().optional(),
+  /**
+   * The buyer team's own members, added on every seed for the same reason:
+   * `nimi,e-post[,roll];…`, admin unless the role says otherwise.
+   */
+  SEED_TEAM: z.string().optional(),
 });
 
 const parsed = schema.safeParse(process.env);

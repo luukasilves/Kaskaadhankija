@@ -15,7 +15,13 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 export function addTeamMember(
   ctx: Ctx,
-  input: { name: string; email: string; role: 'admin' | 'member' },
+  input: {
+    name: string;
+    email: string;
+    role: 'admin' | 'member';
+    /** appended to the audit summary, so provenance is legible (e.g. the domain rule) */
+    note?: string;
+  },
 ): string {
   const name = input.name.trim();
   const email = input.email.trim().toLowerCase();
@@ -39,7 +45,7 @@ export function addTeamMember(
     ctx.tx.update(users).set({ name, role: input.role, isActive: true }).where(eq(users.id, existing.id)).run();
     logAudit(ctx, {
       eventType: 'team.member_updated',
-      summary: `${name} (${email}) taas tellimismeeskonnas rollis ${input.role}`,
+      summary: `${name} (${email}) taas tellimismeeskonnas rollis ${input.role}${input.note ? ` — ${input.note}` : ''}`,
       after: { userId: existing.id, role: input.role, isActive: true },
     });
     return existing.id;
@@ -49,7 +55,7 @@ export function addTeamMember(
   ctx.tx.insert(users).values({ id, name, email, role: input.role, isActive: true, createdAt: ctx.at }).run();
   logAudit(ctx, {
     eventType: 'team.member_added',
-    summary: `${name} (${email}) lisatud tellimismeeskonda rollis ${input.role}`,
+    summary: `${name} (${email}) lisatud tellimismeeskonda rollis ${input.role}${input.note ? ` — ${input.note}` : ''}`,
     after: { userId: id, role: input.role },
   });
   return id;
