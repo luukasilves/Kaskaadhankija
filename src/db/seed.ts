@@ -52,6 +52,11 @@ export const SEED_FILES = {
  * uploads or edits [L-21]. Malformed entries are dropped with a warning rather
  * than failing the boot: a typo in a secret must not leave the environment
  * unusable.
+ *
+ * A seeded member is a **hankija** unless the entry asks for `admin` by name
+ * [R-01]. It used to be the other way round, so that somebody could still
+ * manage the team after a reset — `AUTO_ADMIN_ALLOWLIST` now does that job,
+ * and a fresh volume must not quietly recreate a team of administrators.
  */
 export interface SeedTeamMember {
   name: string;
@@ -70,12 +75,12 @@ export function parseSeedTeam(raw: string | undefined): SeedTeamMember[] {
       continue;
     }
     const folded = role.toLowerCase();
-    if (folded && folded !== 'admin' && folded !== 'liige' && folded !== 'member') {
-      console.warn(`[kaskaadhankija] SEED_TEAM: tundmatu roll „${role}“ (${email}) — lisatakse adminina`);
+    if (folded && folded !== 'admin' && folded !== 'hankija' && folded !== 'liige' && folded !== 'member') {
+      console.warn(`[kaskaadhankija] SEED_TEAM: tundmatu roll „${role}“ (${email}) — lisatakse hankijana`);
     }
-    // Admin by default: the point of the secret is that somebody can still
-    // manage the team and the partners after a reset.
-    members.push({ name, email, role: folded === 'liige' || folded === 'member' ? 'member' : 'admin' });
+    // Hankija unless the entry says `admin`: a hankija can run every round, and
+    // administering the framework is a right somebody has to be given by name.
+    members.push({ name, email, role: folded === 'admin' ? 'admin' : 'member' });
   }
   return members;
 }

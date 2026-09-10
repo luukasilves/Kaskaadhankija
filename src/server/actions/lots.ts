@@ -13,7 +13,7 @@ import { eq } from 'drizzle-orm';
 import { lots } from '@/db/schema';
 import { isCapOptions, type VisibilityMode } from '@/domain/round-statuses';
 import { logAudit } from '../audit';
-import { buyerWrite, describeError, fail, fieldNumber, fieldText, ok, type ActionOutcome } from './helpers';
+import { adminWrite, describeError, fail, fieldNumber, fieldText, ok, type ActionOutcome } from './helpers';
 
 export async function updateLotConfigAction(form: FormData): Promise<ActionOutcome> {
   const lotId = fieldText(form, 'lotId');
@@ -40,7 +40,7 @@ export async function updateLotConfigAction(form: FormData): Promise<ActionOutco
   }
 
   try {
-    await buyerWrite(
+    await adminWrite(
       (ctx) => {
         const before = ctx.tx.select().from(lots).where(eq(lots.id, lotId)).get();
         if (!before) throw new Error('Hankeosa ei leitud.');

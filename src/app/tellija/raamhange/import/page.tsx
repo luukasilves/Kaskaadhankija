@@ -11,7 +11,7 @@ import Link from 'next/link';
 import { eq } from 'drizzle-orm';
 import { getDb } from '@/db';
 import { importBatches } from '@/db/schema';
-import { buyerCanWrite } from '@/server/auth/actor';
+import { buyerIsAdmin } from '@/server/auth/actor';
 import { formatDateTimeShort, formatEur, formatIsoDay } from '@/domain/format';
 import { CAP_OPTIONS_SHEET_WORDS, VISIBILITY_SHEET_WORDS } from '@/domain/round-definition';
 import type { FrameworkImportPayload } from '@/server/import/framework-import';
@@ -43,7 +43,7 @@ export default async function FrameworkImportPage({
   const { batch } = await searchParams;
   const db = getDb();
 
-  if (!(await buyerCanWrite())) {
+  if (!(await buyerIsAdmin())) {
     return (
       <div className="space-y-4">
         <div>

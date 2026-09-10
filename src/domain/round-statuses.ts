@@ -86,6 +86,27 @@ export function isTrainingImportable(status: TrainingStatus): boolean {
  * partneri vastus
  * ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ *
+ * tellija rollid [R-01]
+ * ------------------------------------------------------------------ */
+
+/**
+ * The two buyer roles.
+ *
+ * `member` is the **purchaser**: they run the whole mini-procurement — rounds,
+ * uploads, publishing, review, adjustments, confirmation, protocols — and see
+ * every screen an admin sees. What they do not do is change the framework
+ * agreement's own data or the team, and they cannot act as another participant.
+ * `admin` is a purchaser who also administers those.
+ *
+ * The stored value stays `member` because that is what the row is — a member of
+ * the buyer team rather than an administrator of it; this map is the word people
+ * read.
+ */
+export const BUYER_ROLE_LABELS = { admin: 'Admin', member: 'Hankija' } as const;
+
+export type BuyerRole = keyof typeof BUYER_ROLE_LABELS;
+
 export type ParticipantOutcomeAtClose =
   | 'confirmed'
   | 'declined_all'

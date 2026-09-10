@@ -12,14 +12,14 @@ import {
   CODE_TTL_MS,
   SESSION_TTL_MS,
   createSession,
-  emailDomainAllowsAdmin,
+  emailAllowsAdmin,
   findSubjectByEmail,
   generateCode,
   hashCode,
   issueLoginCode,
   knownButInactive,
   nameFromEmail,
-  parseAdminDomains,
+  parseAdminAllowlist,
   purgeAuthRows,
   resolveSession,
   revokeSession,
@@ -55,7 +55,7 @@ beforeEach(() => {
 
 afterEach(() => {
   harness.close();
-  env.AUTO_ADMIN_EMAIL_DOMAINS = undefined;
+  env.AUTO_ADMIN_ALLOWLIST = undefined;
 });
 
 const issue = (email: string, over: Partial<Parameters<typeof issueLoginCode>[1]> = {}) =>
@@ -183,26 +183,56 @@ describe('sessions', () => {
   });
 });
 
-describe('the buyer-domain rule [L-08]', () => {
+describe('the admin allowlist [L-08]', () => {
+  // A whole domain, which is how a test environment is configured. The named
+  // cases below configure a single address instead, which is the real one.
   const DOMAIN = '@riik.ee';
   const NEWCOMER = 'kirke.kask@riik.ee';
 
   beforeEach(() => {
-    env.AUTO_ADMIN_EMAIL_DOMAINS = DOMAIN;
+    env.AUTO_ADMIN_ALLOWLIST = DOMAIN;
   });
 
-  it('parses domains with or without the @, and matches only the whole domain', () => {
-    expect(parseAdminDomains(' riigikantselei.ee, @Muu.EE ')).toEqual(['@riigikantselei.ee', '@muu.ee']);
-    expect(parseAdminDomains(undefined)).toEqual([]);
+  it('reads an entry as a person when it has a local part, otherwise as a domain', () => {
+    expect(parseAdminAllowlist(' riigikantselei.ee, @Muu.EE ')).toEqual({
+      addresses: [],
+      domains: ['@riigikantselei.ee', '@muu.ee'],
+    });
+    expect(parseAdminAllowlist('Luukas.Ilves@Riigikantselei.ee; @naidis.ee')).toEqual({
+      addresses: ['luukas.ilves@riigikantselei.ee'],
+      domains: ['@naidis.ee'],
+    });
+    expect(parseAdminAllowlist(undefined)).toEqual({ addresses: [], domains: [] });
+  });
 
-    const domains = ['@riigikantselei.ee'];
-    expect(emailDomainAllowsAdmin('Keegi@Riigikantselei.ee', domains)).toBe(true);
-    expect(emailDomainAllowsAdmin('keegi@evil-riigikantselei.ee', domains)).toBe(false);
-    expect(emailDomainAllowsAdmin('keegi@riigikantselei.ee.example', domains)).toBe(false);
-    expect(emailDomainAllowsAdmin('keegi@sub.riigikantselei.ee', domains)).toBe(false);
-    expect(emailDomainAllowsAdmin('mitte-aadress', domains)).toBe(false);
+  it('matches only the whole domain', () => {
+    const list = parseAdminAllowlist('@riigikantselei.ee');
+    expect(emailAllowsAdmin('Keegi@Riigikantselei.ee', list)).toBe(true);
+    expect(emailAllowsAdmin('keegi@evil-riigikantselei.ee', list)).toBe(false);
+    expect(emailAllowsAdmin('keegi@riigikantselei.ee.example', list)).toBe(false);
+    expect(emailAllowsAdmin('keegi@sub.riigikantselei.ee', list)).toBe(false);
+    expect(emailAllowsAdmin('mitte-aadress', list)).toBe(false);
     // With nothing configured the rule admits nobody.
-    expect(emailDomainAllowsAdmin('keegi@riigikantselei.ee', [])).toBe(false);
+    expect(emailAllowsAdmin('keegi@riigikantselei.ee', { addresses: [], domains: [] })).toBe(false);
+  });
+
+  it('matches a named address without admitting the rest of its domain', () => {
+    const named = parseAdminAllowlist('luukas.ilves@riigikantselei.ee');
+    expect(emailAllowsAdmin('Luukas.Ilves@Riigikantselei.ee', named)).toBe(true);
+    // The whole point of the named list: a colleague at the same domain is not
+    // an admin until an admin adds them.
+    expect(emailAllowsAdmin('keegi.teine@riigikantselei.ee', named)).toBe(false);
+
+    const mixed = parseAdminAllowlist('luukas.ilves@riigikantselei.ee, @naidis.ee');
+    expect(emailAllowsAdmin('luukas.ilves@riigikantselei.ee', mixed)).toBe(true);
+    expect(emailAllowsAdmin('keegi@naidis.ee', mixed)).toBe(true);
+    expect(emailAllowsAdmin('keegi.teine@riigikantselei.ee', mixed)).toBe(false);
+  });
+
+  it('sends a code to a named address that has no row yet, and to nobody beside it', () => {
+    env.AUTO_ADMIN_ALLOWLIST = 'kirke.kask@riik.ee';
+    expect(issue(NEWCOMER)).toMatchObject({ outcome: 'sent', subjectKind: 'buyer', byAllowlist: true });
+    expect(issue('naaber@riik.ee')).toEqual({ outcome: 'unknown' });
   });
 
   it('derives a display name from the address, falling back to the address itself', () => {
@@ -213,7 +243,7 @@ describe('the buyer-domain rule [L-08]', () => {
 
   it('sends a code to an unlisted address at the domain, addressed by the derived name', () => {
     const result = issue(NEWCOMER);
-    expect(result).toMatchObject({ outcome: 'sent', recipientName: 'Kirke Kask', subjectKind: 'buyer', byDomainRule: true });
+    expect(result).toMatchObject({ outcome: 'sent', recipientName: 'Kirke Kask', subjectKind: 'buyer', byAllowlist: true });
     // Nothing is created yet: requesting codes must not populate the team.
     expect(harness.read((db) => findSubjectByEmail(db, NEWCOMER))).toBeNull();
   });
@@ -230,23 +260,23 @@ describe('the buyer-domain rule [L-08]', () => {
   });
 
   it('leaves someone already listed with their own identity', () => {
-    // The seeded buyer is at the same domain in this test's configuration.
+    // The seeded buyer is at the same domain as this test's allowlist.
     harness.write((ctx) =>
       ctx.tx.insert(users).values({ id: 'u-domain', name: 'Juba Olemas', email: 'juba@riik.ee', role: 'member', isActive: true, createdAt: ctx.at }).run(),
     );
     const result = issue('juba@riik.ee');
-    expect(result).toMatchObject({ outcome: 'sent', recipientName: 'Juba Olemas', byDomainRule: false });
+    expect(result).toMatchObject({ outcome: 'sent', recipientName: 'Juba Olemas', byAllowlist: false });
     if (result.outcome !== 'sent') return;
     expect(verify('juba@riik.ee', result.code)).toEqual({
       ok: true,
-      // Their own row wins over the domain rule, role and all: the rule creates
-      // admins, but it never promotes somebody who is already a member.
+      // Their own row wins over the allowlist, role and all: the list creates
+      // admins, but it never promotes somebody who is already a hankija.
       who: { existing: { kind: 'buyer', id: 'u-domain', name: 'Juba Olemas', email: 'juba@riik.ee', role: 'member' } },
     });
   });
 
   it('never resurrects somebody an admin switched off', () => {
-    // `u-endine` is a deactivated user at this very domain.
+    // `u-endine` is a deactivated user at the allowlisted domain.
     expect(harness.read((db) => knownButInactive(db, 'endine@riik.ee'))).toBe(true);
     expect(issue('endine@riik.ee')).toEqual({ outcome: 'unknown' });
 
@@ -258,7 +288,7 @@ describe('the buyer-domain rule [L-08]', () => {
     expect(verify('endine@riik.ee', result.code)).toEqual({ ok: false, reason: 'subject_gone' });
   });
 
-  it('leaves a representative at that domain as the partner they are', () => {
+  it('leaves an allowlisted representative as the partner they are', () => {
     harness.write((ctx) =>
       ctx.tx
         .insert(partnerRepresentatives)
@@ -266,7 +296,7 @@ describe('the buyer-domain rule [L-08]', () => {
         .run(),
     );
     const result = issue('kummaline@riik.ee');
-    expect(result).toMatchObject({ outcome: 'sent', byDomainRule: false });
+    expect(result).toMatchObject({ outcome: 'sent', byAllowlist: false });
     if (result.outcome !== 'sent') return;
     const verified = verify('kummaline@riik.ee', result.code);
     expect(verified).toMatchObject({ ok: true, who: { existing: { kind: 'representative', id: 'r-odd' } } });

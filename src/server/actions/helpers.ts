@@ -10,7 +10,15 @@
 import { revalidatePath } from 'next/cache';
 import { getDb } from '@/db';
 import { currentTimeMs } from '../clock';
-import { actorRef, assertAdminActor, requirePartner, requestEvidence, type PartnerActor } from '../auth/actor';
+import {
+  actorRef,
+  assertAdminActor,
+  assertBuyerActor,
+  requirePartner,
+  requestEvidence,
+  type BuyerActor,
+  type PartnerActor,
+} from '../auth/actor';
 import { NO_EVIDENCE, type Ctx, type QueuedNotification } from '../context';
 import { dispatchOutbox } from '../notify';
 
@@ -36,19 +44,46 @@ export function describeError(error: unknown): string {
 }
 
 /**
- * Run a buyer mutation.
+ * Run a **procurement** mutation: rounds, the training calendar, the review,
+ * the confirmation, the protocol, the orders.
  *
- * Every change on the buyer side — framework data, imports, rounds, review,
- * confirmation, orders, the team — belongs to an admin [R-01]. A member opens
- * the same screens and reads everything, so the guard lives here rather than in
- * forty actions: one seam nobody can forget. It throws rather than redirecting,
- * because each action turns a thrown error into a message on the form.
+ * This is the purchaser's job, so both buyer roles pass [R-01]. Administering
+ * the framework agreement's own data and the team is a different act and goes
+ * through `adminWrite` below — which is the whole point of there being two
+ * functions rather than one flag: every action says which kind it is by the one
+ * it calls, and that is greppable.
+ *
+ * The guard lives here rather than in forty actions, and it throws rather than
+ * redirecting, because each action turns a thrown error into a message on the
+ * form.
  */
 export async function buyerWrite<T>(
   fn: (ctx: Ctx) => T,
   revalidate: string[] = [],
 ): Promise<T> {
-  const actor = await assertAdminActor();
+  return runBuyerWrite(await assertBuyerActor(), fn, revalidate);
+}
+
+/**
+ * Run an **administration** mutation: the framework identity, the lots and
+ * their cascade settings, a lot's ranking, the official contacts, the
+ * representatives, the team [L-21][R-01].
+ *
+ * Admin only. A purchaser reads every one of these screens and changes none of
+ * them.
+ */
+export async function adminWrite<T>(
+  fn: (ctx: Ctx) => T,
+  revalidate: string[] = [],
+): Promise<T> {
+  return runBuyerWrite(await assertAdminActor(), fn, revalidate);
+}
+
+async function runBuyerWrite<T>(
+  actor: BuyerActor,
+  fn: (ctx: Ctx) => T,
+  revalidate: string[],
+): Promise<T> {
   const evidence = await requestEvidence();
   const db = getDb();
   const outbox: QueuedNotification[] = [];

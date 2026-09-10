@@ -172,17 +172,21 @@ jobs:
           # Partner representatives are not seeded from a secret any more: they
           # arrive with the framework workbook an admin uploads [L-21].
           SEED_TEAM: ${{ secrets.SEED_TEAM }}
-          # Anyone at these domains may sign in as an admin without being listed
-          # first: the buyer organisation, and the team building the tool. A
-          # testing-phase convenience, not an access model for a real
-          # procurement (see [L-08]) — before go-live this becomes the buyer's
-          # domain alone, or a named list. Set the secret to override, or to a
-          # single space to switch the rule off entirely.
-          AUTO_ADMIN_EMAIL_DOMAINS: ${{ secrets.AUTO_ADMIN_EMAIL_DOMAINS || '@riigikantselei.ee, @agenticstate.org' }}
+          # Who may sign in as a buyer **admin** without being listed first
+          # [L-08]. A named list, not a domain: the wide domain rule was a
+          # testing-phase convenience, and anyone it admitted could publish
+          # rounds and confirm allocations irreversibly. Everyone else is added
+          # on *Meeskond* by an admin and starts as a hankija [R-01].
+          #
+          # Set the secret to override — more addresses, a `@domain` for a
+          # throwaway environment, or a single space to require a named list for
+          # everybody. Keep at least one address that can receive mail here: it
+          # is how the first admin gets in on a fresh volume.
+          AUTO_ADMIN_ALLOWLIST: ${{ secrets.AUTO_ADMIN_ALLOWLIST || 'luukas.ilves@riigikantselei.ee' }}
         run: |
           APP='${{ needs.bootstrap.outputs.app }}'
           ARGS=()
-          for NAME in SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASS EMAIL_FROM EMAIL_ALLOWED_RECIPIENTS TEAM_NOTIFICATIONS_EMAIL SEED_TEAM AUTO_ADMIN_EMAIL_DOMAINS; do
+          for NAME in SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASS EMAIL_FROM EMAIL_ALLOWED_RECIPIENTS TEAM_NOTIFICATIONS_EMAIL SEED_TEAM AUTO_ADMIN_ALLOWLIST; do
             VALUE="${!NAME}"
             if [ -n "$VALUE" ]; then
               ARGS+=("$NAME=$VALUE")
@@ -293,18 +297,22 @@ jobs:
             esac
             echo "/ returned $HOME_CODE to $HOME_LOCATION, as the front door should."
 
-            # The sign-in itself, and the proof that the buyer-domain rule
+            # The sign-in itself, and the proof that the admin allowlist
             # reached the machine — a secret that silently failed to arrive
             # would otherwise look exactly like "nobody can log in", with no
-            # visible cause anywhere in the interface.
+            # visible cause anywhere in the interface. The page publishes the
+            # **count** and not the entries: a named person's address does not
+            # belong on a public page, and the count is all this gate needs.
             curl -fsS --max-time 20 "$BASE/sisene" > signin.html
             grep -q 'data-testid="sign-in-form"' signin.html \
               || { echo '::error::/sisene does not serve the sign-in form.'; exit 1; }
             grep -q 'TESTKESKKOND' signin.html \
               || { echo '::error::/sisene does not name itself the test environment.'; exit 1; }
-            grep -q 'data-admin-domains="@' signin.html \
-              || { echo '::error::AUTO_ADMIN_EMAIL_DOMAINS did not reach the machine — nobody could sign in without being listed first.'; exit 1; }
-            echo "Sign-in serving, buyer-domain rule configured: $(sed -n 's/.*data-admin-domains="\([^"]*\)".*/\1/p' signin.html | head -1)"
+            ALLOWLIST_SIZE=$(sed -n 's/.*data-admin-allowlist="\([^"]*\)".*/\1/p' signin.html | head -1)
+            case "$ALLOWLIST_SIZE" in
+              ''|0) echo '::error::AUTO_ADMIN_ALLOWLIST did not reach the machine — the first admin could not sign in, and a demotion would leave nobody able to administer the team.'; exit 1 ;;
+            esac
+            echo "Sign-in serving, admin allowlist configured: $ALLOWLIST_SIZE entry/entries."
 
             # What the opening page used to prove: that the framework data is
             # there. On a fresh volume these are 0 until the first upload, so

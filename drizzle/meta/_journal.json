@@ -71,6 +71,13 @@
       "when": 1789041019866,
       "tag": "0009_round_protocols",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1789044619866,
+      "tag": "0010_admin_allowlist",
+      "breakpoints": true
     }
   ]
 }

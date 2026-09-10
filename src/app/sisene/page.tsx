@@ -10,7 +10,7 @@ import { isDemoMode } from '@/lib/env';
 import { logoutAction } from '@/server/actions/auth';
 import { getSessionActor } from '@/server/auth/actor';
 import { landingAfterSignIn } from '@/server/auth/identity';
-import { autoAdminDomains } from '@/server/auth/codes';
+import { adminAllowlist, adminAllowlistSize } from '@/server/auth/codes';
 import { SignInRequestForm } from '@/components/sign-in';
 
 export const dynamic = 'force-dynamic';
@@ -21,6 +21,7 @@ export default async function SignInPage({
   searchParams: Promise<{ viga?: string; e?: string }>;
 }) {
   const { viga, e } = await searchParams;
+  const allowlist = adminAllowlist();
   const signedIn = await getSessionActor();
 
   const landing = signedIn
@@ -62,7 +63,12 @@ export default async function SignInPage({
           </div>
         </section>
       ) : (
-        <SignInRequestForm email={e} error={viga} adminDomains={autoAdminDomains()} />
+        <SignInRequestForm
+          email={e}
+          error={viga}
+          adminDomains={allowlist.domains}
+          allowlistSize={adminAllowlistSize(allowlist)}
+        />
       )}
     </main>
   );

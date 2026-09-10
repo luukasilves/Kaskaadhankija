@@ -36,22 +36,27 @@ export function SignInRequestForm({
   email,
   error,
   adminDomains = [],
+  allowlistSize = 0,
 }: {
   email?: string;
   error?: string;
-  /** domains that may sign in without being listed first */
+  /** whole domains that may sign in without being listed first, if any */
   adminDomains?: readonly string[];
+  /** how many allowlist entries there are in all — addresses included */
+  allowlistSize?: number;
 }) {
-  // `data-admin-domains` is what the deploy greps to prove the configured rule
-  // actually reached the machine: a secret that silently failed to arrive would
-  // otherwise look exactly like "nobody can sign in", with no visible cause.
-  // The page names the same domains in prose below, so it discloses nothing new.
+  // `data-admin-allowlist` is what the deploy greps to prove the configured
+  // allowlist actually reached the machine: a secret that silently failed to
+  // arrive would otherwise look exactly like "nobody can sign in", with no
+  // visible cause anywhere. It carries the **count**, not the entries — a
+  // domain was fair to name in public, a named person's address is not, and the
+  // count is all the deploy gate needs [L-08].
   return (
     <form
       action={requestLoginCodeAction}
       className="kh-card space-y-3 p-5"
       data-testid="sign-in-form"
-      data-admin-domains={adminDomains.join(' ')}
+      data-admin-allowlist={String(allowlistSize)}
     >
       <h1 className="text-[22px]">Logi sisse</h1>
       <p className="text-[13.5px] text-[var(--color-muted)]">

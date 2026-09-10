@@ -10,7 +10,7 @@
 
 import type { CapKind } from '@/domain/allocate';
 import { confirmMarks, declineAll, saveDraftMarks, type MarksInput } from '../rounds/engine';
-import { buyerWrite, describeError, fail, fieldList, fieldNumber, fieldText, ok, partnerWrite, type ActionOutcome } from './helpers';
+import { adminWrite, describeError, fail, fieldList, fieldNumber, fieldText, ok, partnerWrite, type ActionOutcome } from './helpers';
 
 const ROUNDS = '/partner/voorud';
 
@@ -94,7 +94,10 @@ export async function markNotificationReadAction(form: FormData): Promise<Action
   const { notifications } = await import('@/db/schema');
   const { eq } = await import('drizzle-orm');
 
-  const write = asBuyer ? buyerWrite : partnerWrite;
+  // `asBuyer` is only ever reached through act-as, which is an admin power
+  // [L-08]; keeping this on the admin seam means there is no second door to
+  // answering on a partner's behalf.
+  const write = asBuyer ? adminWrite : partnerWrite;
   try {
     await write(
       (ctx) => {

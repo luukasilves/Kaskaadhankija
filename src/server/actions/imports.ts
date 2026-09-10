@@ -24,7 +24,15 @@ import {
 import { applyRoundImport, previewRoundImport } from '../import/round-import';
 import { parseXlsxSheets } from '../import/xlsx';
 import { fold } from '@/domain/import-rows';
-import { buyerWrite, describeError, fail, fieldText, ok, type ActionOutcome } from './helpers';
+import {
+  adminWrite,
+  buyerWrite,
+  describeError,
+  fail,
+  fieldText,
+  ok,
+  type ActionOutcome,
+} from './helpers';
 
 const MAX_BYTES = 5 * 1024 * 1024;
 
@@ -86,7 +94,10 @@ export async function confirmTrainingsImportAction(form: FormData): Promise<Acti
 export async function discardImportAction(form: FormData): Promise<ActionOutcome> {
   const batchId = fieldText(form, 'batchId');
   try {
-    await buyerWrite((ctx) => discardImport(ctx, batchId), ['/tellija/koolitused']);
+    // The batch id comes from a form field, so the kind is named here: this
+    // form belongs to the calendar, and a hankija must not be able to cancel
+    // an admin's pending framework preview by posting its id to it [R-01].
+    await buyerWrite((ctx) => discardImport(ctx, batchId, ['trainings']), ['/tellija/koolitused']);
   } catch (error) {
     return fail(describeError(error));
   }
@@ -102,7 +113,7 @@ export async function previewPartnersAction(form: FormData): Promise<ActionOutco
 
   let batchId: string;
   try {
-    batchId = await buyerWrite((ctx) =>
+    batchId = await adminWrite((ctx) =>
       previewPartnersImport(ctx, {
         fileName: upload.fileName,
         fileSize: upload.size,
@@ -120,7 +131,7 @@ export async function previewPartnersAction(form: FormData): Promise<ActionOutco
 export async function confirmPartnersImportAction(form: FormData): Promise<ActionOutcome> {
   const batchId = fieldText(form, 'batchId');
   try {
-    const result = await buyerWrite((ctx) => applyPartnersImport(ctx, batchId), [
+    const result = await adminWrite((ctx) => applyPartnersImport(ctx, batchId), [
       '/tellija/partnerid',
       '/tellija/hankeosad',
     ]);
@@ -140,7 +151,7 @@ export async function previewRepresentativesAction(form: FormData): Promise<Acti
 
   let batchId: string;
   try {
-    batchId = await buyerWrite((ctx) =>
+    batchId = await adminWrite((ctx) =>
       previewRepresentativesImport(ctx, {
         fileName: upload.fileName,
         fileSize: upload.size,
@@ -158,7 +169,7 @@ export async function previewRepresentativesAction(form: FormData): Promise<Acti
 export async function confirmRepresentativesImportAction(form: FormData): Promise<ActionOutcome> {
   const batchId = fieldText(form, 'batchId');
   try {
-    const result = await buyerWrite((ctx) => applyRepresentativesImport(ctx, batchId), [
+    const result = await adminWrite((ctx) => applyRepresentativesImport(ctx, batchId), [
       '/tellija/partnerid/esindajad',
       '/tellija/partnerid',
     ]);
@@ -228,7 +239,7 @@ export async function confirmRoundImportAction(form: FormData): Promise<ActionOu
 export async function discardRoundImportAction(form: FormData): Promise<ActionOutcome> {
   const batchId = fieldText(form, 'batchId');
   try {
-    await buyerWrite((ctx) => discardImport(ctx, batchId), ['/tellija/voorud']);
+    await buyerWrite((ctx) => discardImport(ctx, batchId, ['round']), ['/tellija/voorud']);
   } catch (error) {
     return fail(describeError(error));
   }

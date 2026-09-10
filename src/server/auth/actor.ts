@@ -28,7 +28,7 @@ import { isDemoMode } from '@/lib/env';
 import type { ActingVia, ActorRef, Evidence } from '../context';
 import type { Db } from '../context';
 import { resolveSession } from './codes';
-import { mayActAs, resolveActing } from './identity';
+import { mayActAs, mayAdminister, mayWriteProcurement, resolveActing, WRITE_REFUSED } from './identity';
 
 export const PERSONA_COOKIE = 'kh_persona';
 export const SESSION_COOKIE = 'kh_session';
@@ -244,33 +244,47 @@ export async function requirePartner(): Promise<PartnerActor> {
 }
 
 /**
- * Whether the buyer screens should offer their write controls [R-01].
+ * Whether the buyer screens should offer their **procurement** write controls
+ * [R-01] — creating and publishing rounds, importing a calendar, the review,
+ * the confirmation, the protocol.
  *
- * Pages ask this to swap a panel for `<ReadOnlyNote />` rather than to decide
- * anything: the decision is `buyerWrite`'s, and it is enforced there whatever
- * the page renders.
+ * True for both roles: that is the purchaser's job. Pages ask this to swap a
+ * panel for `<ReadOnlyNote />` rather than to decide anything; the decision is
+ * `buyerWrite`'s, and it is enforced there whatever the page renders.
  */
 export async function buyerCanWrite(): Promise<boolean> {
-  const actor = await getActor();
-  return actor?.kind === 'buyer' && actor.role === 'admin';
+  return mayWriteProcurement(await getActor());
 }
 
-const NOT_ADMIN = 'See toiming on ainult tellimismeeskonna adminile. Sul on vaatleja roll.';
+/**
+ * Whether the screens should offer their **administration** controls: the
+ * framework agreement's own data [L-21] and the team.
+ *
+ * A purchaser reads all of it and changes none of it, so these screens ask this
+ * instead of `buyerCanWrite`.
+ */
+export async function buyerIsAdmin(): Promise<boolean> {
+  return mayAdminister(await getActor());
+}
 
 /**
- * The admin guard for server actions.
+ * The guards for server actions.
  *
- * Throws rather than redirecting, always: every action wraps its write in a
+ * Both throw rather than redirecting, always: every action wraps its write in a
  * `try/catch` that turns a thrown error into a message on the form, and
  * `redirect()` throws a `NEXT_REDIRECT` that such a catch would swallow into a
- * nonsense message. So a member asking for a write gets told why, on the page.
+ * nonsense message. So somebody asking for a write they may not do gets told
+ * why, on the page.
  */
-export async function assertAdminActor(): Promise<BuyerActor> {
+export async function assertBuyerActor(): Promise<BuyerActor> {
   const actor = await getActor();
-  if (!actor || actor.kind !== 'buyer') {
-    throw new Error('Toiming vajab sisselogimist tellimismeeskonna adminina.');
-  }
-  if (actor.role !== 'admin') throw new Error(NOT_ADMIN);
+  if (!mayWriteProcurement(actor)) throw new Error(WRITE_REFUSED.notBuyer);
+  return actor;
+}
+
+export async function assertAdminActor(): Promise<BuyerActor> {
+  const actor = await assertBuyerActor();
+  if (!mayAdminister(actor)) throw new Error(WRITE_REFUSED.notAdmin);
   return actor;
 }
 

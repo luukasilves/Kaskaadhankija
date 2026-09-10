@@ -16,7 +16,7 @@
 import { eq } from 'drizzle-orm';
 import { getDb } from '@/db';
 import { lotPartners, lots, partners, rounds, trainings, users } from '@/db/schema';
-import { RESPONSE_STATE_LABELS } from '@/domain/round-statuses';
+import { BUYER_ROLE_LABELS, RESPONSE_STATE_LABELS } from '@/domain/round-statuses';
 import { formatDateTimeShort, formatRemaining } from '@/domain/format';
 import { currentTimeMs } from './clock';
 import { latestConfirmation, participantsOf, responseStateFor } from './rounds/views';
@@ -87,7 +87,7 @@ export function listActAsRoster(): ActAsRoster {
     kind: 'buyer',
     name: row.name,
     subtitle: 'Riigikantselei tellimismeeskond',
-    chips: [row.role === 'admin' ? 'Admin' : 'Liige'],
+    chips: [BUYER_ROLE_LABELS[row.role]],
     statusLines: buyerStatus,
   }));
 

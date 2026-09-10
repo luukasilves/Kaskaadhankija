@@ -6,7 +6,7 @@
  * Two ways in, one set of writers: every action here calls the same functions
  * in `../framework.ts` that the workbook import calls, so a contact changed by
  * hand and a contact changed by upload land identically — and both leave the
- * same audit row, which is the point. `buyerWrite` makes them admin-only [R-01]
+ * same audit row, which is the point. `adminWrite` makes them admin-only [R-01]
  * and puts each one in its own transaction.
  */
 
@@ -30,7 +30,7 @@ import {
   updateRepresentative,
 } from '../framework';
 import {
-  buyerWrite,
+  adminWrite,
   describeError,
   fail,
   fieldNumber,
@@ -119,7 +119,7 @@ export async function previewFrameworkAction(form: FormData): Promise<ActionOutc
 
   let batchId: string;
   try {
-    batchId = await buyerWrite((ctx) =>
+    batchId = await adminWrite((ctx) =>
       previewFrameworkImport(ctx, {
         fileName,
         fileSize,
@@ -137,7 +137,7 @@ export async function previewFrameworkAction(form: FormData): Promise<ActionOutc
 export async function confirmFrameworkImportAction(form: FormData): Promise<ActionOutcome> {
   const batchId = fieldText(form, 'batchId');
   try {
-    await buyerWrite((ctx) => applyFrameworkImport(ctx, batchId), PATHS);
+    await adminWrite((ctx) => applyFrameworkImport(ctx, batchId), PATHS);
   } catch (error) {
     return fail(describeError(error));
   }
@@ -147,7 +147,7 @@ export async function confirmFrameworkImportAction(form: FormData): Promise<Acti
 export async function discardFrameworkImportAction(form: FormData): Promise<ActionOutcome> {
   const batchId = fieldText(form, 'batchId');
   try {
-    await buyerWrite((ctx) => discardImport(ctx, batchId), ['/tellija/raamhange']);
+    await adminWrite((ctx) => discardImport(ctx, batchId, ['framework']), ['/tellija/raamhange']);
   } catch (error) {
     return fail(describeError(error));
   }
@@ -160,7 +160,7 @@ export async function discardFrameworkImportAction(form: FormData): Promise<Acti
 
 export async function updateFrameworkIdentityAction(form: FormData): Promise<ActionOutcome> {
   try {
-    const changed = await buyerWrite(
+    const changed = await adminWrite(
       (ctx) =>
         updateFrameworkIdentity(ctx, {
           title: fieldText(form, 'title'),
@@ -179,7 +179,7 @@ export async function updateFrameworkIdentityAction(form: FormData): Promise<Act
 
 export async function addLotPartnerAction(form: FormData): Promise<ActionOutcome> {
   try {
-    await buyerWrite(
+    await adminWrite(
       (ctx) =>
         addLotPartner(ctx, {
           lotId: fieldText(form, 'lotId'),
@@ -199,7 +199,7 @@ export async function addLotPartnerAction(form: FormData): Promise<ActionOutcome
 
 export async function updateLotPartnerContactAction(form: FormData): Promise<ActionOutcome> {
   try {
-    await buyerWrite(
+    await adminWrite(
       (ctx) =>
         updateLotPartnerContact(ctx, fieldText(form, 'lotPartnerId'), {
           contactName: fieldText(form, 'contactName'),
@@ -217,7 +217,7 @@ export async function updateLotPartnerContactAction(form: FormData): Promise<Act
 export async function moveLotPartnerRankAction(form: FormData): Promise<ActionOutcome> {
   const direction = fieldText(form, 'direction') === 'up' ? 'up' : 'down';
   try {
-    await buyerWrite(
+    await adminWrite(
       (ctx) => moveLotPartnerRank(ctx, fieldText(form, 'lotPartnerId'), direction),
       PATHS,
     );
@@ -229,7 +229,7 @@ export async function moveLotPartnerRankAction(form: FormData): Promise<ActionOu
 
 export async function deactivateLotAction(form: FormData): Promise<ActionOutcome> {
   try {
-    await buyerWrite(
+    await adminWrite(
       (ctx) => deactivateLot(ctx, fieldText(form, 'lotId'), fieldText(form, 'reason')),
       PATHS,
     );
@@ -241,7 +241,7 @@ export async function deactivateLotAction(form: FormData): Promise<ActionOutcome
 
 export async function addRepresentativeAction(form: FormData): Promise<ActionOutcome> {
   try {
-    await buyerWrite(
+    await adminWrite(
       (ctx) =>
         addRepresentative(ctx, {
           partnerId: fieldText(form, 'partnerId'),
@@ -260,7 +260,7 @@ export async function addRepresentativeAction(form: FormData): Promise<ActionOut
 
 export async function updateRepresentativeAction(form: FormData): Promise<ActionOutcome> {
   try {
-    await buyerWrite(
+    await adminWrite(
       (ctx) =>
         updateRepresentative(ctx, fieldText(form, 'representativeId'), {
           name: fieldText(form, 'name'),

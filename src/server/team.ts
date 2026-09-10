@@ -8,6 +8,7 @@
 
 import { and, eq, ne } from 'drizzle-orm';
 import { partnerRepresentatives, users } from '@/db/schema';
+import { BUYER_ROLE_LABELS, type BuyerRole } from '@/domain/round-statuses';
 import { logAudit } from './audit';
 import type { Ctx } from './context';
 
@@ -18,8 +19,8 @@ export function addTeamMember(
   input: {
     name: string;
     email: string;
-    role: 'admin' | 'member';
-    /** appended to the audit summary, so provenance is legible (e.g. the domain rule) */
+    role: BuyerRole;
+    /** appended to the audit summary, so provenance is legible (e.g. the allowlist) */
     note?: string;
   },
 ): string {
@@ -59,6 +60,44 @@ export function addTeamMember(
     after: { userId: id, role: input.role },
   });
   return id;
+}
+
+/**
+ * Move somebody between the two buyer roles [R-01].
+ *
+ * The role used to be settled once, when a person was added, which was fine
+ * while it only decided whether they could press buttons. Now that a hankija
+ * runs procurements and an admin also administers the framework, changing it is
+ * ordinary administration — and it is the mechanism the narrowed sign-in
+ * allowlist relies on: everybody arrives as a hankija and is promoted on
+ * purpose.
+ *
+ * Refuses to demote the last active admin, for the same reason deactivating
+ * them is refused: it would leave nobody able to administer anything.
+ */
+export function setTeamMemberRole(ctx: Ctx, userId: string, role: BuyerRole): void {
+  const user = ctx.tx.select().from(users).where(eq(users.id, userId)).get();
+  if (!user) throw new Error('Kasutajat ei leitud.');
+  if (user.role === role) return;
+
+  if (user.role === 'admin') {
+    const otherAdmins = ctx.tx
+      .select({ id: users.id })
+      .from(users)
+      .where(and(eq(users.isActive, true), eq(users.role, 'admin'), ne(users.id, userId)))
+      .all();
+    if (otherAdmins.length === 0) {
+      throw new Error('Viimase aktiivse admini rolli ei saa muuta — tee enne keegi teine adminiks.');
+    }
+  }
+
+  ctx.tx.update(users).set({ role }).where(eq(users.id, userId)).run();
+  logAudit(ctx, {
+    eventType: 'team.member_updated',
+    summary: `${user.name} (${user.email}) roll: ${BUYER_ROLE_LABELS[user.role]} → ${BUYER_ROLE_LABELS[role]}`,
+    before: { userId, role: user.role },
+    after: { userId, role },
+  });
 }
 
 export function setTeamMemberActive(ctx: Ctx, userId: string, active: boolean): void {

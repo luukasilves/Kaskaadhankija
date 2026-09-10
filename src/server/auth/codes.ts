@@ -12,12 +12,12 @@
  *  - **Wall-clock time throughout.** Expiry and rate limits are real-world
  *    security state; the virtual test clock has no business here.
  *
- * A configured domain (`AUTO_ADMIN_EMAIL_DOMAINS`) may sign in as a buyer admin
- * without being listed first — the whole buyer organisation can get in without
- * anyone maintaining a roster. The user row is created only when a code is
- * **verified**, so requesting codes for invented colleagues cannot populate the
- * team; and a deactivated person is never resurrected by the rule, because
- * switching someone off is a deliberate act.
+ * An address on the allowlist (`AUTO_ADMIN_ALLOWLIST` — named addresses, or a
+ * whole domain where a test environment wants one) may sign in as a buyer admin
+ * without being added to the team first. The user row is created only when a
+ * code is **verified**, so requesting codes for invented colleagues cannot
+ * populate the team; and a deactivated person is never resurrected by the
+ * allowlist, because switching someone off is a deliberate act.
  */
 
 import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
@@ -69,32 +69,61 @@ export function normalizeEmail(raw: string): string {
 }
 
 /* ------------------------------------------------------------------ *
- * the buyer-domain rule
+ * the admin allowlist [L-08]
  * ------------------------------------------------------------------ */
 
-/** `@riigikantselei.ee, muu.ee` → ['@riigikantselei.ee', '@muu.ee'] */
-export function parseAdminDomains(raw: string | undefined): string[] {
-  return (raw ?? '')
-    .split(/[,;\s]+/)
-    .map((entry) => entry.trim().toLowerCase())
-    .filter(Boolean)
-    .map((entry) => (entry.startsWith('@') ? entry : `@${entry}`));
-}
-
-export function autoAdminDomains(): string[] {
-  return parseAdminDomains(env.AUTO_ADMIN_EMAIL_DOMAINS);
+export interface AdminAllowlist {
+  /** whole addresses, e.g. `luukas.ilves@riigikantselei.ee` */
+  addresses: string[];
+  /** whole domains, e.g. `@riigikantselei.ee` */
+  domains: string[];
 }
 
 /**
- * Whether an address's domain admits it as a buyer admin. Matched on the whole
- * domain, so `@riigikantselei.ee` never admits `@evil-riigikantselei.ee` or
- * `@riigikantselei.ee.example`.
+ * The configured allowlist, in two shapes.
+ *
+ * An entry with a local part is one **person**; an entry that is only a domain
+ * is everybody there. Both are supported because they answer different
+ * questions — a named list is the access model for a real procurement, while a
+ * domain is what makes a test environment usable without maintaining a roster.
+ *
+ * `luukas.ilves@riigikantselei.ee, @naidis.ee` →
+ * `{ addresses: ['luukas.ilves@riigikantselei.ee'], domains: ['@naidis.ee'] }`
  */
-export function emailDomainAllowsAdmin(email: string, domains: readonly string[] = autoAdminDomains()): boolean {
+export function parseAdminAllowlist(raw: string | undefined): AdminAllowlist {
+  const addresses: string[] = [];
+  const domains: string[] = [];
+  for (const entry of (raw ?? '').split(/[,;\s]+/)) {
+    const value = entry.trim().toLowerCase();
+    if (!value) continue;
+    const at = value.lastIndexOf('@');
+    if (at > 0) addresses.push(value);
+    else domains.push(value.startsWith('@') ? value : `@${value}`);
+  }
+  return { addresses, domains };
+}
+
+export function adminAllowlist(): AdminAllowlist {
+  return parseAdminAllowlist(env.AUTO_ADMIN_ALLOWLIST);
+}
+
+/** How many entries the allowlist has — what the sign-in page discloses. */
+export function adminAllowlistSize(list: AdminAllowlist = adminAllowlist()): number {
+  return list.addresses.length + list.domains.length;
+}
+
+/**
+ * Whether an address is admitted as a buyer admin without being listed first.
+ *
+ * The address is matched whole, and so is the domain — `@riigikantselei.ee`
+ * never admits `@evil-riigikantselei.ee`, `@riigikantselei.ee.example` or
+ * `@sub.riigikantselei.ee`.
+ */
+export function emailAllowsAdmin(email: string, list: AdminAllowlist = adminAllowlist()): boolean {
   const address = normalizeEmail(email);
   const at = address.lastIndexOf('@');
   if (at < 1) return false;
-  return domains.includes(address.slice(at));
+  return list.addresses.includes(address) || list.domains.includes(address.slice(at));
 }
 
 /**
@@ -187,15 +216,15 @@ export type IssueResult =
       /** who to address the e-mail to; derived from the address for a domain admin */
       recipientName: string;
       subjectKind: SessionSubjectKind;
-      /** true when no row exists yet and the domain rule admitted the address */
-      byDomainRule: boolean;
+      /** true when no row exists yet and the allowlist admitted the address */
+      byAllowlist: boolean;
     }
   | { outcome: 'unknown' }
   | { outcome: 'rate_limited'; limit: 'email' | 'ip' };
 
 /**
  * Whether the address belongs to somebody who was deliberately switched off.
- * Such a person must not be let back in by the domain rule.
+ * Such a person must not be let back in by the allowlist.
  */
 export function knownButInactive(tx: Reader, rawEmail: string): boolean {
   const email = normalizeEmail(rawEmail);
@@ -237,10 +266,10 @@ export function issueLoginCode(
   }
 
   const subject = findSubjectByEmail(tx, email);
-  // The domain rule admits an address nobody has listed — but never one that
+  // The allowlist admits an address nobody has listed — but never one that
   // belongs to somebody an admin switched off.
-  const byDomainRule = subject === null && emailDomainAllowsAdmin(email) && !knownButInactive(tx, email);
-  if (!subject && !byDomainRule) return { outcome: 'unknown' };
+  const byAllowlist = subject === null && emailAllowsAdmin(email) && !knownButInactive(tx, email);
+  if (!subject && !byAllowlist) return { outcome: 'unknown' };
 
   const code = generateCode();
   tx.insert(loginCodes)
@@ -259,7 +288,7 @@ export function issueLoginCode(
     code,
     recipientName: subject?.name ?? nameFromEmail(email),
     subjectKind: subject?.kind ?? 'buyer',
-    byDomainRule,
+    byAllowlist,
   };
 }
 
@@ -267,7 +296,7 @@ export type VerifyFailure = 'no_code' | 'expired' | 'wrong' | 'locked' | 'subjec
 
 /**
  * Who proved they control the mailbox: somebody already known, or an address
- * the domain rule admits and whose user row the caller must still create. The
+ * the allowlist admits and whose user row the caller must still create. The
  * creation is the caller's, not this module's, so the audit entry is written
  * with the acting context rather than from underneath it.
  */
@@ -315,7 +344,7 @@ export function verifyLoginCode(
   // The address may have been deactivated between request and entry.
   const subject = findSubjectByEmail(tx, email);
   if (subject) return { ok: true, who: { existing: subject } };
-  if (emailDomainAllowsAdmin(email) && !knownButInactive(tx, email)) {
+  if (emailAllowsAdmin(email) && !knownButInactive(tx, email)) {
     return { ok: true, who: { toProvision: { email, name: nameFromEmail(email) } } };
   }
   return { ok: false, reason: 'subject_gone' };

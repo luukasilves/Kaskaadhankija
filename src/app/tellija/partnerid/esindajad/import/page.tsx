@@ -9,7 +9,7 @@
 import Link from 'next/link';
 import { eq } from 'drizzle-orm';
 import { getDb } from '@/db';
-import { buyerCanWrite } from '@/server/auth/actor';
+import { buyerIsAdmin } from '@/server/auth/actor';
 import { ReadOnlyNote } from '@/components/read-only-note';
 import { importBatches, partnerRepresentatives, partners } from '@/db/schema';
 import { REPRESENTATIVE_COLUMNS, REPRESENTATIVE_OPTIONAL_COLUMNS } from '@/domain/import-rows';
@@ -30,7 +30,7 @@ export default async function RepresentativesImportPage({
   const { batch } = await searchParams;
   const db = getDb();
 
-  if (!(await buyerCanWrite())) {
+  if (!(await buyerIsAdmin())) {
     return (
       <div className="space-y-4">
         <div>

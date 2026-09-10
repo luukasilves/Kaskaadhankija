@@ -26,6 +26,7 @@ import {
   enterCode,
   freePort,
   makeChecker,
+  publishWithShortDeadline,
   removeDatabase,
   requestCode,
   signInAs,
@@ -33,6 +34,7 @@ import {
   startServer,
   switchTo,
   waitForHealth,
+  waitOutDeadline,
   watchPage,
 } from './lib/browser-harness.mjs';
 
@@ -44,7 +46,11 @@ const REPRESENTATIVE = 'jaan.kask@tehisaru-naidis.ee';
 const DEPUTY = 'mari.mets@tehisaru-naidis.ee';
 const BUYER = 'mari.tamm@naidis.riigikantselei.ee';
 const STRANGER = 'keegi@mujal-naidis.ee';
-/** In no list at all — admitted only by the buyer-domain rule [L-08]. */
+/**
+ * In no list at all — admitted only by the admin allowlist [L-08]. The test
+ * environment allowlists their whole domain, the production walk allowlists
+ * this one address, so the same person tests both shapes.
+ */
 const NEWCOMER = 'kirke.kask@naidis.riigikantselei.ee';
 
 /** Wait until the sign-in error names the expected text, or give up after 20 s. */
@@ -162,8 +168,8 @@ async function testEnvironment(browser) {
     await page.waitForURL(/\/tellija$/, { timeout: 20_000 });
     check('and stopping leaves them as themselves', (await page.getByTestId('acting-as').count()) === 0);
 
-    /* the buyer-domain rule: nobody had to list them first [L-08] */
-    note('Domeenireegel');
+    /* the admin allowlist: nobody had to list them first [L-08] */
+    note('Lubatud aadresside loend: terve domeen');
     await page.getByTestId('sign-out').click();
     await page.waitForURL(/\/sisene/, { timeout: 20_000 });
     check('the sign-in page names the domain that may sign in', (await page.locator('[data-testid="sign-in-form"]').textContent()).includes(BUYER_DOMAIN));
@@ -179,7 +185,7 @@ async function testEnvironment(browser) {
     await page.waitForSelector('[data-testid="add-team-member"]');
     const teamRow = page.locator('tbody tr', { hasText: NEWCOMER });
     check('the first verified code is what created them, as an admin', (await teamRow.count()) === 1 && (await teamRow.textContent()).includes('Admin'), await teamRow.textContent().catch(() => 'no row'));
-    check('the Meeskond screen says the rule is in force', await page.getByTestId('domain-rule-note').isVisible());
+    check('the Meeskond screen says what the allowlist admits', await page.getByTestId('allowlist-note').isVisible());
     await page.screenshot({ path: join(SHOTS, 'auth-03-domain-rule.png'), fullPage: true });
 
     // Their own row hides the toggle, and the action refuses it besides — so
@@ -209,33 +215,86 @@ async function testEnvironment(browser) {
       `${codesPrintedFor(server, NEWCOMER)} code(s) mailed`,
     );
 
-    /* a member is a reader */
-    note('Liige on vaatleja [R-01]');
-    const MEMBER = 'liige@naidis.riigikantselei.ee';
+    /* a hankija runs the procurement and reads the rest [R-01] */
+    note('Hankija teeb voore, admin haldab raamlepingut [R-01]');
+    const HANKIJA = 'hankija@naidis.riigikantselei.ee';
     await signInAsAdmin(page, server, BUYER);
     await page.getByTestId('continue-self').click();
     await page.waitForURL(/\/tellija$/, { timeout: 20_000 });
     await page.goto(`${BASE}/tellija/meeskond`);
     await page.waitForSelector('[data-testid="add-team-member"]');
-    await page.fill('[data-testid="add-team-member"] input[name="name"]', 'Lauri Liige');
-    await page.fill('[data-testid="add-team-member"] input[name="email"]', MEMBER);
+    await page.fill('[data-testid="add-team-member"] input[name="name"]', 'Lauri Hankija');
+    await page.fill('[data-testid="add-team-member"] input[name="email"]', HANKIJA);
     await page.selectOption('[data-testid="add-team-member"] select[name="role"]', 'member');
     await page.locator('[data-testid="add-team-member"] button[type="submit"]').click();
-    await page.locator('tbody tr', { hasText: MEMBER }).waitFor({ timeout: 20_000 });
+    const hankijaRow = page.locator('tbody tr', { hasText: HANKIJA });
+    await hankijaRow.waitFor({ timeout: 20_000 });
+    check('a new member is added as a hankija, and the list says so', (await hankijaRow.textContent()).includes('Hankija'));
     await page.getByTestId('sign-out').click();
     await page.waitForURL(/\/sisene/, { timeout: 20_000 });
 
-    const memberLanding = await signInAs(page, server, MEMBER);
-    check('a member lands straight in the buyer area, not on the act-as screen', memberLanding === '/tellija', memberLanding);
-    check('the header says they are a reader', (await headerText(page)).includes('vaatleja'));
-    check('the strip offers them nothing to switch', (await page.getByTestId('test-strip-readonly').count()) === 1);
+    const hankijaLanding = await signInAs(page, server, HANKIJA);
+    check('a hankija lands straight in the buyer area, not on the act-as screen', hankijaLanding === '/tellija', hankijaLanding);
+    check('the header names the role', (await headerText(page)).includes('hankija'));
+    check('the strip offers them nobody to act as', (await page.getByTestId('test-strip-readonly').count()) === 1);
     await page.goto(`${BASE}/`);
     check('and the act-as screen is not theirs', page.url().endsWith('/tellija'), page.url());
-    await page.goto(`${BASE}/tellija/voorud/uus`);
-    check('a write screen tells them why there is no form', await page.getByTestId('read-only-note').isVisible());
+
+    // Everything an admin sees, and nothing an admin writes: the framework
+    // agreement's own data reads in full, with the forms replaced by a note.
+    await page.goto(`${BASE}/tellija/raamhange`);
+    await page.waitForSelector('h1');
+    const frameworkText = (await page.locator('main').textContent()).replace(/\s+/g, ' ');
+    check('a hankija reads the framework data', frameworkText.includes('10567384'), frameworkText.slice(0, 120));
+    check('with the admin forms replaced by a note', (await page.getByTestId('read-only-note').count()) > 0);
+    // Downloading the workbook stays theirs: it is the same data they read on
+    // this page, in a file. Putting one *back* is the write, and that is closed.
+    check('the workbook still downloads, since that is a read', (await page.getByTestId('download-framework').count()) === 1);
+    await page.goto(`${BASE}/tellija/raamhange/import`);
+    check('the framework import is closed to them', (await page.getByTestId('read-only-note').count()) > 0 && (await page.locator('input[type="file"]').count()) === 0);
+    await page.goto(`${BASE}/tellija/meeskond`);
+    await page.waitForSelector('h1');
+    check('the team reads in full', (await page.locator('tbody tr').count()) >= 2);
+    check('but nobody can be added, promoted or switched off', (await page.getByTestId('add-team-member').count()) === 0 && (await page.locator('tbody button').count()) === 0);
+    await page.goto(`${BASE}/tellija/partnerid/esindajad`);
+    await page.waitForSelector('[data-testid="representatives-company"]');
+    check('the representatives read in full, without their forms', (await page.locator('tbody tr').count()) > 0 && (await page.getByTestId('read-only-note').count()) > 0);
+    await page.screenshot({ path: join(SHOTS, 'auth-06-hankija-raamhange.png'), fullPage: true });
+
+    // The other half of the split: the procurement itself is theirs, from a
+    // draft to a confirmed allocation. Publishing notifies every partner in the
+    // lot and cannot be undone, so this is the strongest write there is.
     await page.goto(`${BASE}/tellija/voorud`);
-    check('and the list offers no “new round”', !(await page.locator('a', { hasText: 'Uus voor' }).count()));
-    await page.screenshot({ path: join(SHOTS, 'auth-06-member.png'), fullPage: true });
+    check('the round list offers them a new round', (await page.locator('a', { hasText: 'Uus voor' }).count()) > 0);
+    const draftRow = page.locator('tbody tr', { hasText: 'Mustand' }).first();
+    await draftRow.waitFor({ timeout: 20_000 });
+    await draftRow.locator('a').first().click();
+    await page.waitForURL(/\/tellija\/voorud\/[^/]+$/, { timeout: 20_000 });
+    const roundUrl = page.url();
+    const deadlineMs = await publishWithShortDeadline(page);
+    // Publishing revalidates the page, so the status can arrive a beat after
+    // the click — wait for it rather than reading once and racing the render.
+    const published = await page
+      .waitForFunction(() => document.querySelector('main')?.textContent?.includes('Avatud') ?? false, null, { timeout: 20_000 })
+      .then(() => true)
+      .catch(() => false);
+    check('a hankija can publish a round', published, (await page.locator('main').textContent()).replace(/\s+/g, ' ').slice(0, 120));
+
+    // Nobody bids, so the round ends with everything unallocated — which is a
+    // real outcome to confirm, and the confirmation goes through the same seam
+    // a full cascade's would.
+    await waitOutDeadline(page, BASE, deadlineMs);
+    await page.goto(`${roundUrl}/ulevaatus`);
+    await page.waitForSelector('h1');
+    // The page-wide dialog handler above accepts the confirmation prompt.
+    await page.getByTestId('confirm-allocation').locator('button').click();
+    const confirmed = await page
+      .waitForFunction(() => document.querySelector('main')?.textContent?.includes('Kinnitatud') ?? false, null, { timeout: 20_000 })
+      .then(() => true)
+      .catch(() => false);
+    check('and confirm the allocation it ends with [T-04]', confirmed, (await page.locator('main').textContent()).replace(/\s+/g, ' ').slice(0, 120));
+    check('the protocol is theirs as well [L-22]', (await page.getByTestId('protocol-link').count()) > 0);
+    await page.screenshot({ path: join(SHOTS, 'auth-07-hankija-voor.png'), fullPage: true });
     await page.getByTestId('sign-out').click();
     await page.waitForURL(/\/sisene/, { timeout: 20_000 });
 
@@ -287,7 +346,10 @@ async function productionPosture(browser) {
   note('Tootmisasend: sisselogimine on välisuks, valikulehte ei ole');
   const port = await freePort();
   const DB = join(ROOT, 'data', `auth-prod-${Date.now()}.db`);
-  const server = startServer({ port, databasePath: DB, demoMode: false });
+  // A **named** allowlist, which is what a real deployment carries: one address
+  // that is in no list yet, so the walk below can prove both halves — that
+  // address gets in, and the rest of its domain does not [L-08].
+  const server = startServer({ port, databasePath: DB, demoMode: false, adminAllowlist: NEWCOMER });
   const BASE = server.base;
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   const watched = watchPage(page);
@@ -296,6 +358,11 @@ async function productionPosture(browser) {
     await page.goto(`${BASE}/`);
     await page.waitForURL(/\/sisene/, { timeout: 20_000 });
     check('the front door is the sign-in', await page.getByTestId('sign-in-form').isVisible());
+    // The deploy greps this attribute to prove the allowlist reached the
+    // machine. It carries the count and not the entries: a named person's
+    // address does not belong on a public page [L-08].
+    check('the sign-in proves an allowlist is configured', (await page.getByTestId('sign-in-form').getAttribute('data-admin-allowlist')) === '1');
+    check('without publishing whose address it is', !(await page.content()).includes(NEWCOMER));
     check('no environment badge, no act-as cards, no strip', !(await page.locator('main').textContent()).includes('TESTKESKKOND') && (await page.getByTestId('act-as-card').count()) === 0 && (await page.getByTestId('test-strip').count()) === 0);
     await page.goto(`${BASE}/tellija`);
     check('the buyer area sends a stranger to the sign-in', page.url().includes('/sisene'), page.url());
@@ -310,6 +377,21 @@ async function productionPosture(browser) {
     check('signing out returns to the sign-in', true);
     await page.goto(`${BASE}/tellija`);
     check('and the area is closed', page.url().includes('/sisene'));
+
+    /* the allowlist is a name, not a domain [L-08] */
+    const NEIGHBOUR = 'teine.kolleeg@naidis.riigikantselei.ee';
+    await requestCode(page, BASE, NEIGHBOUR);
+    check('a colleague at the allowlisted address’s domain is not admitted by it', (await codeFor(server, NEIGHBOUR, { expect: false })) === null);
+    check('and learns nothing from the page either', page.url().includes('/sisene/kood'), page.url());
+
+    const namedLanding = await signInAs(page, server, NEWCOMER);
+    check('the named address gets in without being listed first', namedLanding === '/tellija', namedLanding);
+    await page.goto(`${BASE}/tellija/meeskond`);
+    await page.waitForSelector('h1');
+    check('as an admin, so somebody can always administer the team', (await page.getByTestId('add-team-member').count()) === 1);
+    await page.screenshot({ path: join(SHOTS, 'auth-08-named-allowlist.png'), fullPage: true });
+    await page.getByTestId('sign-out').click();
+    await page.waitForURL(/\/sisene/, { timeout: 20_000 });
 
     check('no console errors (production)', watched.consoleErrors.length === 0, watched.consoleErrors.slice(0, 2).join(' | '));
     check('no failed requests (production)', watched.badResponses.length === 0, watched.badResponses.slice(0, 3).join(' | '));

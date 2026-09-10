@@ -67,8 +67,8 @@ export async function requestLoginCodeAction(form: FormData): Promise<void> {
       if (issued.outcome === 'sent') {
         logAudit(ctx, {
           eventType: 'login.code_requested',
-          summary: `Sisenemiskood saadetud aadressile ${email}${issued.byDomainRule ? ' (tellija domeeni reegli alusel)' : ''}`,
-          after: { email, subjectKind: issued.subjectKind, byDomainRule: issued.byDomainRule },
+          summary: `Sisenemiskood saadetud aadressile ${email}${issued.byAllowlist ? ' (tellija lubatud aadresside loendi alusel)' : ''}`,
+          after: { email, subjectKind: issued.subjectKind, byAllowlist: issued.byAllowlist },
         });
       } else if (issued.outcome === 'rate_limited') {
         logAudit(ctx, {
@@ -122,7 +122,7 @@ export async function verifyLoginCodeAction(form: FormData): Promise<void> {
         if (verified.who.existing) {
           subject = verified.who.existing;
         } else {
-          // The domain rule admitted an address nobody had listed, and the code
+          // The allowlist admitted an address nobody had listed, and the code
           // proved the mailbox. Create the user through the same function the
           // Meeskond screen uses, so its checks and its audit entry apply.
           const { email: newEmail, name } = verified.who.toProvision;
@@ -131,13 +131,13 @@ export async function verifyLoginCodeAction(form: FormData): Promise<void> {
               name,
               email: newEmail,
               role: 'admin',
-              note: 'lisatud sisselogimisel tellija domeeni reegli alusel',
+              note: 'lisatud sisselogimisel lubatud aadresside loendi alusel',
             });
             subject = { kind: 'buyer', id: userId, name, email: newEmail, role: 'admin' };
           } catch (error) {
             logAudit(auditCtx(tx, evidence), {
               eventType: 'login.failed',
-              summary: `Sisselogimine aadressiga ${email} ebaõnnestus: kasutaja loomine domeeni reegli alusel ei õnnestunud`,
+              summary: `Sisselogimine aadressiga ${email} ebaõnnestus: kasutaja loomine lubatud aadresside loendi alusel ei õnnestunud`,
               after: { email, error: error instanceof Error ? error.message : String(error) },
             });
             return { ok: false as const, reason: 'subject_gone' as const };

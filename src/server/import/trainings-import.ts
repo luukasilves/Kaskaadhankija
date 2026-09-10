@@ -14,7 +14,7 @@
  */
 
 import { eq, inArray } from 'drizzle-orm';
-import { importBatches, lots, trainings, type ImportSummary } from '@/db/schema';
+import { importBatches, lots, trainings, type ImportKind, type ImportSummary } from '@/db/schema';
 import { countRows, parseTrainingRows, type ParsedRow, type RowDiagnostic, type TrainingRow } from '@/domain/import-rows';
 import { isTrainingImportable } from '@/domain/round-statuses';
 import { tallinnIsoDay } from '@/domain/format';
@@ -328,9 +328,21 @@ export function importTrainingsFromRows(
   return { ...applied, batchId: preview.batchId, fileErrors: preview.fileErrors };
 }
 
-export function discardImport(ctx: Ctx, batchId: string): void {
+/**
+ * Throw away an unconfirmed preview.
+ *
+ * `expected` is the kinds of batch the caller is entitled to discard, and it is
+ * not optional: the batch id arrives in a form field, and the two buyer roles
+ * do not have the same rights over the same batches [R-01]. A hankija discards
+ * their own calendar and round previews; the framework's preview is an admin's,
+ * and without this check a hankija could cancel one by posting its id to the
+ * calendar's form. Nothing of the framework would change — but an admin
+ * mid-upload would find their work gone with no explanation.
+ */
+export function discardImport(ctx: Ctx, batchId: string, expected: readonly ImportKind[]): void {
   const batch = ctx.tx.select().from(importBatches).where(eq(importBatches.id, batchId)).get();
   if (!batch || batch.status !== 'previewed') return;
+  if (!expected.includes(batch.kind)) throw new Error('See import ei kuulu siia vaatesse.');
   ctx.tx
     .update(importBatches)
     .set({ status: 'discarded' })

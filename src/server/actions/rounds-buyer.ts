@@ -28,12 +28,13 @@ import {
   cancelOrderTraining,
 } from '../rounds/engine';
 import { generateProtocolForEndedRound } from '../rounds/protocol';
-import { assertAdminActor } from '../auth/actor';
+import { assertBuyerActor } from '../auth/actor';
 import { parseEstonianInstant } from '@/domain/round-definition';
 import { runDueJobs } from '../rounds/jobs';
 import type { VisibilityMode } from '@/domain/round-statuses';
 import { isCapOptions } from '@/domain/round-statuses';
 import {
+  adminWrite,
   buyerWrite,
   describeError,
   fail,
@@ -187,7 +188,9 @@ export async function generateProtocolAction(form: FormData): Promise<ActionOutc
 /** Close a round early is not offered; this only forces the due check. */
 export async function runDeadlineJobsAction(): Promise<ActionOutcome> {
   try {
-    await assertAdminActor();
+    // Procurement housekeeping: forcing the sweep only closes rounds whose
+    // deadline has already passed, which is a purchaser's business.
+    await assertBuyerActor();
     const report = runDueJobs();
     return ok(
       report.closed.length > 0
@@ -344,7 +347,11 @@ export async function deactivateLotPartnerAction(form: FormData): Promise<Action
   const lotId = fieldText(form, 'lotId');
   const reason = fieldText(form, 'reason');
   try {
-    await buyerWrite((ctx) => deactivateLotPartner(ctx, lotPartnerId, reason), [
+    // Administration, not procurement: this ends a framework participation, so
+    // it also removes the partner from every future round [L-21]. A purchaser
+    // who needs it mid-round asks an admin — the honest fix, if that bites,
+    // would be a round-scoped exclusion rather than widening this.
+    await adminWrite((ctx) => deactivateLotPartner(ctx, lotPartnerId, reason), [
       `/tellija/hankeosad/${lotId}`,
       '/tellija/partnerid',
     ]);

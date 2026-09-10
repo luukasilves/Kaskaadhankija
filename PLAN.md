@@ -110,9 +110,12 @@ One container, one SQLite file, no outside services.
   `applyPartnerRows`, `moveLotPartnerRank` are called by both, and a
   representative row records *who last activated it*, so the two feeders cannot
   undo each other's decisions [L-21].
-- **Every buyer write goes through one `buyerWrite()` seam** that asserts the
-  admin role, rather than forty call sites that each have to remember [R-01]. It
-  throws rather than redirecting, because each action turns a thrown error into a
+- **Every buyer write goes through one of two seams** rather than forty call
+  sites that each have to remember [R-01]: `buyerWrite()` for the procurement,
+  which both roles may do, and `adminWrite()` for the framework data and the
+  team. An action declares which kind of act it is by the helper it calls, so
+  the authorization of a new action is a one-word decision that greps. Both
+  throw rather than redirecting, because each action turns a thrown error into a
   message on its own form.
 - **A protocol recomputes nothing.** The allocation snapshots are copied as the
   round stored them and the deadline history is read out of the audit rows that
@@ -141,6 +144,11 @@ the moment real data arrived in the environment [L-23]:
   rather than the lot's working-day minimum.
 - **There is no reset.** It was safe only while every partner was fictional. A
   clean slate is a fresh volume — an operator's act, not a button.
+- **Admin is given by name.** The environment used to admit anyone holding a
+  mailbox at the buyer's domain as an admin, which was convenient while nobody
+  could break anything and wrong once publishing a round notified real bidders.
+  One named address is admitted now [L-08]; everybody else is added by an admin
+  and runs mini-procurements as a **hankija** [R-01].
 
 `DEMO_MODE` keeps its name and now means *test environment*: the act-as picker,
 the badge, the mail allowlist [L-19], and that relaxed floor. Nothing else.
@@ -234,6 +242,10 @@ comparable ([kaskaadhankija-v3.fly.dev](https://kaskaadhankija-v3.fly.dev)):
   names the data [L-22].
 - **Real time** — no virtual clock, no reset; a test cascade is short because
   its file says so [L-23].
+- **Two buyer roles** — a **hankija** runs mini-procurements from a draft to a
+  signed protocol and reads every screen; an **admin** also holds the framework
+  data, the team and acting-as. Admin arrives by name: one allowlisted address,
+  and everyone an admin adds starts as a hankija [R-01][L-08].
 
 ## Open questions
 

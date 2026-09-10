@@ -15,7 +15,7 @@
  *     are checked there, against a round nobody has to close.
  *
  *  3. **An empty environment set up by hand.** A second server on a database
- *     that was never seeded: the admin signs in through the domain rule, uploads
+ *     that was never seeded: the admin signs in through the allowlist, uploads
  *     `naidis-raamhange.xlsx` and the calendar, and gets a working framework —
  *     which is the proof that the seed and the admin's own path are one path.
  *
@@ -489,7 +489,7 @@ async function walkEmptyEnvironment(browser) {
     const page = await context.newPage();
     watchPage(page);
 
-    /* nobody is listed, so the domain rule is the only way in [L-08] */
+    /* nobody is listed, so the allowlist is the only way in [L-08] */
     await signInAs(page, server, 'uus.admin@naidis.riigikantselei.ee');
     await page.goto(`${base}/tellija/raamhange`);
     await page.waitForSelector('h1', { timeout: 20_000 });

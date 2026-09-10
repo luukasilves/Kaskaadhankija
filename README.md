@@ -61,36 +61,40 @@ deliberately absent from every log. Where you land depends on who you are:
   names are then on the record: the participant as the actor, the admin as
   `via`, and a partner's confirmation carries the suffix „testkeskkonnas
   tegutses: …“ as [D-09] evidence.
-- **a buyer team member** → the buyer dashboard, read-only. Changing anything is
-  an admin's right [R-01]; a member sees every screen and every figure.
+- **a hankija** → the buyer dashboard, and the whole procurement with it: the
+  calendar, a new round, publishing, the review, the caps, the confirmation, the
+  protocol, the orders. What is not theirs is the framework agreement's own data
+  [L-21] and the team — they read both in full, with the forms replaced by a
+  note saying what an admin does and what they can do themselves [R-01]. They
+  cannot act as another participant.
 - **a partner's representative** → their own area, and nobody else's.
 
 With `DEMO_MODE` unset there is no act-as screen and no badge: the sign-in is
 the only way in, for everyone.
 
-While the buyer organisation is testing, `AUTO_ADMIN_EMAIL_DOMAINS` lets an
-address at a named domain sign in **without being listed first**, and creates
-it as an admin the first time a code is verified — so the whole team can get in
-without anyone maintaining a roster.
+**Who is an admin.** `AUTO_ADMIN_ALLOWLIST` names who may sign in as an admin
+**without being listed first** — a named address (`nimi@riigikantselei.ee`), or
+a whole domain (`@naidis.ee`) for a throwaway environment where maintaining a
+roster is not worth it. The user row appears only on a **verified** code, never
+on a request, and the list never reactivates somebody an admin switched off.
+Everyone else is added by an admin on *Meeskond* and starts as a **hankija**;
+an admin promotes them there if they need it, and the last active admin can be
+neither demoted nor switched off.
 
-While the buyer organisation is testing, `AUTO_ADMIN_EMAIL_DOMAINS` lets an
-address at a named domain sign in **without being listed first**, and creates
-it as an admin the first time a code is verified — so the whole team can get in
-without anyone maintaining a roster. The row appears only on a verified code,
-never on a request, and the rule never reactivates somebody an admin switched
-off. It also means anyone holding a mailbox at that domain can publish rounds
-and confirm allocations, which is irreversible: **[L-08]** records that as a
-testing-phase decision to revisit before a real procurement, and both the
-sign-in page and *Meeskond* say the rule is in force. Leave the variable empty
-to require a named list.
+A whole domain means anyone holding a mailbox there can publish rounds and
+confirm allocations, which is irreversible — **[L-08]** now records the named
+list as the chosen access model, and the test deployment carries one address.
+The sign-in page publishes how **many** entries the list has and never whose
+address they are; *Meeskond* says the same, and warns when an entry is a whole
+domain. Leave the variable empty to require that everybody be listed by hand.
 
 ### A ten-minute tour
 
 The seeded open round **VOOR-2026-003 is Lisa B of the specification**, so the
 screens can be compared against the document as you go.
 
-1. Sign in with an address at the admin domain. You land on *„Kellena
-   tegutseda“*: the team plus every partner the framework data created.
+1. Sign in with an allowlisted address. You land on *„Kellena tegutseda“*: the
+   team plus every partner the framework data created.
 2. Act as **Tehisaru Koolitus OÜ** (koht 3 in OSA-2) and open the open round. It
    has a saved draft that is *not confirmed*, so the page shows the display
    states of [N-03] beside a warning that only confirmed marks count at the
@@ -113,7 +117,8 @@ screens can be compared against the document as you go.
 
 ### The framework data lives in the application
 
-**Raamhange** (admin only) is the framework agreement itself [L-21]: its
+**Raamhange** (a hankija reads it, an admin changes it) is the framework
+agreement itself [L-21]: its
 identity, the lots with their cascade settings, each lot's ranking with the
 official contacts, and the representatives. Two ways to change any of it, and
 they are the same code underneath:
@@ -220,7 +225,7 @@ pnpm test                       # 379 domain, engine and protocol tests, named a
 pnpm build
 
 node scripts/e2e.mjs            # upload → publish → answer → close → review → confirm → protocol; a partner's own view; an empty environment set up by hand
-node scripts/verify-auth.mjs    # sign-in by e-mail code, act-as, admin vs member, production posture
+node scripts/verify-auth.mjs    # sign-in by e-mail code, act-as, admin vs hankija, the named allowlist, production posture
 node scripts/verify-admin.mjs   # the framework round trip (download, edit, upload, sign in as the new contact), the admin forms, every change in the log
 node scripts/verify-protocol.mjs   # the protocol's two documents over HTTP, and who may fetch them
 node scripts/verify-container.mjs  # restart survival on a volume, a protocol from the standalone build, production posture
@@ -275,8 +280,8 @@ The workflow creates the app and the `kh_data` volume if they are missing,
 deploys with `--ha=false`, and then refuses to go green unless the result is
 right: exactly one machine, started, with a volume at `/data`; `/api/health`
 reporting ok and naming how much framework data is loaded; `/` redirecting to
-the sign-in, which carries the environment badge and the configured admin
-domains; and `/tellija` unreachable without a session.
+the sign-in, which carries the environment badge and proves the admin
+allowlist reached the machine; and `/tellija` unreachable without a session.
 
 Two environments run from the same workflow. Pushes to `main` and
 `claude/parallel-cascade-spec` deploy the accepted **v2** at

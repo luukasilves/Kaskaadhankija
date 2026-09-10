@@ -9,7 +9,16 @@
 
 import { describe, expect, it } from 'vitest';
 import type { Actor, BuyerActor, PartnerActor } from './actor';
-import { areaHome, evidenceLabel, landingAfterSignIn, mayActAs, resolveActing } from './identity';
+import {
+  areaHome,
+  evidenceLabel,
+  landingAfterSignIn,
+  mayActAs,
+  mayAdminister,
+  mayWriteProcurement,
+  resolveActing,
+  WRITE_REFUSED,
+} from './identity';
 
 const admin: BuyerActor = {
   kind: 'buyer',
@@ -20,7 +29,8 @@ const admin: BuyerActor = {
   label: 'Mari Tamm (Tellija)',
 };
 
-const member: BuyerActor = { ...admin, userId: 'u-kati', name: 'Kati Kask', role: 'member', label: 'Kati Kask (Tellija)' };
+/** A hankija: the role stored as `member` [R-01]. */
+const hankija: BuyerActor = { ...admin, userId: 'u-kati', name: 'Kati Kask', role: 'member', label: 'Kati Kask (Tellija)' };
 
 const partner: PartnerActor = {
   kind: 'partner',
@@ -58,7 +68,7 @@ describe('[L-08] who may act as somebody else', () => {
   it('is a signed-in buyer admin in the test environment, and nobody else', () => {
     expect(mayActAs(admin, true)).toBe(true);
     expect(mayActAs(admin, false)).toBe(false);
-    expect(mayActAs(member, true)).toBe(false);
+    expect(mayActAs(hankija, true)).toBe(false);
     expect(mayActAs(partner, true)).toBe(false);
     expect(mayActAs(null, true)).toBe(false);
   });
@@ -71,7 +81,7 @@ describe('[L-08] what a request runs as', () => {
   });
 
   it('is the signed-in person when nobody may act as anyone', () => {
-    expect(resolveActing(member, partner, true)).toBe(member);
+    expect(resolveActing(hankija, partner, true)).toBe(hankija);
     expect(resolveActing(admin, partner, false)).toBe(admin);
     expect(resolveActing(partner, admin, true)).toBe(partner);
   });
@@ -110,5 +120,36 @@ describe('[D-09] the evidence label', () => {
         via: { userId: 'u-mari', label: 'Mari Tamm' },
       }),
     ).toBe('Jaan Kask, Tehisaru Koolitus OÜ (testkeskkonnas tegutses: Mari Tamm)');
+  });
+});
+
+describe('[R-01] what each buyer role may write', () => {
+  it('lets both roles run the procurement', () => {
+    // The whole point of the split: a hankija publishes rounds, reviews bids
+    // and confirms allocations, exactly as an admin does.
+    expect(mayWriteProcurement(admin)).toBe(true);
+    expect(mayWriteProcurement(hankija)).toBe(true);
+  });
+
+  it('keeps the framework data and the team for an admin', () => {
+    expect(mayAdminister(admin)).toBe(true);
+    expect(mayAdminister(hankija)).toBe(false);
+  });
+
+  it('admits nobody else to either, signed in or not', () => {
+    for (const decide of [mayWriteProcurement, mayAdminister]) {
+      expect(decide(partner)).toBe(false);
+      expect(decide(null)).toBe(false);
+      expect(decide(undefined)).toBe(false);
+    }
+  });
+
+  it('tells a hankija what they may still do, and never calls them a vaatleja', () => {
+    // The read-only observer role is gone; a refusal that still described one
+    // would be telling somebody they cannot do the job they were given.
+    expect(WRITE_REFUSED.notAdmin).toContain('hankija');
+    expect(WRITE_REFUSED.notAdmin).toContain('voore saad teha');
+    expect(WRITE_REFUSED.notAdmin).not.toContain('vaatleja');
+    expect(WRITE_REFUSED.notBuyer).not.toContain('vaatleja');
   });
 });

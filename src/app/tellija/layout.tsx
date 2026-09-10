@@ -1,4 +1,5 @@
 import { requireBuyer } from '@/server/auth/actor';
+import { BUYER_ROLE_LABELS } from '@/domain/round-statuses';
 import { AppNav } from '@/components/app-nav';
 import { TestStrip } from '@/components/test-strip';
 import { getDb } from '@/db';
@@ -27,17 +28,18 @@ export default async function BuyerLayout({ children }: { children: React.ReactN
       <AppNav
         title="Kaskaadhankija"
         subtitle={frameworkSubtitle(frameworkIdentity(db))}
-        // A member can open every screen but change nothing [R-01]; saying so
-        // in the header beats letting them find out by pressing a button.
-        actor={actor.role === 'admin' ? actor.label : `${actor.label} · vaatleja`}
+        // A purchaser opens every screen and runs every round, but does not
+        // administer the framework or the team [R-01]; naming the role in the
+        // header beats letting them find out by pressing a button.
+        actor={actor.role === 'admin' ? actor.label : `${actor.label} · ${BUYER_ROLE_LABELS.member.toLowerCase()}`}
         items={[
           { href: '/tellija', label: 'Töölaud', count: closedCount },
           { href: '/tellija/voorud', label: 'Voorud', count: openCount },
           { href: '/tellija/koolitused', label: 'Koolitused' },
           { href: '/tellija/tellimused', label: 'Tellimused' },
-          // The framework's own data is one admin screen [L-21]; the lot and
-          // partner lists stay for reading.
-          ...(actor.role === 'admin' ? [{ href: '/tellija/raamhange', label: 'Raamhange' }] : []),
+          // Everyone on the buyer side reads the framework data; only an
+          // admin changes it [L-21], which the page itself enforces.
+          { href: '/tellija/raamhange', label: 'Raamhange' },
           { href: '/tellija/hankeosad', label: 'Hankeosad' },
           { href: '/tellija/partnerid', label: 'Partnerid' },
           { href: '/tellija/partnerid/esindajad', label: 'Esindajad' },

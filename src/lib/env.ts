@@ -42,20 +42,25 @@ const schema = z.object({
   /** signs one-time sign-in codes and session tokens */
   AUTH_SECRET: z.string().optional(),
   /**
-   * Domains whose addresses may sign in as buyer admins without being listed
-   * first, e.g. `@riigikantselei.ee`. Comma-separated; empty means only people
-   * on the team or representatives lists can sign in. The user row is created
-   * when a code is verified, never when one is requested.
+   * Who may sign in as a buyer admin without being added to the team first
+   * [L-08]. Comma-separated, and each entry is either a **named address**
+   * (`luukas.ilves@riigikantselei.ee`) or a **whole domain** (`@naidis.ee`,
+   * which a test environment wants so nobody has to maintain a roster).
+   *
+   * Empty means only people already on the team or the representatives list can
+   * sign in. The user row is created when a code is verified, never when one is
+   * requested, so requesting codes for invented colleagues cannot populate the
+   * team.
    */
-  AUTO_ADMIN_EMAIL_DOMAINS: z.string().optional(),
+  AUTO_ADMIN_ALLOWLIST: z.string().optional(),
   /** first buyer persona created by the seed */
   SEED_ADMIN_EMAIL: z.string().default('mari.tamm@naidis.riigikantselei.ee'),
   SEED_ADMIN_NAME: z.string().default('Mari Tamm'),
   /**
    * The buyer team's own members, added when the seed runs, so a fresh volume
-   * already has the people who sign in: `nimi,e-post[,roll];…`, admin unless
-   * the role says otherwise. Partner representatives are *not* seeded from a
-   * secret any more — they come with the framework data [L-21].
+   * already has the people who sign in: `nimi,e-post[,roll];…`, **hankija**
+   * unless the role says `admin` [R-01]. Partner representatives are *not*
+   * seeded from a secret any more — they come with the framework data [L-21].
    */
   SEED_TEAM: z.string().optional(),
   /**

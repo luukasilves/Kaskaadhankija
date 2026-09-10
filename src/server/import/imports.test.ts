@@ -11,7 +11,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { beforeEach, afterEach, describe, expect, it } from 'vitest';
-import { lotPartners, lots, partners, roundParticipants, rounds, trainings } from '@/db/schema';
+import { importBatches, lotPartners, lots, partners, roundParticipants, rounds, trainings } from '@/db/schema';
 import { parseCsv } from './csv';
 import { parseXlsx } from './xlsx';
 import {
@@ -204,11 +204,36 @@ describe('trainings import — upload path', () => {
         rawRows: [rawTrainingRow()],
       }),
     );
-    harness.write((ctx) => discardImport(ctx, preview.batchId));
+    harness.write((ctx) => discardImport(ctx, preview.batchId, ['trainings']));
     expect(() => harness.write((ctx) => applyTrainingsImport(ctx, preview.batchId))).toThrow(
       /kõrvale jäetud/,
     );
     expect(countTrainings()).toBe(0);
+  });
+
+  it('refuses to discard a batch of another kind [R-01]', () => {
+    const preview = harness.write((ctx) =>
+      previewTrainingsImport(ctx, {
+        fileName: 'test.csv',
+        fileSize: 10,
+        source: 'upload',
+        rawRows: [rawTrainingRow()],
+      }),
+    );
+    // The batch id arrives in a form field, and the calendar's discard form is
+    // a hankija's. Posting a framework batch's id to it must not cancel an
+    // admin's pending upload, so each call site names the kinds it owns.
+    expect(() => harness.write((ctx) => discardImport(ctx, preview.batchId, ['framework']))).toThrow(
+      /ei kuulu siia vaatesse/,
+    );
+    expect(
+      harness.read((db) => db.select().from(importBatches).where(eq(importBatches.id, preview.batchId)).get())?.status,
+    ).toBe('previewed');
+    // Its own kind still works, so the guard is a filter and not a wall.
+    harness.write((ctx) => discardImport(ctx, preview.batchId, ['trainings', 'round']));
+    expect(
+      harness.read((db) => db.select().from(importBatches).where(eq(importBatches.id, preview.batchId)).get())?.status,
+    ).toBe('discarded');
   });
 
   it('allocates the next free training code', () => {

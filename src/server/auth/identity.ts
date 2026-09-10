@@ -15,14 +15,47 @@
  *  - In the test environment a buyer **admin** lands on the act-as screen after
  *    every sign-in and may act as any participant. The session stays open, so
  *    switching is not a logout and the trail always names the real person.
- *  - Everyone else — a buyer member, a partner's representative — lands in their
- *    own area and cannot act as anyone.
+ *  - Everyone else — a hankija, a partner's representative — lands in their own
+ *    area and cannot act as anyone.
+ *
+ * The two buyer roles' rights [R-01] are here for the same reason: which
+ * controls a screen offers and which writes an action accepts are one decision,
+ * asked twice, and it should not be spelled out twice.
  */
 
 import type { ActingVia } from '../context';
 import type { Actor, BuyerActor } from './actor';
 
 export type { ActingVia };
+
+/**
+ * [R-01] Whether an identity may make **procurement** writes: creating and
+ * publishing rounds, importing a calendar, the review, the confirmation, the
+ * protocol. Both buyer roles may — that is the hankija's job.
+ */
+export function mayWriteProcurement(actor: Actor | null | undefined): actor is BuyerActor {
+  return actor?.kind === 'buyer';
+}
+
+/**
+ * [R-01] Whether an identity may make **administration** writes: the framework
+ * agreement's own data [L-21], the team, and acting as another participant. A
+ * hankija reads all of it and changes none of it.
+ */
+export function mayAdminister(actor: Actor | null | undefined): actor is BuyerActor {
+  return actor?.kind === 'buyer' && actor.role === 'admin';
+}
+
+/**
+ * What somebody is told when a write is refused. Refusals are messages on a
+ * form rather than a redirect (see `assertBuyerActor`), so the text matters:
+ * it has to say which right is missing and what the reader *can* still do.
+ */
+export const WRITE_REFUSED = {
+  notBuyer: 'Toiming vajab sisselogimist tellimismeeskonna liikmena.',
+  notAdmin:
+    'Raamhanke andmete ja meeskonna muutmine on admini õigus. Sul on hankija roll: voore saad teha, raamlepingut muuta ei saa.',
+} as const;
 
 /** The act-as screen; also the front door of the test environment's buyer side. */
 export const ACT_AS_PATH = '/';

@@ -11,7 +11,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { and, eq } from 'drizzle-orm';
 import { getDb } from '@/db';
-import { buyerCanWrite } from '@/server/auth/actor';
+import { buyerIsAdmin } from '@/server/auth/actor';
 import { ReadOnlyNote } from '@/components/read-only-note';
 import { lotPartners, lots, partners, rounds } from '@/db/schema';
 import { formatEur } from '@/domain/format';
@@ -24,7 +24,7 @@ export const dynamic = 'force-dynamic';
 export default async function LotDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const db = getDb();
-  const canWrite = await buyerCanWrite();
+  const canWrite = await buyerIsAdmin();
 
   const lot = db.select().from(lots).where(eq(lots.id, id)).get();
   if (!lot) notFound();

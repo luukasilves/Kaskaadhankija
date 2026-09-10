@@ -40,8 +40,12 @@ export function startServer({
   cwd = process.cwd(),
   /** print sign-in codes to the log instead of mailing them, so a script can read one */
   devMail = true,
-  /** the domain whose addresses sign in as buyer admins without being listed [L-08] */
-  adminDomains = BUYER_DOMAIN,
+  /**
+   * Who signs in as a buyer admin without being listed first [L-08]. A whole
+   * domain here, which is what lets a suite sign in on an empty database with
+   * nobody in the team yet; the real deployment carries named addresses.
+   */
+  adminAllowlist = BUYER_DOMAIN,
   /**
    * How short a test round's response window may be [L-23]. The product default
    * is five minutes — right for a person trying the environment, far too long
@@ -57,7 +61,7 @@ export function startServer({
       PORT: String(port),
       ...(demoMode ? { DEMO_MODE: '1' } : {}),
       ...(devMail ? { EMAIL_DEV_MODE: '1' } : {}),
-      ...(adminDomains ? { AUTO_ADMIN_EMAIL_DOMAINS: adminDomains } : {}),
+      ...(adminAllowlist ? { AUTO_ADMIN_ALLOWLIST: adminAllowlist } : {}),
       TEST_DEADLINE_FLOOR_SECONDS: String(deadlineFloorSeconds),
       APP_BASE_URL: `http://localhost:${port}`,
     },
@@ -133,7 +137,7 @@ export function watchPage(page) {
  * signing in [L-08]
  * ------------------------------------------------------------------ */
 
-/** The admin the seed creates, listed and therefore not relying on the domain rule. */
+/** The admin the seed creates, listed and therefore not relying on the allowlist. */
 export const SEED_ADMIN = { name: 'Mari Tamm', email: 'mari.tamm@naidis.riigikantselei.ee' };
 
 /** The buyer domain the test servers treat as admins. */
@@ -318,7 +322,9 @@ export function nextMinuteDeadline({ minLeadMs = 25_000 } = {}) {
 export async function publishWithShortDeadline(page, { minLeadMs } = {}) {
   const { deadlineMs, localValue } = nextMinuteDeadline({ minLeadMs });
   await page.getByTestId('deadline-at').fill(localValue);
-  page.once('dialog', (dialog) => dialog.accept());
+  // A suite may already accept dialogs page-wide; whoever gets there second
+  // finds the dialog handled, which is not a failure.
+  page.once('dialog', (dialog) => dialog.accept().catch(() => {}));
   await page.getByTestId('publish-round').locator('button').click();
   await page.waitForFunction(() => document.body.textContent.includes('Avatud'), null, {
     timeout: 20_000,

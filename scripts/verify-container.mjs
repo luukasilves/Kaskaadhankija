@@ -82,7 +82,7 @@ function startStandalone(port, { demoMode = true } = {}) {
       // Codes go to the log rather than the post, so a script can read one —
       // the only place a sign-in code ever exists [L-08].
       EMAIL_DEV_MODE: '1',
-      AUTO_ADMIN_EMAIL_DOMAINS: BUYER_DOMAIN,
+      AUTO_ADMIN_ALLOWLIST: BUYER_DOMAIN,
       APP_BASE_URL: `http://localhost:${port}`,
     },
     stdio: ['ignore', 'pipe', 'pipe'],

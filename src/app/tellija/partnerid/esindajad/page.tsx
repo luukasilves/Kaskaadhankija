@@ -15,13 +15,14 @@ import { formatDateTimeShort } from '@/domain/format';
 import { REPRESENTATIVE_ROLE_LABELS } from '@/domain/round-statuses';
 import { StatusBadge } from '@/components/status-badge';
 import { RepresentativeActiveToggle } from './representative-forms';
-import { buyerCanWrite } from '@/server/auth/actor';
+import { buyerIsAdmin } from '@/server/auth/actor';
+import { ReadOnlyNote } from '@/components/read-only-note';
 
 export const dynamic = 'force-dynamic';
 
 export default async function RepresentativesPage() {
   const db = getDb();
-  const canWrite = await buyerCanWrite();
+  const canWrite = await buyerIsAdmin();
   const companies = db
     .select()
     .from(partners)
@@ -64,6 +65,8 @@ export default async function RepresentativesPage() {
           )}
         </div>
       </div>
+
+      {!canWrite && <ReadOnlyNote what="Esindajate muutmine" />}
 
       {companies.length === 0 ? (
         <p className="kh-card p-6 text-[var(--color-muted)]">Partnereid ei ole veel sisestatud.</p>

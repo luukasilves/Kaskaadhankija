@@ -204,6 +204,52 @@ describe('0009_round_protocols on a populated v2.2 database', () => {
   });
 });
 
+describe('0010_admin_allowlist on a populated v2.2 database', () => {
+  it('leaves exactly one named admin and touches nobody else [R-01]', () => {
+    const raw = databaseThrough('0009_round_protocols');
+    const insert = raw.prepare(
+      'INSERT INTO users (id, name, email, role, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    );
+    // What the live volume looks like: admins the domain rule created one by
+    // one, in the casing each person typed, plus a hankija and a deactivated
+    // account that must both come through untouched.
+    insert.run('u-luukas', 'Luukas Ilves', 'Luukas.Ilves@riigikantselei.ee', 'admin', 1, 1_000);
+    insert.run('u-mari', 'Mari Tamm', 'mari.tamm@naidis.riigikantselei.ee', 'admin', 1, 1_000);
+    insert.run('u-kolleeg', 'Kolleeg', 'kolleeg@riigikantselei.ee', 'admin', 1, 1_000);
+    insert.run('u-hankija', 'Juba Hankija', 'hankija@riigikantselei.ee', 'member', 1, 1_000);
+    insert.run('u-endine', 'Endine', 'endine@riigikantselei.ee', 'admin', 0, 1_000);
+
+    migrate(drizzle(raw, { schema }), { migrationsFolder: folder });
+
+    const roles = Object.fromEntries(
+      (raw.prepare('SELECT id, role, is_active FROM users').all() as Array<{
+        id: string;
+        role: string;
+        is_active: number;
+      }>).map((row) => [row.id, `${row.role}/${row.is_active}`]),
+    );
+    expect(roles).toEqual({
+      // Matched case-insensitively, as an address always is.
+      'u-luukas': 'admin/1',
+      'u-mari': 'member/1',
+      'u-kolleeg': 'member/1',
+      // Already a hankija, and still one — the statement only touches admins.
+      'u-hankija': 'member/1',
+      // A deactivated account is demoted like the rest but stays switched off:
+      // reactivating somebody must not hand back rights nobody re-granted.
+      'u-endine': 'member/0',
+    });
+    raw.close();
+  });
+
+  it('is a no-op on the empty database a fresh volume boots with', () => {
+    const raw = databaseThrough('0009_round_protocols');
+    expect(() => migrate(drizzle(raw, { schema }), { migrationsFolder: folder })).not.toThrow();
+    expect(raw.prepare('SELECT count(*) AS n FROM users').get()).toEqual({ n: 0 });
+    raw.close();
+  });
+});
+
 describe('0007_acting_via on a populated v2 database', () => {
   it('adds the two columns without disturbing the append-only trail [L-08]', () => {
     const raw = v2Database();

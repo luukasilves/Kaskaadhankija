@@ -18,7 +18,7 @@ import { partners } from '@/db/schema';
 import { CAP_OPTIONS_LABELS } from '@/domain/round-statuses';
 import { formatDateTimeShort, formatEur, formatIsoDay } from '@/domain/format';
 import { frameworkSubtitle } from '@/domain/framework';
-import { buyerCanWrite } from '@/server/auth/actor';
+import { buyerIsAdmin } from '@/server/auth/actor';
 import { frameworkChangeLog, frameworkIdentity, frameworkLots, representativesOf } from '@/server/framework';
 import { ReadOnlyNote } from '@/components/read-only-note';
 import { StatusBadge } from '@/components/status-badge';
@@ -42,7 +42,7 @@ const SAMPLE_FILES = [
 
 export default async function FrameworkPage() {
   const db = getDb();
-  const canWrite = await buyerCanWrite();
+  const canWrite = await buyerIsAdmin();
   const identity = frameworkIdentity(db);
   const lots = frameworkLots(db);
   const log = frameworkChangeLog(db, 40);

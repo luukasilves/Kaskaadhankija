@@ -3,7 +3,8 @@
 import Link from 'next/link';
 import { eq } from 'drizzle-orm';
 import { getDb } from '@/db';
-import { buyerCanWrite } from '@/server/auth/actor';
+import { buyerIsAdmin } from '@/server/auth/actor';
+import { ReadOnlyNote } from '@/components/read-only-note';
 import { lotPartners, lots, partners } from '@/db/schema';
 import { StatusBadge } from '@/components/status-badge';
 import { workloadFor } from '@/server/rounds/views';
@@ -12,7 +13,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function PartnersPage() {
   const db = getDb();
-  const canWrite = await buyerCanWrite();
+  const canWrite = await buyerIsAdmin();
 
   const rows = db.select().from(partners).all().sort((a, b) => a.name.localeCompare(b.name));
   const memberships = db
@@ -51,6 +52,8 @@ export default async function PartnersPage() {
           )}
         </div>
       </div>
+
+      {!canWrite && <ReadOnlyNote what="Järjestuse muutmine" />}
 
       {rows.length === 0 ? (
         <p className="kh-card p-6 text-[var(--color-muted)]">
