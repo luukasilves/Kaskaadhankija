@@ -10,8 +10,6 @@
  */
 
 import { redirect } from 'next/navigation';
-import { loadSampleTrainings } from '@/db/seed';
-import { assertDemoMode } from '@/lib/env';
 import {
   applyTrainingsImport,
   discardImport,
@@ -93,21 +91,6 @@ export async function discardImportAction(form: FormData): Promise<ActionOutcome
     return fail(describeError(error));
   }
   redirect('/tellija/koolitused');
-}
-
-/** Demo-only: re-import the committed sample koolituskalender. */
-export async function loadSampleTrainingsAction(): Promise<ActionOutcome> {
-  try {
-    assertDemoMode();
-    const result = await buyerWrite((ctx) => loadSampleTrainings(ctx), [
-      '/tellija/koolitused',
-      '/tellija',
-    ]);
-    const { created, updated, locked } = result.summary;
-    return ok(`Näidisandmed laaditud: ${created} uut, ${updated} uuendatud, ${locked} lukus.`);
-  } catch (error) {
-    return fail(describeError(error));
-  }
 }
 
 /* ---------------- partner ranking ---------------- */

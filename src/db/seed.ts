@@ -191,17 +191,6 @@ export function seedBaseData(ctx: Ctx): SeedReport {
   };
 }
 
-/** Re-import the committed sample koolituskalender — the demo-only button. */
-export function loadSampleTrainings(ctx: Ctx) {
-  const file = readSeedFile(SEED_FILES.trainings);
-  return importTrainingsFromRows(ctx, {
-    fileName: SEED_FILES.trainings,
-    fileSize: file.size,
-    source: 'sample',
-    rawRows: file.rows,
-  });
-}
-
 /**
  * The example rounds replay real engine calls, so they queue real e-mails.
  * Those notices are history being reconstructed, not events happening now, and

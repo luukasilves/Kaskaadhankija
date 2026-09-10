@@ -91,10 +91,3 @@ export function mailMode(): MailMode {
 
 /** True when SMTP is configured well enough to attempt a send. */
 export const hasSmtp = mailMode() === 'smtp';
-
-/** Guard for actions that must never exist in production. */
-export function assertDemoMode(): void {
-  if (!isDemoMode) {
-    throw new Error('See toiming on saadaval ainult testkeskkonnas (DEMO_MODE).');
-  }
-}
