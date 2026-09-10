@@ -1,23 +1,27 @@
 /**
- * The persona roster for the test harness.
+ * Who an admin can act as, in the test environment.
  *
- * Powers both the opening screen and the strip's dropdown. Each persona card
- * carries a live status line, so a tester can tell *before* entering which
- * persona has something interesting to do — "kinnitamata muudatused" on the
- * rank-3 partner is the whole point of the seeded scenario.
+ * There is no roster table: the list is simply the buyer team and the framework
+ * partners, read from the tables the framework data put them in. While testing
+ * those are the sample participants; once the real framework workbook is
+ * uploaded they are the real ones, with no code change [L-21].
  *
- * Demo-only: nothing here is reachable when DEMO_MODE is off.
+ * Each card carries a live status line, so it is obvious before entering which
+ * participant has something waiting — the rank-3 partner with unconfirmed
+ * changes is the point of the seeded scenario.
+ *
+ * Reachable only in the test environment (`DEMO_MODE`), and only for an admin.
  */
 
-import { eq, inArray } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { getDb } from '@/db';
 import { lotPartners, lots, partners, rounds, trainings, users } from '@/db/schema';
 import { RESPONSE_STATE_LABELS } from '@/domain/round-statuses';
 import { formatDateTimeShort, formatRemaining } from '@/domain/format';
-import { readClock } from './clock';
+import { currentTimeMs } from './clock';
 import { latestConfirmation, participantsOf, responseStateFor } from './rounds/views';
 
-export interface PersonaCard {
+export interface ActAsCard {
   /** cookie value: 'buyer:<id>' or 'partner:<id>' */
   key: string;
   kind: 'buyer' | 'partner';
@@ -29,15 +33,15 @@ export interface PersonaCard {
   statusLines: string[];
 }
 
-export interface PersonaRoster {
-  buyers: PersonaCard[];
-  partners: PersonaCard[];
+export interface ActAsRoster {
+  buyers: ActAsCard[];
+  partners: ActAsCard[];
   nowMs: number;
 }
 
-export function listPersonas(): PersonaRoster {
+export function listActAsRoster(): ActAsRoster {
   const db = getDb();
-  const { nowMs } = readClock(db);
+  const nowMs = currentTimeMs();
 
   /* ---------- buyer ---------- */
 
@@ -78,7 +82,7 @@ export function listPersonas(): PersonaRoster {
     buyerStatus.push(`jääk: ${leftoverCount} koolitus(t) ootab otsust`);
   }
 
-  const buyers: PersonaCard[] = buyerRows.map((row) => ({
+  const buyers: ActAsCard[] = buyerRows.map((row) => ({
     key: `buyer:${row.id}`,
     kind: 'buyer',
     name: row.name,
@@ -111,7 +115,7 @@ export function listPersonas(): PersonaRoster {
     relevantRoundIds.map((roundId) => [roundId, participantsOf(db, roundId)] as const),
   );
 
-  const partnerCards: PersonaCard[] = partnerRows.map((partner) => {
+  const partnerCards: ActAsCard[] = partnerRows.map((partner) => {
     const mine = memberships
       .filter((m) => m.partnerId === partner.id)
       .sort((a, b) => a.lotCode.localeCompare(b.lotCode));
@@ -160,8 +164,8 @@ export function listPersonas(): PersonaRoster {
 }
 
 /** Lightweight version for the strip's dropdown. */
-export function listPersonaOptions(): Array<{ key: string; group: string; label: string }> {
-  const roster = listPersonas();
+export function listActAsOptions(): Array<{ key: string; group: string; label: string }> {
+  const roster = listActAsRoster();
   return [
     ...roster.buyers.map((b) => ({ key: b.key, group: 'Tellija', label: b.name })),
     ...roster.partners.map((p) => ({
@@ -172,16 +176,3 @@ export function listPersonaOptions(): Array<{ key: string; group: string; label:
   ];
 }
 
-/** Earliest pending deadline, for the strip's "Järgmise tähtajani" button. */
-export function nextDeadlineMs(): number | null {
-  const db = getDb();
-  const open = db
-    .select({ deadlineAt: rounds.deadlineAt })
-    .from(rounds)
-    .where(inArray(rounds.status, ['open']))
-    .all()
-    .map((r) => r.deadlineAt)
-    .filter((d): d is number => d !== null)
-    .sort((a, b) => a - b);
-  return open[0] ?? null;
-}

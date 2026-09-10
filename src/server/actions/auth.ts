@@ -26,8 +26,9 @@ import {
   type Subject,
 } from '../auth/codes';
 import { addTeamMember } from '../team';
+import { landingAfterSignIn } from '../auth/identity';
 import { PERSONA_COOKIE, SESSION_COOKIE, requestEvidence } from '../auth/actor';
-import { nowMs } from '../clock';
+import { currentTimeMs } from '../clock';
 import { NO_EVIDENCE, type ActorRef, type Ctx, type Evidence, type Tx } from '../context';
 import { isEmailAddress, sendMail } from '../mail';
 import { fieldText } from './helpers';
@@ -36,7 +37,7 @@ const THIRTY_DAYS = 60 * 60 * 24 * 30;
 const SIGN_IN_ACTOR: ActorRef = { kind: 'system', id: null, label: 'Sisselogimine' };
 
 function auditCtx(tx: Tx, evidence: Evidence, actor: ActorRef = SIGN_IN_ACTOR): Ctx {
-  return { tx, at: nowMs(tx), actor, evidence, outbox: [] };
+  return { tx, at: currentTimeMs(), actor, evidence, outbox: [] };
 }
 
 function subjectRef(subject: Subject): ActorRef {
@@ -48,7 +49,10 @@ function subjectRef(subject: Subject): ActorRef {
 }
 
 function homeFor(subject: Subject): string {
-  return subject.kind === 'buyer' ? '/tellija' : '/partner/voorud';
+  return landingAfterSignIn(
+    subject.kind === 'buyer' ? { kind: 'buyer', role: subject.role } : { kind: subject.kind },
+    isDemoMode,
+  );
 }
 
 export async function requestLoginCodeAction(form: FormData): Promise<void> {
@@ -129,7 +133,7 @@ export async function verifyLoginCodeAction(form: FormData): Promise<void> {
               role: 'admin',
               note: 'lisatud sisselogimisel tellija domeeni reegli alusel',
             });
-            subject = { kind: 'buyer', id: userId, name, email: newEmail };
+            subject = { kind: 'buyer', id: userId, name, email: newEmail, role: 'admin' };
           } catch (error) {
             logAudit(auditCtx(tx, evidence), {
               eventType: 'login.failed',
@@ -173,7 +177,8 @@ export async function verifyLoginCodeAction(form: FormData): Promise<void> {
     maxAge: THIRTY_DAYS,
     secure: process.env.NODE_ENV === 'production',
   });
-  // A signed-in person is one identity; a leftover persona would only confuse.
+  // Every sign-in starts as oneself: an admin chooses again on the act-as
+  // screen rather than inheriting last week's choice.
   store.delete(PERSONA_COOKIE);
   redirect(homeFor(result.subject));
 }
@@ -198,5 +203,8 @@ export async function endSession(): Promise<boolean> {
 
 export async function logoutAction(): Promise<void> {
   await endSession();
-  redirect(isDemoMode ? '/' : '/sisene');
+  // Both cookies: an act-as choice without a session behind it is nobody.
+  const store = await cookies();
+  store.delete(PERSONA_COOKIE);
+  redirect('/sisene');
 }

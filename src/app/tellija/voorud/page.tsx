@@ -8,7 +8,8 @@ import { formatDateTimeShort } from '@/domain/format';
 import { ROUND_STATUS_LABELS, ROUND_STATUS_TONES } from '@/domain/round-statuses';
 import { Countdown } from '@/components/countdown';
 import { StatusBadge } from '@/components/status-badge';
-import { readClock } from '@/server/clock';
+import { currentTimeMs } from '@/server/clock';
+import { buyerCanWrite } from '@/server/auth/actor';
 import { runDueJobs } from '@/server/rounds/jobs';
 
 export const dynamic = 'force-dynamic';
@@ -16,7 +17,8 @@ export const dynamic = 'force-dynamic';
 export default async function RoundsList() {
   runDueJobs();
   const db = getDb();
-  const { nowMs } = readClock(db);
+  const canWrite = await buyerCanWrite();
+  const nowMs = currentTimeMs();
 
   const rows = db
     .select({
@@ -50,9 +52,11 @@ export default async function RoundsList() {
             Iga voor läheb korraga kõigile oma hankeosa aktiivsetele partneritele.
           </p>
         </div>
-        <Link href="/tellija/voorud/uus" className="kh-btn kh-btn-primary">
-          Uus voor
-        </Link>
+        {canWrite && (
+          <Link href="/tellija/voorud/uus" className="kh-btn kh-btn-primary">
+            Uus voor
+          </Link>
+        )}
       </div>
 
       {rows.length === 0 ? (

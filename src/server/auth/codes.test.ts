@@ -146,7 +146,13 @@ describe('codes', () => {
 });
 
 describe('sessions', () => {
-  const subject = { kind: 'buyer' as const, id: 'u-mari', name: 'Mari Tamm', email: 'mari.tamm@riik.ee' };
+  const subject = {
+    kind: 'buyer' as const,
+    id: 'u-mari',
+    name: 'Mari Tamm',
+    email: 'mari.tamm@riik.ee',
+    role: 'admin' as const,
+  };
 
   it('resolve by token until they expire or are revoked, storing only the hash', () => {
     const { token, sessionId } = harness.write((ctx) => createSession(ctx.tx, subject, EVIDENCE, NOW));
@@ -233,7 +239,9 @@ describe('the buyer-domain rule [L-08]', () => {
     if (result.outcome !== 'sent') return;
     expect(verify('juba@riik.ee', result.code)).toEqual({
       ok: true,
-      who: { existing: { kind: 'buyer', id: 'u-domain', name: 'Juba Olemas', email: 'juba@riik.ee' } },
+      // Their own row wins over the domain rule, role and all: the rule creates
+      // admins, but it never promotes somebody who is already a member.
+      who: { existing: { kind: 'buyer', id: 'u-domain', name: 'Juba Olemas', email: 'juba@riik.ee', role: 'member' } },
     });
   });
 

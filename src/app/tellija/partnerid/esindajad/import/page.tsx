@@ -9,6 +9,8 @@
 import Link from 'next/link';
 import { eq } from 'drizzle-orm';
 import { getDb } from '@/db';
+import { buyerCanWrite } from '@/server/auth/actor';
+import { ReadOnlyNote } from '@/components/read-only-note';
 import { importBatches, partnerRepresentatives, partners } from '@/db/schema';
 import { REPRESENTATIVE_COLUMNS, REPRESENTATIVE_OPTIONAL_COLUMNS } from '@/domain/import-rows';
 import { formatDateTimeShort } from '@/domain/format';
@@ -27,6 +29,20 @@ export default async function RepresentativesImportPage({
 }) {
   const { batch } = await searchParams;
   const db = getDb();
+
+  if (!(await buyerCanWrite())) {
+    return (
+      <div className="space-y-4">
+        <div>
+          <Link href="/tellija/partnerid/esindajad" className="text-[13px] text-[var(--color-brand)]">
+            ← Esindajad
+          </Link>
+          <h1 className="mt-1">Esindajate import</h1>
+        </div>
+        <ReadOnlyNote what="Esindajate import" />
+      </div>
+    );
+  }
 
   const stored = batch
     ? db.select().from(importBatches).where(eq(importBatches.id, batch)).get()

@@ -9,7 +9,6 @@
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { notifications, rounds } from '@/db/schema';
-import { setClockOffset } from '../clock';
 import { createHarness, seedLotWithPartners, type LotFixture, type TestHarness } from '../test-support';
 import { confirmMarks, createRound, publishRound } from './engine';
 import { runDueJobs } from './jobs';
@@ -18,18 +17,33 @@ let harness: TestHarness;
 let fx: LotFixture;
 
 beforeEach(() => {
-  // The jobs runner reads the clock from app_state rather than the harness,
-  // so tests move time by setting the stored offset.
+  // The runner reads the real clock, so these tests must start from it.
   harness = createHarness(Date.now());
   fx = seedLotWithPartners(harness, { partnerCount: 3, trainingCount: 3 });
 });
 
 afterEach(() => harness.close());
 
-/** Shift the persisted clock, which is what runDueJobs consults. */
-function shiftStoredClock(ms: number): void {
-  harness.write((ctx) => setClockOffset(ctx.tx, ms));
-  harness.now = Date.now() + ms;
+/**
+ * Move every round's window back by `ms` — which is what the passage of `ms`
+ * looks like to the runner, now that the clock is the real one [L-23].
+ */
+function timePasses(ms: number): void {
+  harness.write((ctx) => {
+    for (const row of ctx.tx.select().from(rounds).all()) {
+      ctx.tx
+        .update(rounds)
+        .set({
+          publishedAt: row.publishedAt === null ? null : row.publishedAt - ms,
+          deadlineAt: row.deadlineAt === null ? null : row.deadlineAt - ms,
+          expectedDecisionAt:
+            row.expectedDecisionAt === null ? null : row.expectedDecisionAt - ms,
+        })
+        .where(eq(rounds.id, row.id))
+        .run();
+    }
+  });
+  harness.now = Date.now();
 }
 
 const publish = () =>
@@ -54,7 +68,7 @@ describe('runDueJobs', () => {
     const roundId = publish();
     harness.write((ctx) => confirmMarks(ctx, roundId, fx.partnerIds[0], { marks: [fx.trainingIds[0]], cap: null }));
 
-    shiftStoredClock(10 * 86_400_000);
+    timePasses(10 * 86_400_000);
     const report = runDueJobs(harness.db);
 
     expect(report.closed).toHaveLength(1);
@@ -63,7 +77,7 @@ describe('runDueJobs', () => {
 
   it('is idempotent across repeated runs', () => {
     publish();
-    shiftStoredClock(10 * 86_400_000);
+    timePasses(10 * 86_400_000);
 
     const first = runDueJobs(harness.db);
     const second = runDueJobs(harness.db);
@@ -86,7 +100,7 @@ describe('runDueJobs', () => {
       publishRound(ctx, id);
     });
 
-    shiftStoredClock(15 * 86_400_000);
+    timePasses(15 * 86_400_000);
     expect(runDueJobs(harness.db).closed).toHaveLength(2);
   });
 
@@ -96,8 +110,8 @@ describe('runDueJobs', () => {
       db.select().from(rounds).where(eq(rounds.id, roundId)).get(),
     )!.deadlineAt!;
 
-    // Step to twelve hours before the deadline.
-    shiftStoredClock(deadline - 12 * 3_600_000 - Date.now());
+    // Bring the deadline to twelve hours from now.
+    timePasses(deadline - 12 * 3_600_000 - Date.now());
 
     expect(runDueJobs(harness.db).remindersSent).toBe(3);
     expect(runDueJobs(harness.db).remindersSent).toBe(0);
@@ -106,7 +120,7 @@ describe('runDueJobs', () => {
 
   it('does not remind about a round it has just closed', () => {
     publish();
-    shiftStoredClock(10 * 86_400_000);
+    timePasses(10 * 86_400_000);
     const report = runDueJobs(harness.db);
     expect(report.closed).toHaveLength(1);
     expect(report.remindersSent).toBe(0);
@@ -121,7 +135,7 @@ describe('runDueJobs', () => {
     const draftId = harness.write((ctx) =>
       createRound(ctx, { lotId: fx.lotId, trainingIds: fx.trainingIds }),
     );
-    shiftStoredClock(20 * 86_400_000);
+    timePasses(20 * 86_400_000);
     expect(runDueJobs(harness.db).closed).toEqual([]);
     expect(statusOf(draftId)).toBe('draft');
   });

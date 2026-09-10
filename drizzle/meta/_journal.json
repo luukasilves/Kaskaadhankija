@@ -50,6 +50,13 @@
       "when": 1788804342957,
       "tag": "0006_round_upload",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1789030000000,
+      "tag": "0007_acting_via",
+      "breakpoints": true
     }
   ]
 }

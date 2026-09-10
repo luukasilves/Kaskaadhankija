@@ -8,9 +8,9 @@
  *     buyer's upload uses. The "load from database" and "upload a table" paths
  *     therefore cannot drift, and the sample files stay the single description
  *     of the synthetic procurement.
- *  2. Scenario rounds are built by **replaying real engine calls** against a
- *     rewound virtual clock, so the audit trail, the notification log
- *     and the frozen snapshots are genuine rather than fabricated rows.
+ *  2. Scenario rounds are built by **replaying real engine calls** at
+ *     back-dated instants, so the audit trail, the notification log and the
+ *     frozen snapshots are genuine rather than fabricated rows.
  *
  * Idempotent: guarded by `app_state.seed_version`, and the imports upsert by
  * code, so running it twice changes nothing.

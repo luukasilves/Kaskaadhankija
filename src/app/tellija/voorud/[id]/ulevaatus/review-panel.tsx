@@ -49,6 +49,7 @@ export function ReviewPanel({
   roundId,
   lotCode,
   confirmed,
+  canWrite,
   threshold,
   thresholdNote,
   rows,
@@ -60,6 +61,8 @@ export function ReviewPanel({
   lotId: string;
   lotCode: string;
   confirmed: boolean;
+  /** a member reads the proposal; adjusting and confirming are an admin's [R-01] */
+  canWrite: boolean;
   threshold: number;
   thresholdNote: string;
   rows: ReviewRow[];
@@ -190,14 +193,16 @@ export function ReviewPanel({
                           <p className="max-w-[22rem] text-[12px] text-[var(--color-muted)]">
                             {row.adjustment.justification}
                           </p>
-                          <ActionForm
-                            action={clearAdjustmentAction}
-                            submitLabel="Tühista kohandus"
-                            hidden={{ roundId, lotPartnerId: row.lotPartnerId }}
-                          />
+                          {canWrite && (
+                            <ActionForm
+                              action={clearAdjustmentAction}
+                              submitLabel="Tühista kohandus"
+                              hidden={{ roundId, lotPartnerId: row.lotPartnerId }}
+                            />
+                          )}
                         </div>
                       ) : (
-                        <AdjustmentControls roundId={roundId} row={row} />
+                        canWrite && <AdjustmentControls roundId={roundId} row={row} />
                       )}
                     </td>
                   )}
@@ -237,7 +242,7 @@ export function ReviewPanel({
         </section>
       )}
 
-      {!confirmed && (
+      {!confirmed && canWrite && (
         <section
           className="rounded-[10px] border p-4"
           style={{ borderColor: 'var(--color-brand)', background: 'var(--color-brand-soft)' }}

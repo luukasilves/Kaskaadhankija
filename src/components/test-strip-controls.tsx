@@ -4,81 +4,79 @@
  * The interactive parts of the test strip.
  *
  * Kept in its own client component so the strip itself stays a server component
- * that reads the clock and the persona roster directly.
+ * that reads the identity and the participant list directly.
  */
 
-import { useTransition, useState } from 'react';
+import { useTransition } from 'react';
 import { logoutAction } from '@/server/actions/auth';
-import { clearPersona, switchPersona } from '@/server/actions/persona';
-import { advanceOneDay, advanceOneHour, advanceToNextDeadline } from '@/server/actions/clock';
-import { resetDemoData } from '@/server/actions/demo';
+import { stopActingAs, switchActingAs } from '@/server/actions/act-as';
 
-export interface PersonaOption {
+export interface ActAsOption {
   key: string;
   group: string;
   label: string;
 }
 
 export function TestStripControls({
-  personas,
+  options,
   currentKey,
-  signedInLabel = null,
-  clockLabel,
-  offsetDays,
-  hasPendingDeadline,
+  signedInName,
+  actingLabel,
 }: {
-  personas: PersonaOption[];
+  options: ActAsOption[];
+  /** the act-as choice in force, or null when the admin is themselves */
   currentKey: string | null;
-  /** set when the identity comes from a real session rather than a persona */
-  signedInLabel?: string | null;
-  clockLabel: string;
-  offsetDays: number;
-  hasPendingDeadline: boolean;
+  signedInName: string;
+  /** set only while acting as somebody else */
+  actingLabel: string | null;
 }) {
   const [pending, startTransition] = useTransition();
-  const [message, setMessage] = useState<string | null>(null);
-
-  const groups = Array.from(new Set(personas.map((p) => p.group)));
-
-  const run = (fn: () => Promise<{ message: string; redirectTo?: string }>) => {
-    startTransition(async () => {
-      try {
-        const result = await fn();
-        setMessage(result.message);
-        // A reset mints new ids, so it hands back where to go next.
-        if (result.redirectTo) window.location.assign(result.redirectTo);
-      } catch (error) {
-        setMessage(error instanceof Error ? error.message : 'Toiming ebaõnnestus.');
-      }
-    });
-  };
+  const groups = Array.from(new Set(options.map((o) => o.group)));
 
   return (
     <div className="flex items-center gap-x-3 gap-y-1.5 sm:flex-wrap">
+      <span
+        data-testid="signed-in-badge"
+        className="kh-badge bg-[var(--color-brand-soft)] text-[var(--color-brand)]"
+        title="Sinu enda sessioon, avatud e-posti koodiga. Teise osalejana tegutsemine seda ei lõpeta."
+      >
+        Sisse logitud: {signedInName}
+      </span>
+
+      {actingLabel && (
+        <span
+          data-testid="acting-as"
+          className="kh-badge bg-[var(--color-warning-soft)] text-[var(--color-warning)]"
+          title="Toimingud salvestatakse selle osaleja nimel, auditijälge märgitakse ka sinu nimi"
+        >
+          Tegutseb kui: {actingLabel}
+        </span>
+      )}
+
       <label className="flex min-w-0 flex-1 items-center gap-2 sm:flex-none">
         <span className="hidden font-mono text-[11px] tracking-wider uppercase opacity-80 sm:inline">
-          Persoon
+          Tegutse kui
         </span>
         <select
           className="kh-input min-w-0 max-w-[22rem] flex-1 py-1"
           value={currentKey ?? ''}
-          disabled={pending}
+          disabled={pending || options.length === 0}
           onChange={(event) => {
             const key = event.target.value;
             if (!key) return;
             startTransition(async () => {
-              await switchPersona(key);
+              await switchActingAs(key);
             });
           }}
         >
-          {currentKey === null && <option value="">— vali persoon —</option>}
+          {currentKey === null && <option value="">— sina ise —</option>}
           {groups.map((group) => (
             <optgroup key={group} label={group}>
-              {personas
-                .filter((p) => p.group === group)
-                .map((persona) => (
-                  <option key={persona.key} value={persona.key}>
-                    {persona.label}
+              {options
+                .filter((o) => o.group === group)
+                .map((option) => (
+                  <option key={option.key} value={option.key}>
+                    {option.label}
                   </option>
                 ))}
             </optgroup>
@@ -86,99 +84,35 @@ export function TestStripControls({
         </select>
       </label>
 
-      <div className="flex items-center gap-1.5 sm:flex-wrap">
-        <span className="hidden font-mono text-[11px] tracking-wider uppercase opacity-80 sm:inline">
-          Kell
-        </span>
-        <span className="font-semibold tabular-nums">{clockLabel}</span>
-        {offsetDays !== 0 && (
-          <span className="kh-badge bg-[var(--color-warning-soft)] text-[var(--color-warning)]">
-            {offsetDays > 0 ? '+' : ''}
-            {offsetDays} p
-          </span>
-        )}
-        <button type="button" className="kh-btn text-xs" disabled={pending} onClick={() => run(advanceOneHour)}>
-          +1 h
-        </button>
-        <button type="button" className="kh-btn text-xs" disabled={pending} onClick={() => run(advanceOneDay)}>
-          +1 päev
-        </button>
-        <button
-          type="button"
-          className="kh-btn kh-btn-primary text-xs"
-          disabled={pending || !hasPendingDeadline}
-          title={
-            hasPendingDeadline
-              ? 'Keri aega kuni järgmise vastamistähtaja möödumiseni'
-              : 'Ükski voor ei oota praegu vastust'
-          }
-          onClick={() => run(advanceToNextDeadline)}
-        >
-          Järgmise tähtajani
-        </button>
-      </div>
-
-      <div className="flex items-center gap-2 sm:flex-wrap">
-        {signedInLabel && (
-          <>
-            <span
-              data-testid="signed-in-badge"
-              className="kh-badge bg-[var(--color-brand-soft)] text-[var(--color-brand)]"
-              title="Identiteet tuleb e-posti koodiga avatud sessioonist; persooni valimine lõpetab sessiooni"
-            >
-              Sisse logitud: {signedInLabel}
-            </span>
-            <button
-              type="button"
-              className="kh-btn text-xs"
-              disabled={pending}
-              onClick={() =>
-                startTransition(async () => {
-                  await logoutAction();
-                })
-              }
-            >
-              Logi välja
-            </button>
-          </>
-        )}
-        {currentKey !== null && (
-          <button
-            type="button"
-            className="kh-btn text-xs"
-            disabled={pending}
-            title="Tagasi persoonivaliku lehele"
-            onClick={() =>
-              startTransition(async () => {
-                await clearPersona();
-              })
-            }
-          >
-            Vaheta persooni
-          </button>
-        )}
-
+      {currentKey !== null && (
         <button
           type="button"
           className="kh-btn text-xs"
           disabled={pending}
-          onClick={() => {
-            if (!window.confirm('Kustutada kõik näidise andmed ja alustada algusest?')) return;
-            run(resetDemoData);
-          }}
+          title="Tagasi valikulehele, oma sessiooniga"
+          onClick={() =>
+            startTransition(async () => {
+              await stopActingAs();
+            })
+          }
         >
-          Lähtesta näidisandmed
+          Vaheta
         </button>
-      </div>
-
-      {message && (
-        <span
-          role="status"
-          className="rounded bg-[var(--color-surface)] px-2 py-1 text-xs font-semibold text-[var(--color-text)]"
-        >
-          {message}
-        </span>
       )}
+
+      <button
+        type="button"
+        className="kh-btn text-xs"
+        disabled={pending}
+        onClick={() =>
+          startTransition(async () => {
+            await logoutAction();
+          })
+        }
+      >
+        Logi välja
+      </button>
+
       {pending && <span className="text-xs opacity-70">töötleb…</span>}
     </div>
   );

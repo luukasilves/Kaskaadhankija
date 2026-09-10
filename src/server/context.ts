@@ -23,12 +23,27 @@ export type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 
 export type ActorKind = 'buyer' | 'partner' | 'system' | 'tester';
 
+/**
+ * The signed-in admin behind an act-as choice, in the test environment.
+ *
+ * The action is recorded as the participant who appears to have done it, since
+ * that is whose marks and whose lot it concerns — but a reader of the trail must
+ * be able to see that a colleague was at the keyboard [L-08].
+ */
+export interface ActingVia {
+  userId: string;
+  /** the admin's own name, e.g. "Mari Tamm" */
+  label: string;
+}
+
 export interface ActorRef {
   kind: ActorKind;
   /** user id, lot_partner id, or null for the system */
   id: string | null;
   /** e.g. "Mari Tamm (Tellija)" or "Jaan Kask, Tehisaru Koolitus OÜ" */
   label: string;
+  /** set when a signed-in admin is acting as this actor */
+  via?: ActingVia;
 }
 
 /** [D-09] kept solely as procurement evidence for partner actions. */

@@ -5,6 +5,8 @@
 import Link from 'next/link';
 import { eq } from 'drizzle-orm';
 import { getDb } from '@/db';
+import { buyerCanWrite } from '@/server/auth/actor';
+import { ReadOnlyNote } from '@/components/read-only-note';
 import { importBatches, lots } from '@/db/schema';
 import { formatDateTimeShort, formatIsoDay } from '@/domain/format';
 import { CAP_OPTIONS_LABELS, VISIBILITY_MODE_LABELS } from '@/domain/round-statuses';
@@ -21,6 +23,20 @@ export default async function RoundImportPage({
 }) {
   const { batch, hankeosa } = await searchParams;
   const db = getDb();
+
+  if (!(await buyerCanWrite())) {
+    return (
+      <div className="space-y-4">
+        <div>
+          <Link href="/tellija/voorud" className="text-[13px] text-[var(--color-brand)]">
+            ← Voorud
+          </Link>
+          <h1 className="mt-1">Vooru skeemi import</h1>
+        </div>
+        <ReadOnlyNote what="Vooru skeemi import" />
+      </div>
+    );
+  }
   const lotRows = db.select({ code: lots.code, defaultCapOptions: lots.defaultCapOptions }).from(lots).where(eq(lots.isActive, true)).all();
 
   const stored = batch ? db.select().from(importBatches).where(eq(importBatches.id, batch)).get() : undefined;

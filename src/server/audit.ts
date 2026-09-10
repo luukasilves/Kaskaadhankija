@@ -71,10 +71,7 @@ export type AuditEventType =
   | 'import.partners_imported'
   | 'import.representatives_imported'
   | 'import.round_imported'
-  | 'import.discarded'
-  // test harness
-  | 'clock.advanced'
-  | 'demo.reset';
+  | 'import.discarded';
 
 export interface AuditInput {
   eventType: AuditEventType;
@@ -97,6 +94,8 @@ export function logAudit(ctx: Ctx, input: AuditInput): void {
       actorType: ctx.actor.kind,
       actorId: ctx.actor.id,
       actorLabel: ctx.actor.label,
+      viaUserId: ctx.actor.via?.userId ?? null,
+      viaLabel: ctx.actor.via?.label ?? null,
       eventType: input.eventType,
       summary: input.summary,
       lotId: input.lotId ?? null,

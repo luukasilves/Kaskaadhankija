@@ -83,3 +83,32 @@ describe('0002_email_deliveries on a populated v2 database', () => {
     raw.close();
   });
 });
+
+describe('0007_acting_via on a populated v2 database', () => {
+  it('adds the two columns without disturbing the append-only trail [L-08]', () => {
+    const raw = v2Database();
+    raw
+      .prepare(
+        `INSERT INTO audit_events (occurred_at, actor_type, actor_label, event_type, summary)
+         VALUES (?, 'buyer', 'Mari Tamm (Tellija)', 'round.created', 'Voor loodud')`,
+      )
+      .run(1_000);
+
+    migrate(drizzle(raw, { schema }), { migrationsFolder: folder });
+
+    const columns = (raw.prepare('PRAGMA table_info(audit_events)').all() as Array<{ name: string }>).map((c) => c.name);
+    expect(columns).toContain('via_user_id');
+    expect(columns).toContain('via_label');
+
+    // The existing row is still there, with the new columns empty — an ADD
+    // COLUMN cannot rewrite history, which is the point of doing it that way.
+    expect(raw.prepare('SELECT summary, via_label FROM audit_events').all()).toEqual([
+      { summary: 'Voor loodud', via_label: null },
+    ]);
+
+    const triggers = raw.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type = 'trigger'").get() as { n: number };
+    expect(triggers.n).toBe(6);
+    expect(() => raw.prepare('UPDATE audit_events SET summary = ?').run('muudetud')).toThrow(/muutmatu/);
+    raw.close();
+  });
+});

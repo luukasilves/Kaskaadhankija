@@ -9,6 +9,7 @@
 import Link from 'next/link';
 import { eq } from 'drizzle-orm';
 import { getDb } from '@/db';
+import { buyerCanWrite } from '@/server/auth/actor';
 import { lots, partners, lotPartners, trainings } from '@/db/schema';
 import { formatEur, formatIsoDay } from '@/domain/format';
 import {
@@ -19,8 +20,6 @@ import {
 } from '@/domain/round-statuses';
 import { LANGUAGE_LABELS, WORKSHOP_TYPE_LABELS } from '@/domain/statuses';
 import { StatusBadge } from '@/components/status-badge';
-import { isDemoMode } from '@/lib/env';
-import { SampleDataButton } from './sample-data-button';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,6 +39,7 @@ export default async function TrainingsPage({
 }) {
   const params = await searchParams;
   const db = getDb();
+  const canWrite = await buyerCanWrite();
 
   const rows = db
     .select({
@@ -89,10 +89,11 @@ export default async function TrainingsPage({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {isDemoMode && <SampleDataButton />}
-          <Link href="/tellija/koolitused/import" className="kh-btn kh-btn-primary">
-            Impordi tabel
-          </Link>
+          {canWrite && (
+            <Link href="/tellija/koolitused/import" className="kh-btn kh-btn-primary">
+              Impordi tabel
+            </Link>
+          )}
         </div>
       </div>
 

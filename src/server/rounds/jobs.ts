@@ -5,7 +5,7 @@
  * Called from three places, all of which must be safe to overlap:
  *   - the in-process timer started at boot (every minute);
  *   - lazily when a round page is loaded, so a stale deadline is never shown;
- *   - immediately after the test clock is moved forward.
+ *   - after any action that could have made something due.
  *
  * Each round is handled in its own immediate transaction with a status
  * re-check, so the work is idempotent however many callers race. Closing runs
@@ -15,7 +15,7 @@
 import { and, eq, isNotNull, lte } from 'drizzle-orm';
 import { getDb } from '@/db';
 import { rounds } from '@/db/schema';
-import { markJobsRun, readClock } from '../clock';
+import { currentTimeMs, markJobsRun } from '../clock';
 import { DEADLINE_ACTOR, NO_EVIDENCE, type Ctx, type Db, type QueuedNotification } from '../context';
 import { purgeAuthRows } from '../auth/codes';
 import { dispatchOutbox, retryFailedDeliveries } from '../notify';
@@ -41,7 +41,7 @@ export function runDueJobs(database?: Db): JobsReport {
   const report: JobsReport = { closed: [], remindersSent: 0 };
   const outbox: QueuedNotification[] = [];
 
-  const { nowMs } = readClock(db);
+  const nowMs = currentTimeMs();
 
   /* 1. close whatever is overdue */
   const overdue = db
@@ -58,7 +58,7 @@ export function runDueJobs(database?: Db): JobsReport {
         (tx) => {
           const ctx: Ctx = {
             tx,
-            at: readClock(tx).nowMs,
+            at: currentTimeMs(),
             actor: DEADLINE_ACTOR,
             evidence: NO_EVIDENCE,
             outbox,
@@ -92,7 +92,7 @@ export function runDueJobs(database?: Db): JobsReport {
         (tx) => {
           const ctx: Ctx = {
             tx,
-            at: readClock(tx).nowMs,
+            at: currentTimeMs(),
             actor: DEADLINE_ACTOR,
             evidence: NO_EVIDENCE,
             outbox,
@@ -112,7 +112,7 @@ export function runDueJobs(database?: Db): JobsReport {
         (tx) => {
           markJobsRun({
             tx,
-            at: readClock(tx).nowMs,
+            at: currentTimeMs(),
             actor: DEADLINE_ACTOR,
             evidence: NO_EVIDENCE,
             outbox: [],

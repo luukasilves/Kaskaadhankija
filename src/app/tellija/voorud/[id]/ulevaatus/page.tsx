@@ -13,6 +13,8 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { eq } from 'drizzle-orm';
 import { getDb } from '@/db';
+import { buyerCanWrite } from '@/server/auth/actor';
+import { ReadOnlyNote } from '@/components/read-only-note';
 import { lots, orders, rounds, trainings } from '@/db/schema';
 import { formatDateTimeShort, formatEur, formatIsoDay } from '@/domain/format';
 import { PARTICIPANT_OUTCOME_LABELS, ROUND_STATUS_LABELS, ROUND_STATUS_TONES } from '@/domain/round-statuses';
@@ -27,6 +29,7 @@ export const dynamic = 'force-dynamic';
 export default async function ReviewPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const db = getDb();
+  const canWrite = await buyerCanWrite();
 
   const round = db
     .select({
@@ -163,7 +166,10 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
         )}
       </div>
 
+      {!canWrite && <ReadOnlyNote what="Kohandused ja jaotuse kinnitamine" />}
+
       <ReviewPanel
+        canWrite={canWrite}
         roundId={id}
         lotId={round.lotId}
         lotCode={round.lotCode}

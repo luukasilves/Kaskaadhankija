@@ -26,7 +26,7 @@ import { LANGUAGE_LABELS, WORKSHOP_TYPE_LABELS } from '@/domain/statuses';
 import { Countdown } from '@/components/countdown';
 import { RankChip, StatusBadge } from '@/components/status-badge';
 import { requirePartner } from '@/server/auth/actor';
-import { readClock } from '@/server/clock';
+import { currentTimeMs } from '@/server/clock';
 import { projectionInput } from '@/server/rounds/allocation-input';
 import { runDueJobs } from '@/server/rounds/jobs';
 import {
@@ -46,7 +46,7 @@ export default async function PartnerRoundPage({ params }: { params: Promise<{ i
   runDueJobs();
 
   const db = getDb();
-  const { nowMs } = readClock(db);
+  const nowMs = currentTimeMs();
 
   const round = db
     .select({

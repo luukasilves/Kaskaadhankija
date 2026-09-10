@@ -27,6 +27,7 @@ import {
   withdrawTraining,
   cancelOrderTraining,
 } from '../rounds/engine';
+import { assertAdminActor } from '../auth/actor';
 import { runDueJobs } from '../rounds/jobs';
 import type { VisibilityMode } from '@/domain/round-statuses';
 import { isCapOptions } from '@/domain/round-statuses';
@@ -153,6 +154,7 @@ export async function cancelRoundAction(form: FormData): Promise<ActionOutcome> 
 /** Close a round early is not offered; this only forces the due check. */
 export async function runDeadlineJobsAction(): Promise<ActionOutcome> {
   try {
+    await assertAdminActor();
     const report = runDueJobs();
     return ok(
       report.closed.length > 0

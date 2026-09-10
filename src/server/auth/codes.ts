@@ -136,7 +136,9 @@ function safeEqualHex(a: string, b: string): boolean {
  * ------------------------------------------------------------------ */
 
 export type Subject =
-  | { kind: 'buyer'; id: string; name: string; email: string }
+  // `role` decides where the sign-in lands: an admin in the test environment
+  // goes to the act-as screen, a member straight to the buyer area [L-08].
+  | { kind: 'buyer'; id: string; name: string; email: string; role: 'admin' | 'member' }
   | { kind: 'representative'; id: string; name: string; email: string; partnerId: string };
 
 /** An active buyer user first, else an active representative, else nobody. */
@@ -147,7 +149,15 @@ export function findSubjectByEmail(tx: Reader, rawEmail: string): Subject | null
     .from(users)
     .where(and(sql`lower(${users.email}) = ${email}`, eq(users.isActive, true)))
     .get();
-  if (user) return { kind: 'buyer', id: user.id, name: user.name, email: user.email.toLowerCase() };
+  if (user) {
+    return {
+      kind: 'buyer',
+      id: user.id,
+      name: user.name,
+      email: user.email.toLowerCase(),
+      role: user.role,
+    };
+  }
 
   const representative = tx
     .select()

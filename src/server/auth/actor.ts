@@ -1,14 +1,18 @@
 /**
  * Who is acting — the single seam between identity and everything else.
  *
- * Identity comes from a session opened by an e-mail code [L-08]: a buyer user
- * or a partner's representative, resolved through `sessionActor()`. In the test
- * deployment (`DEMO_MODE`) a persona cookie set by the opening screen or the
- * test strip stands in when there is no session, so a tester can be anyone
- * without an inbox. A live session always wins over a persona, and choosing a
- * persona ends the session, so identity is never ambiguous. Every page and
- * every server action goes through `getActor`, `requireBuyer` or
- * `requirePartner` and never inspects a cookie itself.
+ * Identity always comes from a session opened by an e-mail code [L-08]: a buyer
+ * user or a partner's representative. Without one there is no actor, in either
+ * environment — the sign-in is the front door.
+ *
+ * In the test deployment (`DEMO_MODE`) a signed-in buyer **admin** may act as
+ * any participant, which is what the second cookie carries. The session stays
+ * open underneath: `acting` is who the request runs as, `signedIn` is who is
+ * really there, and the difference is recorded as `via` on every audit row and
+ * in the confirmation evidence. The rules themselves live in `./identity`,
+ * which knows nothing of cookies. Every page and every server action goes
+ * through `getActor`, `requireBuyer` or `requirePartner` and never inspects a
+ * cookie itself.
  *
  * Authorization rule for partners: an action receives a `roundId`, never a
  * `lotPartnerId`. The engine resolves which membership is acting from the
@@ -21,9 +25,10 @@ import { and, eq } from 'drizzle-orm';
 import { getDb } from '@/db';
 import { lotPartners, lots, partnerRepresentatives, partners, users, type SessionSubjectKind } from '@/db/schema';
 import { isDemoMode } from '@/lib/env';
-import type { ActorRef, Evidence } from '../context';
+import type { ActingVia, ActorRef, Evidence } from '../context';
 import type { Db } from '../context';
 import { resolveSession } from './codes';
+import { mayActAs, resolveActing } from './identity';
 
 export const PERSONA_COOKIE = 'kh_persona';
 export const SESSION_COOKIE = 'kh_session';
@@ -36,6 +41,8 @@ export interface BuyerActor {
   role: 'admin' | 'member';
   /** how this actor appears in the audit log */
   label: string;
+  /** the signed-in admin acting as this actor, in the test environment */
+  via?: ActingVia;
 }
 
 export interface PartnerActor {
@@ -49,6 +56,7 @@ export interface PartnerActor {
   lotPartnerIds: string[];
   memberships: Array<{ lotPartnerId: string; lotId: string; lotCode: string; rank: number }>;
   label: string;
+  via?: ActingVia;
 }
 
 export type Actor = BuyerActor | PartnerActor;
@@ -154,11 +162,7 @@ export async function getSessionActor(): Promise<Actor | null> {
   return actorForSubject(db, session.subjectKind, session.subjectId);
 }
 
-export async function hasSession(): Promise<boolean> {
-  return (await getSessionActor()) !== null;
-}
-
-/** Resolve a persona cookie value to a live actor, or null. */
+/** Resolve an act-as cookie value to a live actor, or null. */
 export function resolvePersona(value: string | undefined): Actor | null {
   if (!value) return null;
   const db = getDb();
@@ -187,29 +191,49 @@ export function resolvePersona(value: string | undefined): Actor | null {
   return null;
 }
 
-export async function getActor(): Promise<Actor | null> {
-  const signedIn = await getSessionActor();
-  if (signedIn) return signedIn;
-  if (!isDemoMode) return null;
-  const store = await cookies();
-  return resolvePersona(store.get(PERSONA_COOKIE)?.value);
+export interface Identity {
+  /** the person the session belongs to */
+  signedIn: Actor | null;
+  /** who the request runs as: an act-as choice, or the signed-in person */
+  acting: Actor | null;
+  /** the act-as cookie value, when it resolves and the signed-in person may use it */
+  actingKey: string | null;
 }
 
-/** Where someone without the right identity is sent: the gate, or the sign-in. */
+/**
+ * Both cookies, read once. Pages that show who is signed in *and* who they are
+ * acting as need the pair; `getActor()` is the common case of wanting only the
+ * second.
+ */
+export async function resolveIdentity(): Promise<Identity> {
+  const signedIn = await getSessionActor();
+  if (!signedIn) return { signedIn: null, acting: null, actingKey: null };
+  if (!mayActAs(signedIn, isDemoMode)) return { signedIn, acting: signedIn, actingKey: null };
+
+  const store = await cookies();
+  const key = store.get(PERSONA_COOKIE)?.value;
+  const chosen = resolvePersona(key);
+  return {
+    signedIn,
+    acting: resolveActing(signedIn, chosen, isDemoMode),
+    // A cookie left behind by data that has since changed names an identity
+    // that no longer exists; treat it as no choice at all.
+    actingKey: chosen ? (key ?? null) : null,
+  };
+}
+
+export async function getActor(): Promise<Actor | null> {
+  return (await resolveIdentity()).acting;
+}
+
+/** Where someone without the right identity is sent. */
 export function signInPath(): string {
-  return isDemoMode ? '/' : '/sisene';
+  return '/sisene';
 }
 
 export async function requireBuyer(): Promise<BuyerActor> {
   const actor = await getActor();
   if (!actor || actor.kind !== 'buyer') redirect(signInPath());
-  return actor;
-}
-
-/** A buyer with the admin role; throws rather than redirects, for actions. */
-export async function requireAdmin(): Promise<BuyerActor> {
-  const actor = await requireBuyer();
-  if (actor.role !== 'admin') throw new Error('See toiming on ainult tellimismeeskonna adminile.');
   return actor;
 }
 
@@ -219,11 +243,44 @@ export async function requirePartner(): Promise<PartnerActor> {
   return actor;
 }
 
+/**
+ * Whether the buyer screens should offer their write controls [R-01].
+ *
+ * Pages ask this to swap a panel for `<ReadOnlyNote />` rather than to decide
+ * anything: the decision is `buyerWrite`'s, and it is enforced there whatever
+ * the page renders.
+ */
+export async function buyerCanWrite(): Promise<boolean> {
+  const actor = await getActor();
+  return actor?.kind === 'buyer' && actor.role === 'admin';
+}
+
+const NOT_ADMIN = 'See toiming on ainult tellimismeeskonna adminile. Sul on vaatleja roll.';
+
+/**
+ * The admin guard for server actions.
+ *
+ * Throws rather than redirecting, always: every action wraps its write in a
+ * `try/catch` that turns a thrown error into a message on the form, and
+ * `redirect()` throws a `NEXT_REDIRECT` that such a catch would swallow into a
+ * nonsense message. So a member asking for a write gets told why, on the page.
+ */
+export async function assertAdminActor(): Promise<BuyerActor> {
+  const actor = await getActor();
+  if (!actor || actor.kind !== 'buyer') {
+    throw new Error('Toiming vajab sisselogimist tellimismeeskonna adminina.');
+  }
+  if (actor.role !== 'admin') throw new Error(NOT_ADMIN);
+  return actor;
+}
+
 /** The audit-log shape of the current actor. */
 export function actorRef(actor: Actor): ActorRef {
-  return actor.kind === 'buyer'
-    ? { kind: 'buyer', id: actor.userId, label: actor.label }
-    : { kind: 'partner', id: actor.partnerId, label: actor.label };
+  const base =
+    actor.kind === 'buyer'
+      ? { kind: 'buyer' as const, id: actor.userId, label: actor.label }
+      : { kind: 'partner' as const, id: actor.partnerId, label: actor.label };
+  return actor.via ? { ...base, via: actor.via } : base;
 }
 
 /** [D-09] request evidence, kept solely as procurement evidence. */

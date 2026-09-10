@@ -9,6 +9,8 @@
 import Link from 'next/link';
 import { eq } from 'drizzle-orm';
 import { getDb } from '@/db';
+import { buyerCanWrite } from '@/server/auth/actor';
+import { ReadOnlyNote } from '@/components/read-only-note';
 import { importBatches, lots } from '@/db/schema';
 import { TRAINING_COLUMNS, TRAINING_OPTIONAL_COLUMNS } from '@/domain/import-rows';
 import { formatDateTimeShort } from '@/domain/format';
@@ -26,6 +28,20 @@ export default async function TrainingsImportPage({
 }) {
   const { batch } = await searchParams;
   const db = getDb();
+
+  if (!(await buyerCanWrite())) {
+    return (
+      <div className="space-y-4">
+        <div>
+          <Link href="/tellija/koolitused" className="text-[13px] text-[var(--color-brand)]">
+            ← Koolitused
+          </Link>
+          <h1 className="mt-1">Koolituskalendri import</h1>
+        </div>
+        <ReadOnlyNote what="Koolituskalendri import" />
+      </div>
+    );
+  }
   const lotCodes = db.select({ code: lots.code }).from(lots).all().map((l) => l.code);
 
   const stored = batch

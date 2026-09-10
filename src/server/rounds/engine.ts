@@ -69,6 +69,7 @@ import {
 } from '@/domain/round-templates';
 import { env } from '@/lib/env';
 import { logAudit } from '../audit';
+import { evidenceLabel } from '../auth/identity';
 import { failure, type Ctx, type Db, type Tx } from '../context';
 import { notify } from '../notify';
 import { partnerRecipients, teamRecipients } from '../recipients';
@@ -621,7 +622,9 @@ export function confirmMarks(
       cap,
       capKind,
       confirmedAt: ctx.at,
-      actorLabel: ctx.actor.label,
+      // [D-09] who answered — with the acting admin named too, when a test
+      // environment admin answered on this participant's screen [L-08].
+      actorLabel: evidenceLabel(ctx.actor),
       contactEmail: participant.contactEmail,
       ip: ctx.evidence.ip,
       ua: ctx.evidence.ua,

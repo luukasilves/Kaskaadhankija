@@ -12,7 +12,7 @@ import { RESPONSE_STATE_LABELS, ROUND_STATUS_LABELS, ROUND_STATUS_TONES } from '
 import { Countdown } from '@/components/countdown';
 import { RankChip, StatusBadge } from '@/components/status-badge';
 import { requirePartner } from '@/server/auth/actor';
-import { readClock } from '@/server/clock';
+import { currentTimeMs } from '@/server/clock';
 import { runDueJobs } from '@/server/rounds/jobs';
 import {
   latestConfirmation,
@@ -29,7 +29,7 @@ export default async function PartnerRoundsPage() {
   runDueJobs();
 
   const db = getDb();
-  const { nowMs } = readClock(db);
+  const nowMs = currentTimeMs();
   const rounds = roundsForPartner(db, actor.partnerId);
 
   const rows = rounds.map((round) => {

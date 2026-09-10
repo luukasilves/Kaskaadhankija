@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { eq } from 'drizzle-orm';
 import { getDb } from '@/db';
+import { buyerCanWrite } from '@/server/auth/actor';
 import { orderTrainings, orders, trainings } from '@/db/schema';
 import { formatDateTimeShort, formatEur, formatIsoDay } from '@/domain/format';
 import { LANGUAGE_LABELS } from '@/domain/statuses';
@@ -20,6 +21,7 @@ export const dynamic = 'force-dynamic';
 export default async function OrderDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const db = getDb();
+  const canWrite = await buyerCanWrite();
 
   const order = db.select().from(orders).where(eq(orders.id, id)).get();
   if (!order) notFound();
@@ -163,12 +165,14 @@ export default async function OrderDetail({ params }: { params: Promise<{ id: st
         </section>
       </article>
 
-      <OrderAdminPanel
-        orderId={id}
+      {canWrite && (
+        <OrderAdminPanel
+          orderId={id}
         trainings={links
           .filter((link) => link.cancelledAt === null && link.partnerWithdrewAt === null)
-          .map((link) => ({ id: link.trainingId, code: link.code, status: link.status }))}
-      />
+            .map((link) => ({ id: link.trainingId, code: link.code, status: link.status }))}
+        />
+      )}
     </div>
   );
 }

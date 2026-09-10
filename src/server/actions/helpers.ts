@@ -9,8 +9,8 @@
 
 import { revalidatePath } from 'next/cache';
 import { getDb } from '@/db';
-import { nowMs } from '../clock';
-import { actorRef, requireBuyer, requirePartner, requestEvidence, type PartnerActor } from '../auth/actor';
+import { currentTimeMs } from '../clock';
+import { actorRef, assertAdminActor, requirePartner, requestEvidence, type PartnerActor } from '../auth/actor';
 import { NO_EVIDENCE, type Ctx, type QueuedNotification } from '../context';
 import { dispatchOutbox } from '../notify';
 
@@ -35,18 +35,26 @@ export function describeError(error: unknown): string {
   return 'Toiming ebaõnnestus.';
 }
 
-/** Run a buyer mutation. */
+/**
+ * Run a buyer mutation.
+ *
+ * Every change on the buyer side — framework data, imports, rounds, review,
+ * confirmation, orders, the team — belongs to an admin [R-01]. A member opens
+ * the same screens and reads everything, so the guard lives here rather than in
+ * forty actions: one seam nobody can forget. It throws rather than redirecting,
+ * because each action turns a thrown error into a message on the form.
+ */
 export async function buyerWrite<T>(
   fn: (ctx: Ctx) => T,
   revalidate: string[] = [],
 ): Promise<T> {
-  const actor = await requireBuyer();
+  const actor = await assertAdminActor();
   const evidence = await requestEvidence();
   const db = getDb();
   const outbox: QueuedNotification[] = [];
 
   const result = db.transaction(
-    (tx) => fn({ tx, at: nowMs(tx), actor: actorRef(actor), evidence, outbox }),
+    (tx) => fn({ tx, at: currentTimeMs(), actor: actorRef(actor), evidence, outbox }),
     { behavior: 'immediate' },
   );
 
@@ -72,7 +80,7 @@ export async function partnerWrite<T>(
   const outbox: QueuedNotification[] = [];
 
   const result = db.transaction(
-    (tx) => fn({ tx, at: nowMs(tx), actor: actorRef(actor), evidence, outbox }, actor),
+    (tx) => fn({ tx, at: currentTimeMs(), actor: actorRef(actor), evidence, outbox }, actor),
     { behavior: 'immediate' },
   );
 
@@ -89,7 +97,7 @@ export async function systemWrite<T>(fn: (ctx: Ctx) => T, revalidate: string[] =
     (tx) =>
       fn({
         tx,
-        at: nowMs(tx),
+        at: currentTimeMs(),
         actor: { kind: 'system', id: null, label: 'Süsteem' },
         evidence: NO_EVIDENCE,
         outbox,

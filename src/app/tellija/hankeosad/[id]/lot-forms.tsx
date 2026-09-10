@@ -146,9 +146,12 @@ export function PartnerRows({
   lotId,
   threshold,
   rows,
+  canWrite,
 }: {
   lotId: string;
   threshold: number;
+  /** a member reads the ranking; ending a participation is an admin's act */
+  canWrite: boolean;
   rows: Array<{
     lotPartnerId: string;
     rank: number;
@@ -193,7 +196,7 @@ export function PartnerRows({
             )}
           </td>
           <td className="kh-td">
-            {row.isActive && (
+            {row.isActive && canWrite && (
               <ActionButton
                 action={deactivateLotPartnerAction}
                 label="Lõpeta osalus"

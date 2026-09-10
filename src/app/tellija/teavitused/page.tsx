@@ -10,6 +10,7 @@
 
 import { desc, eq } from 'drizzle-orm';
 import { getDb } from '@/db';
+import { buyerCanWrite } from '@/server/auth/actor';
 import { lotPartners, notifications, partners, rounds } from '@/db/schema';
 import { formatDateTimeShort } from '@/domain/format';
 import { EMAIL_DELIVERY_STATUS_LABELS, NOTIFICATION_TYPE_LABELS } from '@/domain/round-statuses';
@@ -22,6 +23,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function BuyerNotificationsPage() {
   const db = getDb();
+  const canWrite = await buyerCanWrite();
 
   const rows = db
     .select({
@@ -116,12 +118,14 @@ export default async function BuyerNotificationsPage() {
                         {mail.detail && mail.status !== 'sent' && (
                           <span className="text-[12px] text-[var(--color-muted)]">— {mail.detail}</span>
                         )}
-                        <form action={resendDeliveryAction} className="inline">
-                          <input type="hidden" name="deliveryId" value={mail.id} />
-                          <button type="submit" className="kh-btn text-xs" title="Saada see e-kiri uuesti">
-                            Saada uuesti
-                          </button>
-                        </form>
+                        {canWrite && (
+                          <form action={resendDeliveryAction} className="inline">
+                            <input type="hidden" name="deliveryId" value={mail.id} />
+                            <button type="submit" className="kh-btn text-xs" title="Saada see e-kiri uuesti">
+                              Saada uuesti
+                            </button>
+                          </form>
+                        )}
                       </li>
                     ))}
                   </ul>

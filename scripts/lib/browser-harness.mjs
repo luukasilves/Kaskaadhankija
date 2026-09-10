@@ -33,7 +33,16 @@ export function freePort() {
  * `stop()` is safe to call more than once, and is also registered on process
  * exit so an aborted run cannot leave a server listening.
  */
-export function startServer({ port, databasePath, demoMode = true, cwd = process.cwd() }) {
+export function startServer({
+  port,
+  databasePath,
+  demoMode = true,
+  cwd = process.cwd(),
+  /** print sign-in codes to the log instead of mailing them, so a script can read one */
+  devMail = true,
+  /** the domain whose addresses sign in as buyer admins without being listed [L-08] */
+  adminDomains = BUYER_DOMAIN,
+}) {
   const child = spawn('node', ['node_modules/next/dist/bin/next', 'start', '-p', String(port)], {
     cwd,
     env: {
@@ -41,6 +50,8 @@ export function startServer({ port, databasePath, demoMode = true, cwd = process
       DATABASE_PATH: databasePath,
       PORT: String(port),
       ...(demoMode ? { DEMO_MODE: '1' } : {}),
+      ...(devMail ? { EMAIL_DEV_MODE: '1' } : {}),
+      ...(adminDomains ? { AUTO_ADMIN_EMAIL_DOMAINS: adminDomains } : {}),
       APP_BASE_URL: `http://localhost:${port}`,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -111,12 +122,110 @@ export function watchPage(page) {
   return { consoleErrors, badResponses };
 }
 
+/* ------------------------------------------------------------------ *
+ * signing in [L-08]
+ * ------------------------------------------------------------------ */
+
+/** The admin the seed creates, listed and therefore not relying on the domain rule. */
+export const SEED_ADMIN = { name: 'Mari Tamm', email: 'mari.tamm@naidis.riigikantselei.ee' };
+
+/** The buyer domain the test servers treat as admins. */
+export const BUYER_DOMAIN = '@naidis.riigikantselei.ee';
+
 /**
- * Switch persona through the test strip.
+ * The latest code the server printed for an address, waiting for it to appear.
  *
- * Waiting on the persona's name in the document would prove nothing — the
- * strip lists every persona at all times — and partner→partner keeps the same
- * navigation, so the wait is on the application header naming the new persona.
+ * `EMAIL_DEV_MODE` writes the message to the log instead of sending it, and the
+ * log is the only place a sign-in code ever exists — codes deliberately bypass
+ * the notification log, so there is nothing to read in the database either.
+ */
+export async function codeFor(server, email, { expect = true, timeoutMs = 15_000 } = {}) {
+  const escaped = email.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`Saaja: ${escaped}\\s*\\nTeema: Sisenemiskood (\\d{6})`, 'g');
+  const deadline = Date.now() + (expect ? timeoutMs : 3_000);
+  let last = null;
+  while (Date.now() < deadline) {
+    const text = server.logs.join('');
+    let match;
+    while ((match = pattern.exec(text)) !== null) last = match[1];
+    if (last && expect) return last;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  return last;
+}
+
+/** How many codes the server has printed for an address — for the rate limits. */
+export function codesPrintedFor(server, email) {
+  const escaped = email.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return (server.logs.join('').match(new RegExp(`Saaja: ${escaped}\\s*\\nTeema: Sisenemiskood`, 'g')) ?? []).length;
+}
+
+export async function requestCode(page, base, email) {
+  await page.goto(`${base}/sisene`);
+  await page.waitForSelector('[data-testid="sign-in-form"]');
+  await page.fill('input[name="email"]', email);
+  await page.locator('[data-testid="sign-in-form"] button[type="submit"]').click();
+  await page.waitForURL(/\/sisene\/kood/, { timeout: 20_000 });
+}
+
+/**
+ * Submit one code and wait for the server to answer. Waiting on the POST
+ * itself matters: a wrong guess re-renders the same page, so neither the URL
+ * nor the form changes identity, and a fill issued during the re-render would
+ * be lost — the browser then blocks the empty required field, and the attempt
+ * never reaches the server.
+ */
+export async function enterCode(page, code) {
+  const form = page.locator('[data-testid="sign-in-code-form"]');
+  await form.waitFor({ timeout: 20_000 });
+  await form.locator('input[name="code"]').fill(code);
+  const posted = page.waitForResponse((r) => r.request().method() === 'POST', { timeout: 20_000 });
+  await form.locator('button[type="submit"]').click();
+  await posted;
+  await page.waitForLoadState('networkidle');
+}
+
+/** Sign in with a real code and return where the sign-in landed. */
+export async function signInAs(page, server, email) {
+  await requestCode(page, server.base, email);
+  const code = await codeFor(server, email);
+  if (!/^\d{6}$/.test(code ?? '')) {
+    throw new Error(`ühtki koodi ei saadetud aadressile ${email} (loend: ${code})`);
+  }
+  await enterCode(page, code);
+  await page.waitForURL((url) => !url.pathname.startsWith('/sisene'), { timeout: 20_000 });
+  return new URL(page.url()).pathname;
+}
+
+/**
+ * Sign in as a buyer admin, which in the test environment lands on the act-as
+ * screen. Every suite that used to enter by clicking a persona starts here.
+ */
+export async function signInAsAdmin(page, server, email = SEED_ADMIN.email) {
+  const landing = await signInAs(page, server, email);
+  if (landing !== '/') {
+    throw new Error(`admin pidi maanduma valikulehel, aga maandus ${landing}`);
+  }
+  await page.waitForSelector('[data-testid="act-as-card"]', { timeout: 20_000 });
+  return landing;
+}
+
+/** Choose a participant on the act-as screen and wait for their area. */
+export async function pickActAs(page, name) {
+  const card = page.locator('form:has([data-testid="act-as-card"])', { hasText: name }).first();
+  const key = await card.locator('input[name="persona"]').inputValue();
+  const area = key.startsWith('buyer:') ? '/tellija' : '/partner';
+  await card.locator('[data-testid="act-as-card"]').click();
+  await page.waitForURL((url) => url.pathname.startsWith(area), { timeout: 20_000 });
+  await page.waitForSelector(`nav a[href^="${area}/"]`, { timeout: 20_000 });
+}
+
+/**
+ * Switch who an admin is acting as, through the test strip.
+ *
+ * Waiting on the name in the document would prove nothing — the strip lists
+ * every participant at all times — and partner→partner keeps the same
+ * navigation, so the wait is on the application header naming the new one.
  */
 export async function switchTo(page, name) {
   const select = page.locator('[data-testid="test-strip"] select');
@@ -167,24 +276,22 @@ export function leakDetail(html, names) {
   return found.join('\n        ');
 }
 
-/** Move the virtual clock to the next deadline and wait for the strip to update. */
-export async function advanceToNextDeadline(page) {
-  const button = page.locator('[data-testid="test-strip"] button:has-text("Järgmise tähtajani")');
-  if (await button.isDisabled()) return false;
-  const before = await page
-    .locator('[data-testid="test-strip"] .tabular-nums')
-    .first()
-    .textContent();
-  await button.click();
-  await page.waitForFunction(
-    (previous) => {
-      const el = document.querySelector('[data-testid="test-strip"] .tabular-nums');
-      return el && el.textContent !== previous;
-    },
-    before,
-    { timeout: 20_000 },
-  );
-  return true;
+/**
+ * Wait for a round's deadline to pass, then let a page load close it.
+ *
+ * There is no clock to wind any more [L-23]: a script publishes with a window
+ * of a minute or two and waits it out, which is what a real deadline does. The
+ * round is closed by the jobs runner — the minute timer, or the page load this
+ * function ends with, whichever gets there first.
+ */
+export async function waitOutDeadline(page, base, deadlineMs, { graceMs = 3_000, timeoutMs = 300_000 } = {}) {
+  const target = deadlineMs + graceMs;
+  const wait = Math.max(0, target - Date.now());
+  if (wait > timeoutMs) throw new Error(`tähtaeg on ${Math.round(wait / 1000)} s kaugusel — liiga kaugel selle skripti jaoks`);
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+  // A page load runs the due jobs, so the round closes in this request.
+  await page.goto(`${base}/tellija`);
+  await page.waitForLoadState('networkidle');
 }
 
 /** Remove a throwaway database and its WAL sidecars. */

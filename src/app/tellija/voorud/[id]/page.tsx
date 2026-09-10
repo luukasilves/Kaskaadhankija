@@ -25,7 +25,9 @@ import { CAP_OPTIONS_LABELS, capLabel,
 import { WORKSHOP_TYPE_LABELS } from '@/domain/statuses';
 import { Countdown } from '@/components/countdown';
 import { RankChip, StatusBadge } from '@/components/status-badge';
-import { readClock } from '@/server/clock';
+import { currentTimeMs } from '@/server/clock';
+import { buyerCanWrite } from '@/server/auth/actor';
+import { ReadOnlyNote } from '@/components/read-only-note';
 import { projectionInput } from '@/server/rounds/allocation-input';
 import { runDueJobs } from '@/server/rounds/jobs';
 import { latestConfirmation, participantsOf, responseStateFor } from '@/server/rounds/views';
@@ -38,7 +40,8 @@ export default async function RoundDetail({ params }: { params: Promise<{ id: st
   runDueJobs();
 
   const db = getDb();
-  const { nowMs } = readClock(db);
+  const canWrite = await buyerCanWrite();
+  const nowMs = currentTimeMs();
 
   const round = db
     .select({
@@ -200,7 +203,10 @@ export default async function RoundDetail({ params }: { params: Promise<{ id: st
         )}
       </div>
 
-      {round.status === 'draft' && (
+      {round.status === 'draft' && !canWrite && <ReadOnlyNote what="Vooru avaldamine ja muutmine" />}
+      {round.status === 'open' && !canWrite && <ReadOnlyNote what="Avatud vooru muutmine" />}
+
+      {round.status === 'draft' && canWrite && (
         <DraftRoundPanel
           roundId={id}
           lotResponseDays={round.lotResponseDays}
@@ -216,7 +222,7 @@ export default async function RoundDetail({ params }: { params: Promise<{ id: st
         />
       )}
 
-      {round.status === 'open' && (
+      {round.status === 'open' && canWrite && (
         <OpenRoundPanel
           roundId={id}
           trainings={trainingRows

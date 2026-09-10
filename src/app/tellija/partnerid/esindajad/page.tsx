@@ -15,11 +15,13 @@ import { formatDateTimeShort } from '@/domain/format';
 import { REPRESENTATIVE_ROLE_LABELS } from '@/domain/round-statuses';
 import { StatusBadge } from '@/components/status-badge';
 import { RepresentativeActiveToggle } from './representative-forms';
+import { buyerCanWrite } from '@/server/auth/actor';
 
 export const dynamic = 'force-dynamic';
 
 export default async function RepresentativesPage() {
   const db = getDb();
+  const canWrite = await buyerCanWrite();
   const companies = db
     .select()
     .from(partners)
@@ -50,9 +52,11 @@ export default async function RepresentativesPage() {
           <a href="/tellija/partnerid/esindajad/mall" className="kh-btn">
             Laadi alla mall (.xlsx)
           </a>
-          <Link href="/tellija/partnerid/esindajad/import" className="kh-btn kh-btn-primary">
-            Impordi esindajad
-          </Link>
+          {canWrite && (
+            <Link href="/tellija/partnerid/esindajad/import" className="kh-btn kh-btn-primary">
+              Impordi esindajad
+            </Link>
+          )}
         </div>
       </div>
 
@@ -110,7 +114,9 @@ export default async function RepresentativesPage() {
                             )}
                           </td>
                           <td className="kh-td text-right">
-                            <RepresentativeActiveToggle id={rep.id} active={rep.isActive} />
+                            {canWrite && (
+                              <RepresentativeActiveToggle id={rep.id} active={rep.isActive} />
+                            )}
                           </td>
                         </tr>
                       ))}

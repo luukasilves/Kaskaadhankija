@@ -3,9 +3,13 @@
  *
  * The server runs with EMAIL_DEV_MODE, so the code is printed to its log
  * instead of sent, and the script reads it from there — the only place it ever
- * appears, since sign-in mail bypasses the notification log. Two servers: the
- * test environment (personas and sessions side by side) and the production
- * posture (no personas; `/` is the sign-in).
+ * appears, since sign-in mail bypasses the notification log.
+ *
+ * Two servers, because the two postures differ in exactly one thing: in the
+ * test environment a buyer **admin** lands on the act-as screen and can look at
+ * the tool as any participant while staying signed in; in production there is
+ * no such screen and everyone lands in their own area. Nobody, in either, gets
+ * anywhere without a session.
  *
  *   node scripts/verify-auth.mjs     (after pnpm build)
  */
@@ -15,10 +19,17 @@ import { chromium } from 'playwright';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  BUYER_DOMAIN,
   CHROMIUM,
+  codeFor,
+  codesPrintedFor,
+  enterCode,
   freePort,
   makeChecker,
   removeDatabase,
+  requestCode,
+  signInAs,
+  signInAsAdmin,
   startServer,
   switchTo,
   waitForHealth,
@@ -35,55 +46,6 @@ const BUYER = 'mari.tamm@naidis.riigikantselei.ee';
 const STRANGER = 'keegi@mujal-naidis.ee';
 /** In no list at all — admitted only by the buyer-domain rule [L-08]. */
 const NEWCOMER = 'kirke.kask@naidis.riigikantselei.ee';
-const BUYER_DOMAIN = '@naidis.riigikantselei.ee';
-
-// The child inherits the environment, so this reaches both servers.
-process.env.EMAIL_DEV_MODE = '1';
-process.env.AUTO_ADMIN_EMAIL_DOMAINS = BUYER_DOMAIN;
-
-/** The latest code the server printed for an address, waiting for it to appear. */
-async function codeFor(server, email, { expect = true, timeoutMs = 15_000 } = {}) {
-  const pattern = new RegExp(`Saaja: ${email.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}\\s*\\nTeema: Sisenemiskood (\\d{6})`, 'g');
-  const deadline = Date.now() + (expect ? timeoutMs : 3_000);
-  let last = null;
-  while (Date.now() < deadline) {
-    const text = server.logs.join('');
-    let match;
-    while ((match = pattern.exec(text)) !== null) last = match[1];
-    if (last && expect) return last;
-    await new Promise((r) => setTimeout(r, 200));
-  }
-  return last;
-}
-
-function codesPrintedFor(server, email) {
-  return (server.logs.join('').match(new RegExp(`Saaja: ${email.replace(/\./g, '\\.')}\\s*\\nTeema: Sisenemiskood`, 'g')) ?? []).length;
-}
-
-async function requestCode(page, base, email) {
-  await page.goto(`${base}/sisene`);
-  await page.waitForSelector('[data-testid="sign-in-form"]');
-  await page.fill('input[name="email"]', email);
-  await page.locator('[data-testid="sign-in-form"] button[type="submit"]').click();
-  await page.waitForURL(/\/sisene\/kood/, { timeout: 20_000 });
-}
-
-/**
- * Submit one code and wait for the server to answer. Waiting on the POST
- * itself matters: a wrong guess re-renders the same page, so neither the URL
- * nor the form changes identity, and a fill issued during the re-render would
- * be lost — the browser then blocks the empty required field, and the attempt
- * never reaches the server.
- */
-async function enterCode(page, code) {
-  const form = page.locator('[data-testid="sign-in-code-form"]');
-  await form.waitFor({ timeout: 20_000 });
-  await form.locator('input[name="code"]').fill(code);
-  const posted = page.waitForResponse((r) => r.request().method() === 'POST', { timeout: 20_000 });
-  await form.locator('button[type="submit"]').click();
-  await posted;
-  await page.waitForLoadState('networkidle');
-}
 
 /** Wait until the sign-in error names the expected text, or give up after 20 s. */
 async function errorSays(page, text) {
@@ -121,11 +83,11 @@ function codeRow(dbPath, email) {
 }
 
 async function headerText(page) {
-  return (await page.locator('header:not([data-testid="test-strip"])').first().textContent()) ?? '';
+  return (await page.locator('header').first().textContent()) ?? '';
 }
 
 async function testEnvironment(browser) {
-  note('Testkeskkond: sessioon ja persoonid kõrvuti');
+  note('Testkeskkond: sisselogimine ja teise osalejana tegutsemine');
   const port = await freePort();
   const DB = join(ROOT, 'data', `auth-demo-${Date.now()}.db`);
   const server = startServer({ port, databasePath: DB });
@@ -137,10 +99,15 @@ async function testEnvironment(browser) {
   try {
     check('the server boots', await waitForHealth(BASE, 90_000), server.logs.join('').slice(-300));
 
+    /* the front door */
     await page.goto(`${BASE}/`);
-    check('the persona gate offers the real sign-in too', await page.getByTestId('sign-in-link').isVisible());
+    await page.waitForURL(/\/sisene/, { timeout: 20_000 });
+    check('the front door is the sign-in, even in the test environment', await page.getByTestId('sign-in-form').isVisible());
+    check('and it says which environment this is', (await page.locator('main').textContent()).includes('TESTKESKKOND'));
+    await page.goto(`${BASE}/tellija`);
+    check('the buyer area sends a stranger to the sign-in', page.url().includes('/sisene'), page.url());
 
-    /* a representative signs in */
+    /* a representative signs in and lands in their own area */
     await requestCode(page, BASE, REPRESENTATIVE.toUpperCase());
     check('the code page names the (lowercased) address', (await page.locator('main').textContent()).includes(REPRESENTATIVE));
     const code = await codeFor(server, REPRESENTATIVE);
@@ -153,45 +120,60 @@ async function testEnvironment(browser) {
     await page.waitForURL(/\/partner\/voorud/, { timeout: 20_000 });
     const header = await headerText(page);
     check('the right code opens the partner area for the representative’s company', header.includes('Tehisaru Koolitus') && header.includes('Jaan Kask'), header.slice(0, 120));
-    check('the strip shows the session', await page.getByTestId('signed-in-badge').isVisible());
+    check('a representative gets the read-only strip', (await page.getByTestId('test-strip-readonly').count()) === 1);
+    check('and no way to act as anybody else', (await page.locator('[data-testid="test-strip"] select').count()) === 0);
     check('the nav offers sign-out', await page.getByTestId('sign-out').isVisible());
     await page.screenshot({ path: join(SHOTS, 'auth-01-signed-in-partner.png'), fullPage: true });
 
-    /* the persona picker still works — and ends the session */
-    const select = page.locator('[data-testid="test-strip"] select');
-    const buyerValue = await select.locator('option').evaluateAll((options) => options.find((o) => o.textContent.includes('Mari Tamm'))?.value ?? null);
-    await select.selectOption(buyerValue);
-    await page.waitForURL(/\/tellija/, { timeout: 20_000 });
-    check('choosing a persona switches identity even with a session open', (await headerText(page)).includes('Mari Tamm'));
-    check('and the session is gone', (await page.getByTestId('signed-in-badge').count()) === 0);
-
-    /* the buyer signs in for real */
-    await requestCode(page, BASE, BUYER);
-    const buyerCode = await codeFor(server, BUYER);
-    check('a code was mailed to the buyer', /^\d{6}$/.test(buyerCode ?? ''));
-    await enterCode(page, buyerCode);
-    await page.waitForURL(/\/tellija$/, { timeout: 20_000 });
-    check('the buyer lands on the töölaud', (await headerText(page)).includes('Mari Tamm (Tellija)'));
-    await page.goto(`${BASE}/sisene`);
-    check('the sign-in page recognises a signed-in person', await page.getByTestId('signed-in-card').isVisible());
-    await page.locator('[data-testid="signed-in-card"] button[type="submit"]').click();
-    await page.waitForURL((url) => url.pathname === '/', { timeout: 20_000 });
-    check('signing out returns to the gate in the test environment', true);
+    await page.goto(`${BASE}/`);
+    check('the act-as screen is not theirs either — it sends them back to their area', page.url().includes('/partner/voorud'), page.url());
     await page.goto(`${BASE}/tellija`);
-    check('the buyer area is closed again', !page.url().endsWith('/tellija'));
+    check('nor is the buyer area', page.url().includes('/sisene'), page.url());
+    await page.goto(`${BASE}/sisene`);
+    await page.locator('[data-testid="signed-in-card"] button[type="submit"]').click();
+    // The sign-out redirects to /sisene, which is where we already are: waiting
+    // on the URL would resolve instantly, against the page before the click.
+    await page.getByTestId('sign-in-form').waitFor({ timeout: 20_000 });
+    check('signing out returns to the sign-in', true);
+
+    /* the admin lands on the act-as screen — every time */
+    await signInAsAdmin(page, server, BUYER);
+    check('an admin lands on the act-as screen', new URL(page.url()).pathname === '/');
+    check('which names who is signed in', (await page.getByTestId('self-band').textContent()).includes('Mari Tamm'));
+    check('and offers no held choice yet', (await page.getByTestId('continue-band').count()) === 0);
+    await page.screenshot({ path: join(SHOTS, 'auth-04-act-as.png'), fullPage: true });
+
+    await page.getByTestId('continue-self').click();
+    await page.waitForURL(/\/tellija$/, { timeout: 20_000 });
+    check('“Jätka enda nimel” goes to the töölaud as themselves', (await headerText(page)).includes('Mari Tamm (Tellija)'));
+    check('the strip shows the session', (await page.getByTestId('signed-in-badge').textContent()).includes('Mari Tamm'));
+    check('and does not claim they are acting as anybody', (await page.getByTestId('acting-as').count()) === 0);
+
+    /* acting as a partner keeps the session */
+    await switchTo(page, 'Tehisaru Koolitus');
+    check('an admin can act as a partner', (await headerText(page)).includes('Tehisaru Koolitus'));
+    check('the session survives it', (await page.getByTestId('signed-in-badge').textContent()).includes('Mari Tamm'));
+    check('and the strip says whose view this is', (await page.getByTestId('acting-as').textContent()).includes('Tehisaru Koolitus'));
+    await page.screenshot({ path: join(SHOTS, 'auth-05-acting-as.png'), fullPage: true });
+
+    await page.goto(`${BASE}/`);
+    check('the act-as screen offers the way back', await page.getByTestId('continue-band').isVisible());
+    await page.getByTestId('continue-self').click();
+    await page.waitForURL(/\/tellija$/, { timeout: 20_000 });
+    check('and stopping leaves them as themselves', (await page.getByTestId('acting-as').count()) === 0);
 
     /* the buyer-domain rule: nobody had to list them first [L-08] */
     note('Domeenireegel');
-    await page.goto(`${BASE}/sisene`);
-    await page.waitForSelector('[data-testid="sign-in-form"]');
+    await page.getByTestId('sign-out').click();
+    await page.waitForURL(/\/sisene/, { timeout: 20_000 });
     check('the sign-in page names the domain that may sign in', (await page.locator('[data-testid="sign-in-form"]').textContent()).includes(BUYER_DOMAIN));
 
     await requestCode(page, BASE, NEWCOMER);
     const newcomerCode = await codeFor(server, NEWCOMER);
     check('an unlisted address at the buyer’s domain is mailed a code', /^\d{6}$/.test(newcomerCode ?? ''), String(newcomerCode));
     await enterCode(page, newcomerCode);
-    await page.waitForURL(/\/tellija$/, { timeout: 20_000 });
-    check('and lands in the buyer area, named from their address', (await headerText(page)).includes('Kirke Kask'), await headerText(page));
+    await page.waitForURL((url) => url.pathname === '/', { timeout: 20_000 });
+    check('and lands on the act-as screen as a new admin', (await page.getByTestId('self-band').textContent()).includes('Kirke Kask'));
 
     await page.goto(`${BASE}/tellija/meeskond`);
     await page.waitForSelector('[data-testid="add-team-member"]');
@@ -200,12 +182,15 @@ async function testEnvironment(browser) {
     check('the Meeskond screen says the rule is in force', await page.getByTestId('domain-rule-note').isVisible());
     await page.screenshot({ path: join(SHOTS, 'auth-03-domain-rule.png'), fullPage: true });
 
-    // Deactivating them must stick, rather than being undone by the next
-    // sign-in. The screen hides the toggle for whoever is signed in, so another
-    // admin does it — the buyer persona here, which also ends Kirke's session.
-    // `switchTo` waits for the header to name the new persona; waiting on the
-    // URL would pass instantly, since /tellija/meeskond already matches it.
-    await switchTo(page, 'Mari Tamm');
+    // Their own row hides the toggle, and the action refuses it besides — so
+    // another admin switches them off. Deactivation must stick rather than
+    // being undone by the next sign-in.
+    check('nobody can switch themselves off', (await teamRow.locator('button', { hasText: 'Deaktiveeri' }).count()) === 0);
+    await page.getByTestId('sign-out').click();
+    await page.waitForURL(/\/sisene/, { timeout: 20_000 });
+    await signInAsAdmin(page, server, BUYER);
+    await page.getByTestId('continue-self').click();
+    await page.waitForURL(/\/tellija$/, { timeout: 20_000 });
     await page.goto(`${BASE}/tellija/meeskond`);
     await page.waitForSelector('[data-testid="add-team-member"]');
     const kirke = page.locator('tbody tr', { hasText: NEWCOMER });
@@ -213,6 +198,9 @@ async function testEnvironment(browser) {
     await kirke.locator('.kh-badge', { hasText: 'Deaktiveeritud' }).waitFor({ timeout: 20_000 });
     check('another admin can switch them off', (await kirke.textContent()).includes('Deaktiveeritud'));
 
+    await page.goto(`${BASE}/sisene`);
+    await page.locator('[data-testid="signed-in-card"] button[type="submit"]').click();
+    await page.getByTestId('sign-in-form').waitFor({ timeout: 20_000 });
     await requestCode(page, BASE, NEWCOMER);
     await new Promise((r) => setTimeout(r, 1_500));
     check(
@@ -220,6 +208,36 @@ async function testEnvironment(browser) {
       codesPrintedFor(server, NEWCOMER) === 1,
       `${codesPrintedFor(server, NEWCOMER)} code(s) mailed`,
     );
+
+    /* a member is a reader */
+    note('Liige on vaatleja [R-01]');
+    const MEMBER = 'liige@naidis.riigikantselei.ee';
+    await signInAsAdmin(page, server, BUYER);
+    await page.getByTestId('continue-self').click();
+    await page.waitForURL(/\/tellija$/, { timeout: 20_000 });
+    await page.goto(`${BASE}/tellija/meeskond`);
+    await page.waitForSelector('[data-testid="add-team-member"]');
+    await page.fill('[data-testid="add-team-member"] input[name="name"]', 'Lauri Liige');
+    await page.fill('[data-testid="add-team-member"] input[name="email"]', MEMBER);
+    await page.selectOption('[data-testid="add-team-member"] select[name="role"]', 'member');
+    await page.locator('[data-testid="add-team-member"] button[type="submit"]').click();
+    await page.locator('tbody tr', { hasText: MEMBER }).waitFor({ timeout: 20_000 });
+    await page.getByTestId('sign-out').click();
+    await page.waitForURL(/\/sisene/, { timeout: 20_000 });
+
+    const memberLanding = await signInAs(page, server, MEMBER);
+    check('a member lands straight in the buyer area, not on the act-as screen', memberLanding === '/tellija', memberLanding);
+    check('the header says they are a reader', (await headerText(page)).includes('vaatleja'));
+    check('the strip offers them nothing to switch', (await page.getByTestId('test-strip-readonly').count()) === 1);
+    await page.goto(`${BASE}/`);
+    check('and the act-as screen is not theirs', page.url().endsWith('/tellija'), page.url());
+    await page.goto(`${BASE}/tellija/voorud/uus`);
+    check('a write screen tells them why there is no form', await page.getByTestId('read-only-note').isVisible());
+    await page.goto(`${BASE}/tellija/voorud`);
+    check('and the list offers no “new round”', !(await page.locator('a', { hasText: 'Uus voor' }).count()));
+    await page.screenshot({ path: join(SHOTS, 'auth-06-member.png'), fullPage: true });
+    await page.getByTestId('sign-out').click();
+    await page.waitForURL(/\/sisene/, { timeout: 20_000 });
 
     /* a stranger learns nothing */
     await requestCode(page, BASE, STRANGER);
@@ -266,7 +284,7 @@ async function testEnvironment(browser) {
 }
 
 async function productionPosture(browser) {
-  note('Tootmisasend: sisselogimine on välisuks');
+  note('Tootmisasend: sisselogimine on välisuks, valikulehte ei ole');
   const port = await freePort();
   const DB = join(ROOT, 'data', `auth-prod-${Date.now()}.db`);
   const server = startServer({ port, databasePath: DB, demoMode: false });
@@ -278,17 +296,14 @@ async function productionPosture(browser) {
     await page.goto(`${BASE}/`);
     await page.waitForURL(/\/sisene/, { timeout: 20_000 });
     check('the front door is the sign-in', await page.getByTestId('sign-in-form').isVisible());
-    check('no personas, no strip', (await page.getByTestId('persona-card').count()) === 0 && (await page.getByTestId('test-strip').count()) === 0);
+    check('no environment badge, no act-as cards, no strip', !(await page.locator('main').textContent()).includes('TESTKESKKOND') && (await page.getByTestId('act-as-card').count()) === 0 && (await page.getByTestId('test-strip').count()) === 0);
     await page.goto(`${BASE}/tellija`);
     check('the buyer area sends a stranger to the sign-in', page.url().includes('/sisene'), page.url());
 
-    await requestCode(page, BASE, BUYER);
-    const code = await codeFor(server, BUYER);
-    check('the buyer is mailed a code', /^\d{6}$/.test(code ?? ''));
-    await enterCode(page, code);
-    await page.waitForURL(/\/tellija$/, { timeout: 20_000 });
+    const landing = await signInAs(page, server, BUYER);
+    check('an admin lands in the buyer area, with no act-as screen in the way', landing === '/tellija', landing);
     check('and signs in', (await headerText(page)).includes('Mari Tamm (Tellija)'));
-    check('no strip in production even when signed in', (await page.getByTestId('test-strip').count()) === 0);
+    check('no strip in production even when signed in', (await page.getByTestId('test-strip').count()) === 0 && (await page.getByTestId('test-strip-readonly').count()) === 0);
     await page.screenshot({ path: join(SHOTS, 'auth-02-production-buyer.png'), fullPage: true });
     await page.getByTestId('sign-out').click();
     await page.waitForURL(/\/sisene/, { timeout: 20_000 });
@@ -308,21 +323,15 @@ async function productionPosture(browser) {
   }
 }
 
-async function main() {
-  mkdirSync(SHOTS, { recursive: true });
-  const browser = await chromium.launch({ executablePath: CHROMIUM });
-  try {
-    await testEnvironment(browser);
-    await productionPosture(browser);
-  } finally {
-    await browser.close();
-  }
-  console.log(results.join('\n'));
-  console.log(`\n${state.failures === 0 ? 'All checks passed.' : `${state.failures} check(s) failed.`}`);
-  process.exit(state.failures === 0 ? 0 : 1);
+const browser = await chromium.launch({ executablePath: CHROMIUM });
+mkdirSync(SHOTS, { recursive: true });
+try {
+  await testEnvironment(browser);
+  await productionPosture(browser);
+} finally {
+  await browser.close();
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+console.log('\nSisselogimine [L-08]\n' + results.join('\n'));
+console.log(state.failures === 0 ? '\nKõik kontrollid läbitud.' : `\n${state.failures} kontrolli ebaõnnestus.`);
+process.exit(state.failures === 0 ? 0 : 1);

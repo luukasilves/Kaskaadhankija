@@ -9,6 +9,8 @@
 import Link from 'next/link';
 import { eq, inArray } from 'drizzle-orm';
 import { getDb } from '@/db';
+import { buyerCanWrite } from '@/server/auth/actor';
+import { ReadOnlyNote } from '@/components/read-only-note';
 import { lotPartners, lots, trainings } from '@/db/schema';
 import { formatEur, formatIsoDay } from '@/domain/format';
 import { TARGET_GROUPS } from '@/domain/round-statuses';
@@ -24,6 +26,20 @@ export default async function NewRoundPage({
 }) {
   const params = await searchParams;
   const db = getDb();
+
+  if (!(await buyerCanWrite())) {
+    return (
+      <div className="space-y-4">
+        <div>
+          <Link href="/tellija/voorud" className="text-[13px] text-[var(--color-brand)]">
+            ← Voorud
+          </Link>
+          <h1 className="mt-1">Uus voor</h1>
+        </div>
+        <ReadOnlyNote what="Uue vooru koostamine" />
+      </div>
+    );
+  }
 
   const lotRows = db.select().from(lots).where(eq(lots.isActive, true)).all();
   const selectedLot =

@@ -279,44 +279,61 @@ jobs:
             || { echo "::error::APP_BASE_URL is $(jq -r .baseUrl health.json), expected $BASE."; exit 1; }
           echo "Mail transport: $(jq -r .mail health.json)"
 
-          curl -fsS --max-time 20 "$BASE/" > home.html
-          grep -q 'TESTKESKKOND' home.html \
-            || { echo '::error::The opening screen is not the test environment.'; exit 1; }
-
-          # Each persona card posts its key; six partners and one buyer.
-          PARTNERS=$(grep -o 'value="partner:[0-9a-f-]*"' home.html | sort -u | wc -l)
-          BUYERS=$(grep -o 'value="buyer:[0-9a-f-]*"' home.html | sort -u | wc -l)
-          if [ "$PARTNERS" -ne 6 ] || [ "$BUYERS" -ne 1 ]; then
-            echo "::error::Expected 6 partner personas and 1 buyer, found $PARTNERS and $BUYERS — the sample data did not seed."
-            exit 1
-          fi
-          echo "Six partner personas and the buyer are offered."
-
-          # The seeded Lisa B round must be waiting for a response.
-          grep -q 'VOOR-' home.html \
-            || { echo '::error::No seeded round on the opening screen.'; exit 1; }
-
-          # The sign-in, and the proof that the buyer-domain rule reached the
-          # machine — a secret that silently failed to arrive would otherwise
-          # look exactly like "nobody can log in", with no visible cause.
-          # Guarded on the app because the v2 line has no sign-in yet; drop the
-          # guard once this branch is on main.
           if [ "$APP" = "$V3_APP" ]; then
+            # v3: the sign-in is the front door, so `/` redirects there and the
+            # opening page can no longer be read for proof that anything seeded.
+            HOME_CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$BASE/")
+            HOME_LOCATION=$(curl -sI --max-time 20 "$BASE/" | tr -d '\r' | sed -n 's/^[Ll]ocation: //p')
+            case "$HOME_CODE" in
+              30*) : ;;
+              *) echo "::error::/ returned $HOME_CODE; the front door must redirect to the sign-in."; exit 1 ;;
+            esac
+            case "$HOME_LOCATION" in
+              */sisene) : ;;
+              *) echo "::error::/ redirects to '$HOME_LOCATION', expected /sisene."; exit 1 ;;
+            esac
+            echo "/ returned $HOME_CODE to $HOME_LOCATION, as the front door should."
+
+            # The sign-in itself, and the proof that the buyer-domain rule
+            # reached the machine — a secret that silently failed to arrive
+            # would otherwise look exactly like "nobody can log in", with no
+            # visible cause anywhere in the interface.
             curl -fsS --max-time 20 "$BASE/sisene" > signin.html
             grep -q 'data-testid="sign-in-form"' signin.html \
               || { echo '::error::/sisene does not serve the sign-in form.'; exit 1; }
+            grep -q 'TESTKESKKOND' signin.html \
+              || { echo '::error::/sisene does not name itself the test environment.'; exit 1; }
             grep -q 'data-admin-domains="@' signin.html \
               || { echo '::error::AUTO_ADMIN_EMAIL_DOMAINS did not reach the machine — nobody could sign in without being listed first.'; exit 1; }
             echo "Sign-in serving, buyer-domain rule configured: $(sed -n 's/.*data-admin-domains="\([^"]*\)".*/\1/p' signin.html | head -1)"
+
+            # What the opening page used to prove: that the framework data is
+            # there. On a fresh volume these are 0 until the first upload, so
+            # this reports rather than fails.
+            echo "Framework data: $(jq -c .data health.json)"
+          else
+            # v2 keeps its persona gate: six partners and one buyer on `/`.
+            curl -fsS --max-time 20 "$BASE/" > home.html
+            grep -q 'TESTKESKKOND' home.html \
+              || { echo '::error::The opening screen is not the test environment.'; exit 1; }
+            PARTNERS=$(grep -o 'value="partner:[0-9a-f-]*"' home.html | sort -u | wc -l)
+            BUYERS=$(grep -o 'value="buyer:[0-9a-f-]*"' home.html | sort -u | wc -l)
+            if [ "$PARTNERS" -ne 6 ] || [ "$BUYERS" -ne 1 ]; then
+              echo "::error::Expected 6 partner personas and 1 buyer, found $PARTNERS and $BUYERS — the sample data did not seed."
+              exit 1
+            fi
+            echo "Six partner personas and the buyer are offered."
+            grep -q 'VOOR-' home.html \
+              || { echo '::error::No seeded round on the opening screen.'; exit 1; }
           fi
 
-          # Without a persona chosen, the buyer area must not be reachable.
+          # Either way, the buyer area must not be reachable without an identity.
           CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$BASE/tellija")
           if [ "$CODE" = "200" ]; then
-            echo '::error::/tellija served without a persona.'
+            echo '::error::/tellija served without signing in.'
             exit 1
           fi
-          echo "/tellija returned $CODE, as it should without a persona."
+          echo "/tellija returned $CODE, as it should without signing in."
           echo "Deployed and serving: $BASE"
 
       - name: Summary

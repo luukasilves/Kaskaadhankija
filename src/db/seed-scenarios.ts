@@ -1,12 +1,14 @@
 /**
  * Scenario rounds for the mock database.
  *
- * Built by **replaying real engine calls against a rewound virtual clock**, so
- * the audit trail, the notification log and the frozen snapshots a tester sees
- * are genuine rather than fabricated rows. Each step gets its own `Ctx` with
- * its own `at` and its own actor label — publishing happens weeks ago as the
- * buyer, a confirmation happens hours later as that partner's contact — while
- * they all share one transaction, so a broken scenario seeds nothing at all.
+ * Built by **replaying real engine calls at back-dated instants**, so the audit
+ * trail, the notification log and the frozen snapshots a tester sees are
+ * genuine rather than fabricated rows. Each step gets its own `Ctx` with its
+ * own `at` and its own actor label — publishing happened fifteen working days
+ * ago as the buyer, a confirmation hours later as that partner's contact —
+ * while they all share one transaction, so a broken scenario seeds nothing at
+ * all. Nothing here reads a clock: every instant is derived from the seed's own
+ * `now`, which is why removing the virtual clock [L-23] left it untouched.
  *
  * The four scenarios exist to make specific rules reachable without any setup:
  *
@@ -15,7 +17,7 @@
  *  - **B** a finished round that left a training unallocated, so the [T-06]
  *    jääk decision is waiting on the buyer's töölaud;
  *  - **A** an **open** round that reproduces Lisa B of the spec exactly, so a
- *    tester can walk the worked example from three partner personas — with the
+ *    tester can walk the worked example as three partners — with the
  *    third holding an unconfirmed draft, which is where the [K-03] trap lives;
  *  - **C** a draft, so "publish a round" can be tried without building one.
  *

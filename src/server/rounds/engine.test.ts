@@ -1063,6 +1063,50 @@ describe('[D-08] the audit trail is evidence', () => {
     );
     expect(() => harness.raw.prepare('delete from audit_events').run()).toThrow(/muutmatu/);
   });
+
+  it('[L-08] names the admin who acted through a participant, and only then', () => {
+    const roundId = openRound();
+    const partnerId = fx.partnerIds[0];
+
+    // A test-environment admin answering on the partner's screen.
+    harness.write(
+      (ctx) => confirmMarks(ctx, roundId, partnerId, { marks: [fx.trainingIds[0]], cap: null }),
+      {
+        kind: 'partner',
+        id: partnerId,
+        label: 'Jaan Kask, Partner 1',
+        via: { userId: 'u-mari', label: 'Mari Tamm' },
+      },
+    );
+
+    const [answered] = harness.read((db) =>
+      db.select().from(confirmations).where(eq(confirmations.roundId, roundId)).all(),
+    );
+    // The confirmation is the partner's [D-09] — with the operator named in it.
+    expect(answered.actorLabel).toBe('Jaan Kask, Partner 1 (testkeskkonnas tegutses: Mari Tamm)');
+
+    const [marked] = harness.read((db) =>
+      db
+        .select()
+        .from(auditEvents)
+        .where(and(eq(auditEvents.roundId, roundId), eq(auditEvents.eventType, 'marks.confirmed')))
+        .all(),
+    );
+    expect(marked.actorLabel).toBe('Jaan Kask, Partner 1');
+    expect(marked.viaUserId).toBe('u-mari');
+    expect(marked.viaLabel).toBe('Mari Tamm');
+
+    // An ordinary action leaves both columns null.
+    const [published] = harness.read((db) =>
+      db
+        .select()
+        .from(auditEvents)
+        .where(and(eq(auditEvents.roundId, roundId), eq(auditEvents.eventType, 'round.published')))
+        .all(),
+    );
+    expect(published.viaUserId).toBeNull();
+    expect(published.viaLabel).toBeNull();
+  });
 });
 
 describe('[L-07] workload', () => {

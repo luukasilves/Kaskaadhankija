@@ -8,12 +8,12 @@
  */
 
 import { revalidatePath } from 'next/cache';
-import { requireBuyer } from '../auth/actor';
+import { assertAdminActor } from '../auth/actor';
 import { resendDelivery } from '../notify';
 import { fieldText } from './helpers';
 
 export async function resendDeliveryAction(form: FormData): Promise<void> {
-  await requireBuyer();
+  await assertAdminActor();
   const deliveryId = fieldText(form, 'deliveryId');
   if (deliveryId) await resendDelivery(deliveryId);
   revalidatePath('/tellija/teavitused');

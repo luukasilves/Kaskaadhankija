@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { eq } from 'drizzle-orm';
 import { getDb } from '@/db';
+import { buyerCanWrite } from '@/server/auth/actor';
 import { lotPartners, lots, partners } from '@/db/schema';
 import { StatusBadge } from '@/components/status-badge';
 import { workloadFor } from '@/server/rounds/views';
@@ -11,6 +12,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function PartnersPage() {
   const db = getDb();
+  const canWrite = await buyerCanWrite();
 
   const rows = db.select().from(partners).all().sort((a, b) => a.name.localeCompare(b.name));
   const memberships = db
@@ -42,9 +44,11 @@ export default async function PartnersPage() {
           <Link href="/tellija/partnerid/esindajad" className="kh-btn">
             Esindajad
           </Link>
-          <Link href="/tellija/partnerid/import" className="kh-btn kh-btn-primary">
-            Impordi järjestus
-          </Link>
+          {canWrite && (
+            <Link href="/tellija/partnerid/import" className="kh-btn kh-btn-primary">
+              Impordi järjestus
+            </Link>
+          )}
         </div>
       </div>
 

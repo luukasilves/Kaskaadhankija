@@ -560,6 +560,13 @@ export const auditEvents = sqliteTable(
     actorType: text('actor_type').$type<'buyer' | 'partner' | 'system' | 'tester'>().notNull(),
     actorId: text('actor_id'),
     actorLabel: text('actor_label').notNull(),
+    /**
+     * The signed-in admin behind an act-as choice in the test environment: the
+     * event belongs to the participant above, but the trail must be able to
+     * show whose hands were on it [L-08]. Null for an ordinary action.
+     */
+    viaUserId: text('via_user_id'),
+    viaLabel: text('via_label'),
     eventType: text('event_type').notNull(),
     /** Estonian one-liner shown in the audit table */
     summary: text().notNull(),
@@ -764,13 +771,16 @@ export const sessions = sqliteTable(
  * ------------------------------------------------------------------ */
 
 /**
- * Single-row table holding the virtual clock offset. Every engine `now()` reads
- * it, so one transaction sees one consistent instant. Always 0 in production.
+ * Single-row bookkeeping: which seed has run, and when the deadline jobs last
+ * did. `clock_offset_ms` held the virtual clock the test harness could wind
+ * forward; the harness is gone and time is real [L-23], so the column is dead.
+ * It stays because dropping a column rebuilds the table for nothing.
  */
 export const appState = sqliteTable(
   'app_state',
   {
     id: integer().primaryKey(),
+    /** unused since v2.3 — see above */
     clockOffsetMs: integer('clock_offset_ms').notNull().default(0),
     seedVersion: integer('seed_version').notNull().default(0),
     seededAt: integer('seeded_at'),

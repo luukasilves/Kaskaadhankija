@@ -11,6 +11,8 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { and, eq } from 'drizzle-orm';
 import { getDb } from '@/db';
+import { buyerCanWrite } from '@/server/auth/actor';
+import { ReadOnlyNote } from '@/components/read-only-note';
 import { lotPartners, lots, partners, rounds } from '@/db/schema';
 import { formatEur } from '@/domain/format';
 import { RankChip, StatusBadge } from '@/components/status-badge';
@@ -22,6 +24,7 @@ export const dynamic = 'force-dynamic';
 export default async function LotDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const db = getDb();
+  const canWrite = await buyerCanWrite();
 
   const lot = db.select().from(lots).where(eq(lots.id, id)).get();
   if (!lot) notFound();
@@ -61,20 +64,24 @@ export default async function LotDetail({ params }: { params: Promise<{ id: stri
         <p className="mt-1 max-w-[80ch] text-[var(--color-muted)]">{lot.description}</p>
       </div>
 
-      <LotConfigForm
-        lot={{
-          id: lot.id,
-          code: lot.code,
-          responseDeadlineWorkingDays: lot.responseDeadlineWorkingDays,
-          deadlineLocalTime: lot.deadlineLocalTime,
-          reviewWorkingDays: lot.reviewWorkingDays,
-          workloadThreshold: lot.workloadThreshold,
-          thresholdNote: lot.thresholdNote,
-          defaultVisibilityMode: lot.defaultVisibilityMode,
-          defaultCapOptions: lot.defaultCapOptions,
-        }}
-        openRoundCodes={openRounds.map((r) => r.code)}
-      />
+      {!canWrite && <ReadOnlyNote what="Hankeosa seaded" />}
+
+      {canWrite && (
+        <LotConfigForm
+          lot={{
+            id: lot.id,
+            code: lot.code,
+            responseDeadlineWorkingDays: lot.responseDeadlineWorkingDays,
+            deadlineLocalTime: lot.deadlineLocalTime,
+            reviewWorkingDays: lot.reviewWorkingDays,
+            workloadThreshold: lot.workloadThreshold,
+            thresholdNote: lot.thresholdNote,
+            defaultVisibilityMode: lot.defaultVisibilityMode,
+            defaultCapOptions: lot.defaultCapOptions,
+          }}
+          openRoundCodes={openRounds.map((r) => r.code)}
+        />
+      )}
 
       <section className="kh-card">
         <div className="border-b border-[var(--color-border)] px-4 py-3">
@@ -99,6 +106,7 @@ export default async function LotDetail({ params }: { params: Promise<{ id: stri
             </thead>
             <tbody>
               <PartnerRows
+                canWrite={canWrite}
                 lotId={id}
                 threshold={lot.workloadThreshold}
                 rows={members.map((member) => ({
@@ -110,11 +118,13 @@ export default async function LotDetail({ params }: { params: Promise<{ id: stri
             </tbody>
           </table>
         </div>
-        <div className="border-t border-[var(--color-border)] p-3">
-          <Link href="/tellija/partnerid/import" className="kh-btn">
-            Impordi järjestus tabelina
-          </Link>
-        </div>
+        {canWrite && (
+          <div className="border-t border-[var(--color-border)] p-3">
+            <Link href="/tellija/partnerid/import" className="kh-btn">
+              Impordi järjestus tabelina
+            </Link>
+          </div>
+        )}
       </section>
     </div>
   );
