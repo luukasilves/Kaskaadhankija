@@ -42,6 +42,52 @@ export function partnerRecipients(tx: Reader, lotPartnerId: string): string[] {
 }
 
 /**
+ * Every address the framework data knows — the derived half of the allowed
+ * recipients [L-19].
+ *
+ * The buyer already maintains this list: it is the framework agreement's own
+ * contacts and representatives. Deriving it means nobody edits a secret to
+ * onboard a bidder, which is what used to leave a real partner receiving
+ * neither a round notice nor a sign-in code.
+ *
+ * Two properties this function must keep:
+ *
+ *  - **It must not be narrower than the sign-in gate [L-08].** An address that
+ *    can request a code has to be able to receive it. `findSubjectByEmail`
+ *    treats a representative as known on `partner_representatives.isActive`
+ *    alone, so this does too — deliberately **not** joining `partners.isActive`,
+ *    however much the neighbouring framework code does. A representative of a
+ *    deactivated company can still sign in.
+ *  - **It reads only live, buyer-maintained rows.** Never the frozen evidence
+ *    (`round_participants.contact_email_snapshot`, `confirmations.contact_email`,
+ *    the order snapshot), which would resurrect a partner the buyer has since
+ *    removed, and never `login_codes.email`, which is whatever a stranger typed.
+ */
+export function frameworkRecipients(tx: Reader): string[] {
+  const representatives = tx
+    .select({ email: partnerRepresentatives.email })
+    .from(partnerRepresentatives)
+    .where(eq(partnerRepresentatives.isActive, true))
+    .all()
+    .map((row) => row.email);
+
+  // The lot contact is normally mirrored into a `framework`-sourced
+  // representative row, so this is belt to that brace — and it is the only
+  // address that exists before any representatives import has run.
+  const contacts = tx
+    .select({ email: lotPartners.contactEmail })
+    .from(lotPartners)
+    .where(eq(lotPartners.isActive, true))
+    .all()
+    .map((row) => row.email);
+
+  const all = [...representatives, ...contacts]
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean);
+  return [...new Set(all)];
+}
+
+/**
  * The buyer team's addresses: the configured team mailbox, else every active
  * admin user. Empty keeps the team's copies in-app only.
  */

@@ -17,6 +17,7 @@ import { EMAIL_DELIVERY_STATUS_LABELS, NOTIFICATION_TYPE_LABELS } from '@/domain
 import { StatusBadge } from '@/components/status-badge';
 import { resendDeliveryAction } from '@/server/actions/mail';
 import { describeMailMode } from '@/server/mail';
+import { frameworkRecipients } from '@/server/recipients';
 import { deliveriesFor } from '@/server/notify';
 
 export const dynamic = 'force-dynamic';
@@ -55,7 +56,7 @@ export default async function BuyerNotificationsPage() {
         <h1>Teavitused</h1>
         <p className="mt-1 max-w-[80ch] text-[var(--color-muted)]">
           Kõik teated, mida süsteem on koostanud — nii partneritele kui tellimismeeskonnale.{' '}
-          {describeMailMode()}
+          {describeMailMode(frameworkRecipients(db).length)}
         </p>
       </div>
 

@@ -162,10 +162,16 @@ jobs:
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
           EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
-          # Who may receive real mail from the test environment. Defaults cover
-          # the buyer organisation and the team building this, so a code can
-          # actually arrive; set the secret to override.
-          EMAIL_ALLOWED_RECIPIENTS: ${{ secrets.EMAIL_ALLOWED_RECIPIENTS || '@riigikantselei.ee, @agenticstate.org' }}
+          # Who may receive real mail *besides* the framework's own contacts
+          # [L-19]. Every active representative and lot contact is derived from
+          # the uploaded framework data, so this covers only the people the
+          # framework does not contain: the buyer's own team.
+          #
+          # The tool team's domain came off this default when the derivation
+          # landed — it was there so a bidder's code could arrive, and that is
+          # no longer what it does. Set the secret to add it back for a
+          # throwaway environment.
+          EMAIL_ALLOWED_RECIPIENTS: ${{ secrets.EMAIL_ALLOWED_RECIPIENTS || '@riigikantselei.ee' }}
           TEAM_NOTIFICATIONS_EMAIL: ${{ secrets.TEAM_NOTIFICATIONS_EMAIL }}
           # `nimi,e-post[,roll];…` — the buyer team's own members, added when the
           # seed runs, alongside the sample Mari Tamm rather than replacing her.

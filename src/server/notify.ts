@@ -19,6 +19,7 @@ import { getDb } from '@/db';
 import { emailDeliveries, notifications, type NotificationType } from '@/db/schema';
 import type { Ctx, Db, QueuedNotification } from './context';
 import { sendMail, type MailMessage, type SendOutcome } from './mail';
+import { frameworkRecipients } from './recipients';
 import type { RenderedNotice } from '@/domain/round-templates';
 
 export interface NotifyInput {
@@ -98,24 +99,38 @@ export function notify(ctx: Ctx, input: NotifyInput): void {
  * failure is recorded but changes nothing that was decided.
  */
 export async function dispatchOutbox(outbox: QueuedNotification[], database?: Db): Promise<void> {
+  if (outbox.length === 0) return;
+  // Read the framework's own addresses once for the whole burst [L-19]:
+  // publishing one round is a notice per partner and a message per
+  // representative, and this loop is sequential.
+  const db = database ?? getDb();
+  const known = frameworkRecipients(db);
   for (const message of outbox) {
     for (const delivery of message.deliveries) {
       await attemptDelivery(
         delivery.deliveryId,
         { to: delivery.to, subject: message.title, text: message.body, html: message.bodyHtml },
         database,
+        known,
       );
     }
   }
 }
 
-/** One attempt at one recipient, with the outcome written to its delivery row. */
+/**
+ * One attempt at one recipient, with the outcome written to its delivery row.
+ *
+ * `known` is the framework's own addresses [L-19]. Resolved here when a caller
+ * has not already done it for a burst; omitting it entirely would suppress
+ * every partner's mail, so it is never left to chance.
+ */
 export async function attemptDelivery(
   deliveryId: string,
   message: MailMessage,
   database?: Db,
+  known?: readonly string[],
 ): Promise<SendOutcome> {
-  const outcome = await sendMail(message);
+  const outcome = await sendMail(message, known ?? frameworkRecipients(database ?? getDb()));
   recordDeliveryOutcome(deliveryId, outcome, database);
   return outcome;
 }

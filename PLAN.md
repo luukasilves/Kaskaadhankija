@@ -81,7 +81,7 @@ One container, one SQLite file, no outside services.
 | Styling | Tailwind v4 design tokens, light and dark, print stylesheet for orders |
 | Time | real time, behind one `currentTimeMs()` seam; the domain never reads a clock at all — every instant is injected [L-23] |
 | Scheduling | in-process timer started on the first request, plus a lazy check on every round page load — idempotent from both |
-| Email | one `sendMail` over configurable SMTP, below the notification log; one delivery row per recipient with retries and a manual re-send [D-10]; the test environment mails only an allowlist [L-19] |
+| Email | one `sendMail` over configurable SMTP, below the notification log; one delivery row per recipient with retries and a manual re-send [D-10]; a recipient must be one the framework data knows, or on the configured list [L-19] |
 | Identity | one `getActor()` seam; a session opened by an e-mail code for a buyer user or a partner's representative [L-08][L-18]; in the test environment an admin may *act as* a participant without ending that session, and both names go on the record |
 | Documents | orders are printable HTML from a frozen snapshot [L-15]; the round protocol is canonical JSON plus its SHA-256, rendered to PDF (pdfmake, standard fonts only) and an .xlsx annex on demand [L-22] |
 | Tests | vitest for domain and engine, plain Node + Playwright for the browser suites |
@@ -151,7 +151,8 @@ the moment real data arrived in the environment [L-23]:
   and runs mini-procurements as a **hankija** [R-01].
 
 `DEMO_MODE` keeps its name and now means *test environment*: the act-as picker,
-the badge, the mail allowlist [L-19], and that relaxed floor. Nothing else.
+the badge, what an empty allowed-recipients set means [L-19], and that relaxed
+floor. Nothing else.
 
 ### Sample data
 

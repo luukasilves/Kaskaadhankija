@@ -5,11 +5,18 @@
  * sign-in codes — goes through `sendMail`, and nothing else imports nodemailer.
  * Three properties follow:
  *
- *  - **The test environment cannot mail strangers.** The seeded partners have
- *    fictional addresses, and the team's sheet will carry real ones. With
- *    `DEMO_MODE` on, an address is sent to only if `EMAIL_ALLOWED_RECIPIENTS`
- *    names it or its domain; everything else is recorded as *suppressed* and
- *    never attempted. An unset list in the test environment suppresses all mail.
+ *  - **The environment cannot mail strangers.** An address is sent to only if
+ *    it is among the allowed recipients [L-19], and that set has two halves:
+ *    the addresses **derived from the framework data** — every active
+ *    representative and every active lot contact, which `frameworkRecipients`
+ *    reads — plus whatever `EMAIL_ALLOWED_RECIPIENTS` names, which is for
+ *    people the framework does *not* contain (the buyer's team, testers).
+ *    Everything else is recorded as *suppressed* and never attempted. With
+ *    both halves empty, the test environment sends nothing at all.
+ *
+ *    This module stays free of the database, so the derived half arrives as an
+ *    argument. It defaults to none: a caller that forgets it gets the
+ *    **stricter** gate, because a mail gate should fail safe.
  *  - **Switching providers is configuration.** A public relay now, the
  *    Riigikantselei server later: host, port, credentials and the From address,
  *    nothing in the code.
@@ -70,7 +77,7 @@ export function recipientAllowed(
       ? {
           allowed: false,
           reason:
-            'Testkeskkond: lubatud saajate loend (EMAIL_ALLOWED_RECIPIENTS) on tühi, e-kirju ei saadeta.',
+            'Lubatud saajaid ei ole: raamlepingu andmed on tühjad ja loend (EMAIL_ALLOWED_RECIPIENTS) samuti.',
         }
       : { allowed: true };
   }
@@ -82,7 +89,7 @@ export function recipientAllowed(
   if (listed) return { allowed: true };
   return {
     allowed: false,
-    reason: `${demoMode ? 'Testkeskkond: ' : ''}saaja ei ole lubatud saajate loendis (EMAIL_ALLOWED_RECIPIENTS).`,
+    reason: `${demoMode ? 'Testkeskkond: ' : ''}saaja ei ole raamlepingu kontaktisik ega lubatud saajate loendis (EMAIL_ALLOWED_RECIPIENTS).`,
   };
 }
 
@@ -107,7 +114,16 @@ function getTransporter(): Transporter {
  * Send one message and say what happened. Never throws: the caller records the
  * outcome, and a mail problem must never become an application error.
  */
-export async function sendMail(message: MailMessage): Promise<SendOutcome> {
+export async function sendMail(
+  message: MailMessage,
+  /**
+   * The addresses the framework data knows, from `frameworkRecipients` [L-19].
+   * Defaults to none so that a caller which forgets it gets the stricter gate —
+   * a suppressed message is a visible delivery row, a leaked one is a letter to
+   * a stranger.
+   */
+  known: readonly string[] = [],
+): Promise<SendOutcome> {
   const mode = mailMode();
   if (mode === 'dev') {
     console.log(
@@ -125,7 +141,12 @@ export async function sendMail(message: MailMessage): Promise<SendOutcome> {
 
   const verdict = recipientAllowed(message.to, {
     demoMode: isDemoMode,
-    allowlist: parseAllowlist(env.EMAIL_ALLOWED_RECIPIENTS),
+    // The two halves as one list. Composing here rather than inside
+    // `recipientAllowed` keeps that function pure, and gives the intended
+    // semantics for free: with an unset secret the derived addresses are the
+    // whole list, and the "empty list sends nothing" branch fires only when the
+    // framework data is empty too.
+    allowlist: [...parseAllowlist(env.EMAIL_ALLOWED_RECIPIENTS), ...known],
   });
   if (!verdict.allowed) return { status: 'suppressed', detail: verdict.reason, messageId: '' };
 
@@ -149,12 +170,19 @@ export async function sendMail(message: MailMessage): Promise<SendOutcome> {
   }
 }
 
-/** One sentence for the screens about where mail goes right now. */
-export function describeMailMode(): string {
+/**
+ * One sentence for the screens about where mail goes right now.
+ *
+ * `knownCount` is how many addresses the framework data contributes [L-19] —
+ * the callers have a database handle and this module does not. It matters
+ * because an unset `EMAIL_ALLOWED_RECIPIENTS` no longer means silence: with
+ * partners loaded, their own contacts are the allowed recipients.
+ */
+export function describeMailMode(knownCount = 0): string {
   switch (mailMode()) {
     case 'smtp':
-      return isDemoMode && parseAllowlist(env.EMAIL_ALLOWED_RECIPIENTS).length === 0
-        ? 'SMTP on seadistatud, aga testkeskkonna lubatud saajate loend on tühi — e-kirju ei saadeta.'
+      return isDemoMode && knownCount === 0 && parseAllowlist(env.EMAIL_ALLOWED_RECIPIENTS).length === 0
+        ? 'SMTP on seadistatud, aga lubatud saajaid ei ole ühtegi — raamlepingu andmed on tühjad ja loendit ei ole seadistatud, nii et e-kirju ei saadeta.'
         : 'SMTP on seadistatud: iga teade saadetakse ka e-postiga ja iga saaja kohta on kirjas, mis kirjaga juhtus.';
     case 'dev':
       return 'E-kirjad kirjutatakse serveri logisse (EMAIL_DEV_MODE), mitte ei saadeta.';

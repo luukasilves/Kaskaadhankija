@@ -221,7 +221,7 @@ to see the diagnostics.
 
 ```bash
 pnpm typecheck
-pnpm test                       # 444 domain, engine and protocol tests, named after spec rules
+pnpm test                       # 456 domain, engine and protocol tests, named after spec rules
 pnpm build
 
 node scripts/e2e.mjs            # upload → publish → answer → close → review → confirm → protocol; a partner's own view; an empty environment set up by hand
@@ -301,20 +301,31 @@ notification links use). And Fly wants payment details on file before it will
 create machines.
 
 To run it as a real deployment rather than a test one, remove `DEMO_MODE` from
-`fly.toml`: no act-as screen, no badge, no relaxed deadline floor, and the mail
-allowlist stops applying. The sign-in is the front door in both cases.
+`fly.toml`: no act-as screen, no badge, no relaxed deadline floor. The sign-in
+is the front door in both cases. Note that the mail gate does **not** stop
+applying outside `DEMO_MODE` — `DEMO_MODE` only decides what an *empty*
+allowed-recipients set means (silence in the test environment, everyone in
+production).
 
 ### Mail
 
 The v3 workflow pushes the mail settings to the v3 app from repository
 secrets, so nothing needs `flyctl`: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`,
-`SMTP_PASS`, `EMAIL_FROM`, and for the test environment
-`EMAIL_ALLOWED_RECIPIENTS` — the addresses and `@domains` that may receive
-real mail; anything else is recorded as *suppressed*, and an empty list sends
-nothing at all. It gates sign-in codes too, so a domain that may sign in must
-also be allowed to receive mail; a code the transport refused is logged as a
-warning, because the sign-in page deliberately cannot say whether an address
-is known. Optional: `TEAM_NOTIFICATIONS_EMAIL` for the buyer team's
+`SMTP_PASS`, `EMAIL_FROM`, and `EMAIL_ALLOWED_RECIPIENTS`.
+
+**Who may receive mail [L-19]** is two sets, and only one of them is
+configuration. The **framework's own addresses** — every active representative
+and every active lot contact — are allowed automatically, derived from the data
+an admin uploads (`frameworkRecipients`). Nobody edits a secret to onboard a
+bidder, which is what used to leave a real partner receiving neither a round
+notice nor a sign-in code. `EMAIL_ALLOWED_RECIPIENTS` then covers the people the
+framework does *not* contain: the buyer's own team, the team's mailbox, testers
+— addresses and `@domains`, comma-separated. Anything in neither set is recorded
+as *suppressed* and never attempted; with both sets empty the test environment
+sends nothing at all. The gate covers sign-in codes too, which is why the
+derived set must never be narrower than who may sign in — a code the transport
+refused is logged as a warning, because the sign-in page deliberately cannot say
+whether an address is known. Optional: `TEAM_NOTIFICATIONS_EMAIL` for the buyer team's
 copies, and `SEED_TEAM` (`nimi,e-post[,roll];…`) so a fresh volume already has
 the people who sign in — added alongside the sample Mari Tamm, not instead of
 her. Partner representatives are no longer seeded from a secret: they arrive
@@ -344,8 +355,7 @@ unset already hides it, but it should be **deleted** rather than left to an env
 gate, and the go-live wording reviewed by whoever owns the agreement. The page
 also restates the app-wide `robots: noindex`; a public guide may want the
 opposite once the pilot ends. `docs/juhend/query-sheet.md` lists what else is
-outstanding — including that `EMAIL_ALLOWED_RECIPIENTS` must name the partners'
-own domains before any of this reaches them, since it gates sign-in codes too.
+outstanding.
 
 There is no reset button [L-23]. Once testers have changed things, the way back
 to a pristine environment is a fresh volume — deliberately, because from the

@@ -290,7 +290,7 @@ export const SECTIONS: readonly Section[] = [
       {
         kind: 'para',
         text:
-          'E-kirjade saatmine on katsekeskkonnas piiratud: kirju saadetakse ainult eelnevalt lubatud aadressidele. **See puudutab ka sisenemiskoode.** Kui te koodi ei saa, ei ole see tõrge teie postkastis — võtke tellijaga ühendust ja laske oma aadress lubatud saajate hulka lisada.',
+          'E-kirju saadetakse ainult aadressidele, mis on **raamlepingu andmetes** — hankeosa kontaktisikutele ja üleslaaditud esindajatele. **See puudutab ka sisenemiskoode.** Kui te koodi ei saa, ei ole see tõrge teie postkastis: tõenäoliselt ei ole teie aadress esindajate loendis. Selle parandab tellija raamlepingu andmetes, ja pärast seda töötab nii sisselogimine kui teated.',
       },
       {
         kind: 'para',

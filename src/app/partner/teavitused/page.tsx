@@ -17,6 +17,7 @@ import { EMAIL_DELIVERY_STATUS_LABELS, NOTIFICATION_TYPE_LABELS } from '@/domain
 import { StatusBadge } from '@/components/status-badge';
 import { requirePartner } from '@/server/auth/actor';
 import { describeMailMode } from '@/server/mail';
+import { frameworkRecipients } from '@/server/recipients';
 import { deliveriesFor } from '@/server/notify';
 
 export const dynamic = 'force-dynamic';
@@ -70,7 +71,7 @@ export default async function PartnerNotificationsPage() {
         <h1>Teavitused</h1>
         <p className="mt-1 max-w-[80ch] text-[var(--color-muted)]">
           Kõik teated, mille süsteem on teile koostanud — vooru avaldamised, kinnituste kviitungid,
-          prognoosi muutused ja tellimused. {describeMailMode()}
+          prognoosi muutused ja tellimused. {describeMailMode(frameworkRecipients(db).length)}
         </p>
       </div>
 

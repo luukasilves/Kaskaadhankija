@@ -31,6 +31,7 @@ import { PERSONA_COOKIE, SESSION_COOKIE, requestEvidence } from '../auth/actor';
 import { currentTimeMs } from '../clock';
 import { NO_EVIDENCE, type ActorRef, type Ctx, type Evidence, type Tx } from '../context';
 import { isEmailAddress, sendMail } from '../mail';
+import { frameworkRecipients } from '../recipients';
 import { fieldText } from './helpers';
 
 const THIRTY_DAYS = 60 * 60 * 24 * 30;
@@ -89,12 +90,19 @@ export async function requestLoginCodeAction(form: FormData): Promise<void> {
       code: result.code,
       minutes: CODE_TTL_MS / 60_000,
     });
+    // A code is only ever issued to an address the system already knows, so the
+    // framework's own contacts have to be among the allowed recipients or the
+    // environment would issue codes it cannot deliver [L-19].
+    const known = frameworkRecipients(getDb());
     // Not awaited: the response must take the same time for every address.
     // The outcome is still worth a line, because the page deliberately cannot
-    // say whether an address is known — so a code the transport refused (an
-    // allowlist that does not cover this domain, no SMTP at all) would
-    // otherwise fail completely invisibly.
-    void sendMail({ to: email, subject: notice.title, text: notice.body, html: notice.bodyHtml }).then(
+    // say whether an address is known — so a code the transport refused (no
+    // SMTP at all, a recipient outside the allowed set) would otherwise fail
+    // completely invisibly. This send has no delivery row to explain itself.
+    void sendMail(
+      { to: email, subject: notice.title, text: notice.body, html: notice.bodyHtml },
+      known,
+    ).then(
       (outcome) => {
         if (outcome.status !== 'sent') {
           console.warn(

@@ -2,20 +2,34 @@
 
 What the guide could not settle on its own. Each item is a decision for the
 buyer team or for whoever owns the framework agreement; the guide is written so
-that none of them blocks sending it, but three of them would change it.
+that none of them blocks sending it. Item 1 was the exception and is now
+resolved; items 2 and 3 are inconsistencies in the application that writing the
+guide exposed, and item 4 is the list of numbers the guide deliberately omits.
 
-## 1. A real bidder cannot receive a sign-in code today — blocking
+## 1. A real bidder could not receive a sign-in code — **resolved**
 
-Sign-in codes go through `sendMail`, which in `DEMO_MODE` suppresses any address
-that `EMAIL_ALLOWED_RECIPIENTS` does not name (`src/server/mail.ts:5-12`, the
-gate at `:126`). The deploy defaults that list to `@riigikantselei.ee,
-@agenticstate.org` (`.github/workflows/deploy.yml`). So a partner writing from
-their own company domain gets no code at all, and their attempt is recorded as
-*suppressed*.
+*Was blocking.* Sign-in codes go through `sendMail`, which suppressed any
+address `EMAIL_ALLOWED_RECIPIENTS` did not name — and the deploy defaulted that
+list to the buyer's and the tool team's domains. A partner writing from their own
+company domain got no code at all, and the attempt was recorded as *suppressed*.
+Nothing in the pilot worked until somebody remembered to edit a secret.
 
-**The pilot partners' domains must be added to that secret before the guide is
-sent**, or §2 of the guide describes something that does not work. The guide
-says so in the katsekeskkond section, which is honest but no substitute.
+**Resolved in v2.5 of the specification [L-19]:** the allowed recipients are now
+the framework's own contacts — every active representative and every active lot
+contact, derived by `frameworkRecipients` in `src/server/recipients.ts` — *plus*
+whatever `EMAIL_ALLOWED_RECIPIENTS` names, which is left for the people the
+framework does not contain (the buyer's team, testers). Uploading the framework
+workbook is now the whole onboarding step.
+
+Two consequences worth knowing:
+
+- **Deliveries already suppressed stay suppressed.** `retryEligible` only
+  retries a `failed` row, deliberately — widening it would re-send old notices
+  on the next jobs tick. Anything suppressed before the change is re-sent by
+  hand from the notification log.
+- **A typo in an uploaded contact address now reaches a real mailbox** instead
+  of being suppressed. The framework import's address validation is what stands
+  between the two.
 
 ## 2. The application uses three words for the test environment
 

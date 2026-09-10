@@ -325,6 +325,6 @@ export const EMAIL_DELIVERY_STATUS_LABELS: Record<string, string> = {
   queued: 'ootel',
   sent: 'saadetud',
   failed: 'saatmine ebaõnnestus',
-  suppressed: 'ei saadetud — testkeskkonna lubatud saajate loendis puudub',
+  suppressed: 'ei saadetud — saaja ei ole lubatud saajate hulgas',
   skipped: 'e-kirja ei saadetud',
 };
