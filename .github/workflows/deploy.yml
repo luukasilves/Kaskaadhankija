@@ -204,6 +204,16 @@ jobs:
           else
             echo "No secrets to push."
           fi
+          # The retired domain rule. The application no longer reads this name,
+          # so leaving it would change nothing today — but it would sit in
+          # `flyctl secrets list` looking like access somebody still has, and a
+          # revert would silently switch the wide rule back on. Guarded, and
+          # never allowed to fail the deploy: this is tidying, not a gate.
+          if flyctl secrets list --app "$APP" 2>/dev/null | grep -qw AUTO_ADMIN_EMAIL_DOMAINS; then
+            echo "unsetting the retired AUTO_ADMIN_EMAIL_DOMAINS"
+            flyctl secrets unset --app "$APP" --stage AUTO_ADMIN_EMAIL_DOMAINS \
+              || echo "could not unset AUTO_ADMIN_EMAIL_DOMAINS — remove it by hand"
+          fi
 
       - name: Deploy
         run: |
