@@ -434,12 +434,18 @@ async function walkPartnerVisibility(page, server) {
   );
   // [N-01] is "everything, live": the buyer reads each partner's answer, which
   // is the one thing the partner screens deliberately hide from each other.
-  // The workload warning belongs to the review screen [T-01] and is checked
-  // there, by the engine tests that can put a partner over a lot threshold.
   check(
     'and what each of them has answered [N-01]',
     matrix.includes('Kinnitatud'),
     matrix.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').match(/.{0,80}Kinnita.{0,40}/)?.[0] ?? 'ükski olek ei olnud näha',
+  );
+  // [V-03] OSA-2's threshold is 4, and the round is frozen against it — a later
+  // edit of the lot cannot reach a published round, so the figure that applies
+  // is the one on the round.
+  check(
+    'and the configuration the round is frozen against [V-03]',
+    (await page.getByTestId('frozen-threshold').innerText()).trim() === '4 koolitust',
+    await page.getByTestId('frozen-threshold').innerText(),
   );
   await page.screenshot({ path: join(SHOTS, '10-buyer-matrix.png'), fullPage: true });
 }

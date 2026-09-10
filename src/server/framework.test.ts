@@ -322,6 +322,27 @@ describe('[L-21] the official contact is the sign-in', () => {
     expect(representatives().every((r) => r.source === 'framework')).toBe(true);
   });
 
+  it('leaves a row that predates the ownership column alone [migration path]', () => {
+    // A volume carried over from v2.2 has every representative marked
+    // `upload`, because that is what the migration defaults them to. The sync
+    // must then neither duplicate the row nor take it over silently: the
+    // address already works as a sign-in, and that is the fact that matters.
+    harness.raw
+      .prepare("UPDATE partner_representatives SET source = 'upload', name = 'Vana Nimi'")
+      .run();
+
+    const report = harness.write((ctx) => syncFrameworkContacts(ctx));
+
+    expect(report.created).toEqual([]);
+    expect(report.reactivated).toEqual([]);
+    expect(report.renamed).toEqual([]);
+    expect(report.deactivated).toEqual([]);
+    // One row per address still, and the sign-in still works.
+    expect(activeEmails()).toEqual(['jaan.kask@tehisaru-naidis.ee', 'kontakt.10000002@naidis.ee']);
+    expect(representatives().filter((r) => r.email === 'jaan.kask@tehisaru-naidis.ee')).toHaveLength(1);
+    expect(representatives().every((r) => r.source === 'upload')).toBe(true);
+  });
+
   it('moves the login when the contact changes, and retires the old one', () => {
     const membership = harness.read((db) =>
       db

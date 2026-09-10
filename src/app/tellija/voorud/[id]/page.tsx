@@ -230,6 +230,21 @@ export default async function RoundDetail({ params }: { params: Promise<{ id: st
               <dd className="font-semibold">{round.cancelReason}</dd>
             </>
           )}
+          {/* [V-03] The configuration this round is frozen against. A later
+              edit of the lot cannot reach it, so the figures that actually
+              apply belong on the round rather than only on the lot. */}
+          {round.publishedAt !== null && (
+            <>
+              <dt className="text-[var(--color-muted)]">Koormuse piir</dt>
+              <dd className="font-semibold tabular-nums" data-testid="frozen-threshold">
+                {round.workloadThresholdSnapshot} koolitust
+              </dd>
+              <dt className="text-[var(--color-muted)]">Vastamisaeg</dt>
+              <dd className="font-semibold tabular-nums">
+                {round.responseWorkingDaysSnapshot} tööpäeva
+              </dd>
+            </>
+          )}
         </dl>
         {round.note && (
           <p className="mt-3 text-[13px]">

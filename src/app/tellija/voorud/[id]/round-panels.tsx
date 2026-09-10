@@ -25,7 +25,7 @@ export interface TrainingRef {
   eventDate?: string;
 }
 
-/** „viiest minutist“ / „kahekümnest sekundist“ — the floor in words. */
+/** „viiest minutist“ / „20 sekundist“ — the floor as the sentence needs it. */
 function floorText(seconds: number): string {
   if (seconds < 60) return `${seconds} sekundist`;
   const minutes = Math.round(seconds / 60);
