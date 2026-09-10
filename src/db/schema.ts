@@ -860,3 +860,43 @@ export const roundSequences = sqliteTable(
   },
   (t) => [primaryKey({ columns: [t.year] })],
 );
+
+/* ------------------------------------------------------------------ *
+ * vooru protokoll [L-22]
+ * ------------------------------------------------------------------ */
+
+/**
+ * One protocol per ended round: the whole document as canonical JSON, plus the
+ * SHA-256 of exactly that text.
+ *
+ * The content, not a rendering, is what is stored — the PDF and the .xlsx annex
+ * are drawn from it on demand, so the fingerprint printed on paper always names
+ * the data and never the renderer that happened to draw it. The write is audited
+ * with the hash, which is what makes tampering detectable; that is also why
+ * there are deliberately no append-only triggers here (a test environment must
+ * be able to delete a row to replay the legacy-round path).
+ */
+export const roundProtocols = sqliteTable(
+  'round_protocols',
+  {
+    id: uuid().primaryKey(),
+    roundId: text('round_id')
+      .notNull()
+      .references(() => rounds.id),
+    kind: text().$type<'confirmed' | 'cancelled'>().notNull(),
+    /** `PROTOCOL_SCHEMA_VERSION` at the time of writing */
+    version: integer().notNull().default(1),
+    /** canonical JSON of `RoundProtocolData` — the hashed text, byte for byte */
+    contentJson: text('content_json').notNull(),
+    /** sha256 hex of `content_json` */
+    contentHash: text('content_hash').notNull(),
+    /** the allocation algorithm behind the numbers, when there was one */
+    algorithmVersion: integer('algorithm_version'),
+    generatedAt: integer('generated_at').notNull(),
+    generatedBy: text('generated_by').notNull(),
+  },
+  (t) => [
+    uniqueIndex('round_protocols_round_unique').on(t.roundId),
+    oneOf('kind', ['confirmed', 'cancelled']),
+  ],
+);

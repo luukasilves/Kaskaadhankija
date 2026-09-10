@@ -31,6 +31,7 @@ import { buyerCanWrite } from '@/server/auth/actor';
 import { ReadOnlyNote } from '@/components/read-only-note';
 import { projectionInput } from '@/server/rounds/allocation-input';
 import { runDueJobs } from '@/server/rounds/jobs';
+import { getRoundProtocol } from '@/server/rounds/protocol';
 import { latestConfirmation, participantsOf, responseStateFor } from '@/server/rounds/views';
 import { DraftRoundPanel, OpenRoundPanel } from './round-panels';
 
@@ -124,6 +125,14 @@ export default async function RoundDetail({ params }: { params: Promise<{ id: st
     };
   });
 
+  // [L-22] Whether this round has a protocol at all; a round that ended before
+  // protocols existed has none until an admin writes one, and the page it links
+  // to says so and offers that.
+  const hasProtocol =
+    round.status === 'confirmed' ||
+    (round.status === 'cancelled' && round.publishedAt !== null) ||
+    getRoundProtocol(db, id) !== null;
+
   const nonResponders = partnerColumns.filter(
     (column) => column.participant.excludedAt === null && !column.latest,
   );
@@ -148,6 +157,17 @@ export default async function RoundDetail({ params }: { params: Promise<{ id: st
           {round.status === 'closed' && (
             <Link href={`/tellija/voorud/${id}/ulevaatus`} className="kh-btn kh-btn-primary">
               Ava ülevaatus
+            </Link>
+          )}
+          {/* [L-22] An ended round has a signable record; the link is here
+              because this is the page anyone looking for one opens first. */}
+          {hasProtocol && (
+            <Link
+              href={`/tellija/voorud/${id}/protokoll`}
+              className="kh-btn"
+              data-testid="protocol-link"
+            >
+              Vooru protokoll
             </Link>
           )}
         </div>

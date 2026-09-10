@@ -44,6 +44,8 @@ export type AuditEventType =
   | 'training.leftover_cancelled'
   // participants [E-01]
   | 'participant.excluded'
+  // the signable record of an ended round [L-22] — carries its SHA-256
+  | 'protocol.generated'
   // the framework agreement itself [L-21]
   | 'framework.updated'
   // lots and partners

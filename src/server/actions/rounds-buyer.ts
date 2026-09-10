@@ -27,6 +27,7 @@ import {
   withdrawTraining,
   cancelOrderTraining,
 } from '../rounds/engine';
+import { generateProtocolForEndedRound } from '../rounds/protocol';
 import { assertAdminActor } from '../auth/actor';
 import { parseEstonianInstant } from '@/domain/round-definition';
 import { runDueJobs } from '../rounds/jobs';
@@ -156,6 +157,28 @@ export async function cancelRoundAction(form: FormData): Promise<ActionOutcome> 
       '/tellija/koolitused',
     ]);
     return ok('Voor on tühistatud.');
+  } catch (error) {
+    return fail(describeError(error));
+  }
+}
+
+/**
+ * Write the protocol of a round that ended before protocols existed [L-22].
+ *
+ * The only way a protocol is ever created by hand: a new round gets one
+ * automatically, inside the transaction that ends it. This exists for the
+ * rounds already in the database when the feature arrived, and it refuses a
+ * round that already has one, so a signed document cannot be replaced.
+ */
+export async function generateProtocolAction(form: FormData): Promise<ActionOutcome> {
+  const roundId = fieldText(form, 'roundId');
+  try {
+    const written = await buyerWrite((ctx) => generateProtocolForEndedRound(ctx, roundId), [
+      `${ROUNDS}/${roundId}`,
+      `${ROUNDS}/${roundId}/protokoll`,
+      '/tellija/auditilogi',
+    ]);
+    return ok(`Protokoll on koostatud (sõrmejälg ${written.hash.slice(0, 16)}).`);
   } catch (error) {
     return fail(describeError(error));
   }

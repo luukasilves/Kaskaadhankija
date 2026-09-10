@@ -306,6 +306,8 @@ export function renderBuyerRoundConfirmed(
   input: Omit<RoundNoticeBase, 'deadlineText'> & {
     orderLines: string[];
     leftoverCount: number;
+    /** [L-22] where the signable record of this round is picked up */
+    protocolUrl: string;
   },
 ): RenderedNotice {
   return composeNotice(
@@ -316,6 +318,7 @@ export function renderBuyerRoundConfirmed(
       input.leftoverCount > 0
         ? `Jääk: ${input.leftoverCount} koolitus(t) ootab otsust.`
         : 'Jääki ei jäänud.',
+      `Vooru protokoll (PDF ja .xlsx lisa) on allalaadimiseks siin: ${input.protocolUrl}`,
     ],
     { url: input.url, label: 'Ava voor' },
   );

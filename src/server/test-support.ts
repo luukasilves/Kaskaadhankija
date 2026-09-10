@@ -13,7 +13,7 @@ import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { join } from 'node:path';
 import * as schema from '@/db/schema';
 import { ensureAppState } from './clock';
-import { NO_EVIDENCE, type ActorRef, type Ctx, type Db, type Tx } from './context';
+import { NO_EVIDENCE, type ActorRef, type Ctx, type Db, type Evidence, type Tx } from './context';
 
 export interface TestHarness {
   db: Db;
@@ -21,8 +21,14 @@ export interface TestHarness {
   /** current virtual instant; move it with `advance` or set directly */
   now: number;
   advance(ms: number): void;
-  /** run a function inside one immediate transaction with a fresh ctx */
-  write<T>(fn: (ctx: Ctx) => T, actor?: ActorRef): T;
+  /**
+   * Run a function inside one immediate transaction with a fresh ctx.
+   *
+   * `evidence` matters for partner actions: IP and browser are written into the
+   * confirmation row [D-09], and that row is append-only, so a test cannot add
+   * them afterwards with an UPDATE — it has to supply them here.
+   */
+  write<T>(fn: (ctx: Ctx) => T, actor?: ActorRef, evidence?: Evidence): T;
   /** read-only helper */
   read<T>(fn: (db: Db) => T): T;
   close(): void;
@@ -52,10 +58,10 @@ export function createHarness(startAt = Date.UTC(2026, 8, 1, 9, 0)): TestHarness
     advance(ms: number) {
       harness.now += ms;
     },
-    write<T>(fn: (ctx: Ctx) => T, actor: ActorRef = TEST_BUYER): T {
+    write<T>(fn: (ctx: Ctx) => T, actor: ActorRef = TEST_BUYER, evidence: Evidence = NO_EVIDENCE): T {
       return db.transaction(
         (tx: Tx) => {
-          const ctx: Ctx = { tx, at: harness.now, actor, evidence: NO_EVIDENCE, outbox: [] };
+          const ctx: Ctx = { tx, at: harness.now, actor, evidence, outbox: [] };
           return fn(ctx);
         },
         { behavior: 'immediate' },

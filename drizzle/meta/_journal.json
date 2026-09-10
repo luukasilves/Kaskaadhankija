@@ -64,6 +64,13 @@
       "when": 1789037400414,
       "tag": "0008_framework_data",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1789041019866,
+      "tag": "0009_round_protocols",
+      "breakpoints": true
     }
   ]
 }

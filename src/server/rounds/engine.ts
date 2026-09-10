@@ -76,6 +76,7 @@ import { failure, type Ctx, type Db, type Tx } from '../context';
 import { notify } from '../notify';
 import { partnerRecipients, teamRecipients } from '../recipients';
 import { effectiveAdjustments, finalInput, projectionInput, proposalInput } from './allocation-input';
+import { storeRoundProtocol } from './protocol';
 import { latestConfirmation, participantsOf, roundTrainingList, workloadFor } from './views';
 
 const ALGORITHM_VERSION = 1;
@@ -116,6 +117,11 @@ function buyerUrl(roundId: string): string {
 
 function orderUrl(orderId: string): string {
   return `${env.APP_BASE_URL}/partner/tellimused/${orderId}`;
+}
+
+/** [L-22] Where the buyer picks up the signable record of an ended round. */
+function protocolUrl(roundId: string): string {
+  return `${env.APP_BASE_URL}/tellija/voorud/${roundId}/protokoll`;
 }
 
 /** One human-readable line per training, for notifications. */
@@ -980,6 +986,12 @@ export function cancelRound(ctx: Ctx, roundId: string, reason: string): void {
         }),
       });
     }
+
+    // [L-22] A round that partners already answered ends with a signable
+    // record, cancelled or not: what they were asked and what they replied is
+    // exactly what a cancellation has to be able to account for. A draft that
+    // never reached anyone has nothing to protocol.
+    storeRoundProtocol(ctx, roundId, 'cancelled');
   }
 }
 
@@ -1467,10 +1479,16 @@ export function confirmAllocation(ctx: Ctx, roundId: string): { orderIds: string
       roundCode: round.code,
       lotLabel: lotLabel(lot),
       url: buyerUrl(roundId),
+      protocolUrl: protocolUrl(roundId),
       orderLines,
       leftoverCount: result.leftover.length,
     }),
   });
+
+  // [L-22] The protocol is written last, so it contains the orders and every
+  // notice this confirmation produced — and inside the same transaction, so a
+  // confirmed round without its signable record is not a reachable state.
+  storeRoundProtocol(ctx, roundId, 'confirmed');
 
   return { orderIds, leftover: result.leftover };
 }

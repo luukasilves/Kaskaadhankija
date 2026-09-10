@@ -153,6 +153,17 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
             label={ROUND_STATUS_LABELS[round.status]}
             tone={ROUND_STATUS_TONES[round.status]}
           />
+          {/* [L-22] The moment the allocation is confirmed there is a signable
+              record of it; this is the screen where that is done. */}
+          {isConfirmed && (
+            <Link
+              href={`/tellija/voorud/${id}/protokoll`}
+              className="kh-btn"
+              data-testid="protocol-link"
+            >
+              Vooru protokoll
+            </Link>
+          )}
         </div>
         <p className="mt-1 text-[var(--color-muted)]">
           {round.lotCode} — {round.lotName} · tähtaeg möödus{' '}

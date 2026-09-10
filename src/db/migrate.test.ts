@@ -42,6 +42,29 @@ function v2Database(): Database.Database {
   return raw;
 }
 
+/**
+ * A database as v2.2 left it: everything up to and including `tag` applied and
+ * recorded, so `migrate()` applies only what comes after.
+ *
+ * The migrator decides what to run by comparing each migration's journal
+ * timestamp against the newest `created_at` it finds, which is why recording
+ * one row with that timestamp is enough.
+ */
+function databaseThrough(tag: string): Database.Database {
+  const raw = new Database(':memory:');
+  raw.pragma('foreign_keys = ON');
+  const upTo = journal.entries.findIndex((entry) => entry.tag === tag);
+  if (upTo < 0) throw new Error(`unknown migration ${tag}`);
+  for (const entry of journal.entries.slice(0, upTo + 1)) applyRaw(raw, entry.tag);
+  raw.exec(
+    'CREATE TABLE "__drizzle_migrations" (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric)',
+  );
+  raw
+    .prepare('INSERT INTO "__drizzle_migrations" (hash, created_at) VALUES (?, ?)')
+    .run('applied', journal.entries[upTo]!.when);
+  return raw;
+}
+
 describe('0002_email_deliveries on a populated v2 database', () => {
   it('carries each notification’s e-mail record into one delivery row [D-10]', () => {
     const raw = v2Database();
@@ -80,6 +103,103 @@ describe('0002_email_deliveries on a populated v2 database', () => {
     // Nothing was left parked, and the child rows point at existing parents.
     expect(raw.prepare("SELECT count(*) AS n FROM sqlite_temp_master WHERE name = '__migrate_email'").get()).toEqual({ n: 0 });
     expect(raw.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+    raw.close();
+  });
+});
+
+describe('0008_framework_data on a populated v2.2 database', () => {
+  it('inserts the framework identity, because a seeded volume never re-seeds [L-21]', () => {
+    const raw = databaseThrough('0007_acting_via');
+    raw
+      .prepare(
+        `INSERT INTO partners (id, name, reg_code, created_at) VALUES ('p1', 'Näidis OÜ', '10000001', 1000)`,
+      )
+      .run();
+    raw
+      .prepare(
+        `INSERT INTO partner_representatives (id, partner_id, name, email, created_at, updated_at)
+         VALUES ('r1', 'p1', 'Jaan Kask', 'jaan@naidis.ee', 1000, 1000)`,
+      )
+      .run();
+
+    migrate(drizzle(raw, { schema }), { migrationsFolder: folder });
+
+    // The one row is there, with the real public values.
+    expect(
+      raw.prepare('SELECT id, title, procurement_reference, buyer_name FROM framework_settings').all(),
+    ).toEqual([
+      {
+        id: 1,
+        title: 'Eesti.ai koolitajate tellimine',
+        procurement_reference: '10567384',
+        buyer_name: 'Riigikantselei',
+      },
+    ]);
+    expect(() =>
+      raw.prepare("INSERT INTO framework_settings (id, title, procurement_reference, buyer_name, updated_at) VALUES (2, 'x', '1', 'y', 1)").run(),
+    ).toThrow();
+
+    // A representative that predates the column is owned by the upload path,
+    // not by the framework data — so an admin can still switch it off [L-21].
+    expect(raw.prepare('SELECT id, source FROM partner_representatives').all()).toEqual([
+      { id: 'r1', source: 'upload' },
+    ]);
+
+    const roundColumns = (raw.prepare('PRAGMA table_info(rounds)').all() as Array<{ name: string }>).map((c) => c.name);
+    expect(roundColumns).toContain('planned_publish_at');
+    expect(roundColumns).toContain('planned_deadline_at');
+
+    // The widened import kind survives the table rebuild.
+    expect(() =>
+      raw
+        .prepare(
+          `INSERT INTO import_batches (id, kind, file_name, rows_json, summary, actor_label, created_at)
+           VALUES ('b1', 'framework', 'raamhange.xlsx', '{}', '{}', 'Mari', 1000)`,
+        )
+        .run(),
+    ).not.toThrow();
+
+    const triggers = raw.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type = 'trigger'").get() as { n: number };
+    expect(triggers.n).toBe(6);
+    expect(raw.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+    raw.close();
+  });
+});
+
+describe('0009_round_protocols on a populated v2.2 database', () => {
+  it('adds the protocol table without any trigger of its own [L-22]', () => {
+    const raw = databaseThrough('0008_framework_data');
+    migrate(drizzle(raw, { schema }), { migrationsFolder: folder });
+
+    const columns = (raw.prepare('PRAGMA table_info(round_protocols)').all() as Array<{ name: string }>).map((c) => c.name);
+    expect(columns).toEqual([
+      'id',
+      'round_id',
+      'kind',
+      'version',
+      'content_json',
+      'content_hash',
+      'algorithm_version',
+      'generated_at',
+      'generated_by',
+    ]);
+
+    // One protocol per round, enforced by the index rather than by care.
+    const indexes = (raw.prepare('PRAGMA index_list(round_protocols)').all() as Array<{ name: string; unique: number }>)
+      .filter((i) => i.name === 'round_protocols_round_unique');
+    expect(indexes).toHaveLength(1);
+    expect(indexes[0].unique).toBe(1);
+
+    // The append-only trail is unaffected, and the protocol table deliberately
+    // gets no triggers: the audited hash is what detects tampering, and a test
+    // environment must be able to delete a row.
+    const triggers = raw.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type = 'trigger'").get() as { n: number };
+    expect(triggers.n).toBe(6);
+    expect(
+      raw
+        .prepare("SELECT count(*) AS n FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'round_protocols'")
+        .get(),
+    ).toEqual({ n: 0 });
     raw.close();
   });
 });
