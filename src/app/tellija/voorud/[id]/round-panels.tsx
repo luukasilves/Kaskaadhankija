@@ -25,6 +25,13 @@ export interface TrainingRef {
   eventDate?: string;
 }
 
+/** „viiest minutist“ / „kahekümnest sekundist“ — the floor in words. */
+function floorText(seconds: number): string {
+  if (seconds < 60) return `${seconds} sekundist`;
+  const minutes = Math.round(seconds / 60);
+  return minutes === 5 ? 'viiest minutist' : `${minutes} minutist`;
+}
+
 export function DraftRoundPanel({
   roundId,
   lotResponseDays,
@@ -32,7 +39,7 @@ export function DraftRoundPanel({
   visibilityMode,
   plannedExtraWorkingDays = 0,
   plannedDeadlineLocal = null,
-  testFloor = false,
+  testFloorSeconds,
   trainings,
 }: {
   roundId: string;
@@ -43,8 +50,12 @@ export function DraftRoundPanel({
   plannedExtraWorkingDays?: number;
   /** the scheme's own deadline, as a value for a datetime-local input */
   plannedDeadlineLocal?: string | null;
-  /** in the test environment the floor is five minutes, not the lot's window [L-23] */
-  testFloor?: boolean;
+  /**
+   * In the test environment the deadline floor is a few minutes rather than the
+   * lot's working-day window [L-23]; the number comes from the server because
+   * the browser suites shorten it. Undefined means production rules.
+   */
+  testFloorSeconds?: number;
   trainings: TrainingRef[];
 }) {
   const extraChoices = [...new Set([0, 1, 2, 5, plannedExtraWorkingDays])].sort((a, b) => a - b);
@@ -109,8 +120,8 @@ export function DraftRoundPanel({
                 {plannedDeadlineLocal
                   ? 'Skeemifailis kavandatud tähtaeg. Tühjenda, et kasutada tööpäevade valikut.'
                   : 'Täidetuna kehtib see tööpäevade valiku asemel.'}
-                {testFloor
-                  ? ' Testkeskkonnas piisab viiest minutist tulevikus, nii et kaskaadi saab läbi mängida.'
+                {testFloorSeconds !== undefined
+                  ? ` Testkeskkonnas piisab ${floorText(testFloorSeconds)} tulevikus, nii et kaskaadi saab läbi mängida.`
                   : ` Vähemalt hankeosa ${lotResponseDays} tööpäeva.`}
               </span>
             </label>

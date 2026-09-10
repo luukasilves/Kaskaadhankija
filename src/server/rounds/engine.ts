@@ -81,8 +81,15 @@ import { latestConfirmation, participantsOf, roundTrainingList, workloadFor } fr
 
 const ALGORITHM_VERSION = 1;
 
-/** The test environment's deadline floor [L-23]: a real wait, but a short one. */
-export const TEST_DEADLINE_FLOOR_MS = 5 * 60_000;
+/**
+ * The test environment's deadline floor [L-23]: a real wait, but a short one.
+ *
+ * Five minutes by default — long enough that a tester experiences a deadline
+ * rather than a form, short enough to sit through. `TEST_DEADLINE_FLOOR_SECONDS`
+ * shortens it for the browser suites, which would otherwise spend five minutes
+ * per round doing nothing. It has no effect outside DEMO_MODE.
+ */
+export const TEST_DEADLINE_FLOOR_MS = env.TEST_DEADLINE_FLOOR_SECONDS * 1_000;
 
 /* ------------------------------------------------------------------ *
  * small helpers
@@ -334,7 +341,7 @@ export function publishRound(ctx: Ctx, roundId: string, input: PublishRoundInput
   if (deadlineAt < floor) {
     throw new Error(
       isDemoMode
-        ? `Vastamistähtaeg peab olema vähemalt viis minutit tulevikus (${formatDateTimeShort(floor)}).`
+        ? `Vastamistähtaeg peab olema vähemalt ${Math.round(TEST_DEADLINE_FLOOR_MS / 60_000) || 1} minutit tulevikus (${formatDateTimeShort(floor)}).`
         : `Vastamistähtaeg ei saa olla varasem kui ${lot.responseDeadlineWorkingDays} tööpäeva (${formatDateTimeShort(defaultDeadline)}).`,
     );
   }

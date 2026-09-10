@@ -1,9 +1,12 @@
 /**
  * Environment configuration, parsed once and typed.
  *
- * `DEMO_MODE` is the single switch between the test harness (persona picker,
- * virtual clock, sample-data actions) and production behaviour. Nothing else
- * in the codebase reads `process.env` directly.
+ * `DEMO_MODE` marks this deployment as the **test environment**. It no longer
+ * switches on a harness — there is no virtual clock and no sample-data button
+ * since v2.3 [L-23] — but four things still read it: the act-as picker for
+ * admins, the TESTKESKKOND badge, the mail allowlist [L-19], and the relaxed
+ * deadline floor below. Nothing else in the codebase reads `process.env`
+ * directly.
  */
 
 import { z } from 'zod';
@@ -15,7 +18,7 @@ const booleanish = z
 
 const schema = z.object({
   DATABASE_PATH: z.string().default('./data/kaskaadhankija.db'),
-  /** persona picker + virtual clock + reset/sample actions */
+  /** this is the test environment: act-as picker, badge, mail allowlist, short deadlines */
   DEMO_MODE: booleanish,
   /** absolute base for links inside notifications */
   APP_BASE_URL: z.string().default('http://localhost:3000'),
@@ -49,16 +52,21 @@ const schema = z.object({
   SEED_ADMIN_EMAIL: z.string().default('mari.tamm@naidis.riigikantselei.ee'),
   SEED_ADMIN_NAME: z.string().default('Mari Tamm'),
   /**
-   * Real representatives to layer over the fictional sample list on every seed,
-   * so a reset of the test environment does not wipe the team's sign-ins:
-   * `registrikood,nimi,e-post[,roll];…`. Lives in the deployment's secrets.
-   */
-  SEED_REPRESENTATIVES: z.string().optional(),
-  /**
-   * The buyer team's own members, added on every seed for the same reason:
-   * `nimi,e-post[,roll];…`, admin unless the role says otherwise.
+   * The buyer team's own members, added when the seed runs, so a fresh volume
+   * already has the people who sign in: `nimi,e-post[,roll];…`, admin unless
+   * the role says otherwise. Partner representatives are *not* seeded from a
+   * secret any more — they come with the framework data [L-21].
    */
   SEED_TEAM: z.string().optional(),
+  /**
+   * How far in the future a test round's response deadline must be, in
+   * seconds. Only read in DEMO_MODE, where the point is that a whole cascade
+   * can be walked in an afternoon [L-23]; production always uses the lot's own
+   * working-day window and can never be shortened by an environment variable
+   * [V-04]. The browser suites set it to a few seconds so a walk does not
+   * spend five minutes waiting.
+   */
+  TEST_DEADLINE_FLOOR_SECONDS: z.coerce.number().int().positive().default(300),
 });
 
 const parsed = schema.safeParse(process.env);

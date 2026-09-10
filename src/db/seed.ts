@@ -42,34 +42,16 @@ export const SEED_FILES = {
 } as const;
 
 /**
- * `SEED_REPRESENTATIVES` — `registrikood,nimi,e-post[,roll];…` — as rows the
- * representatives import accepts. Real people layered over the fictional list
- * on every seed, so a reset does not wipe the team's sign-ins. Malformed
- * entries are dropped with a warning rather than failing the boot.
- */
-export function parseSeedRepresentatives(raw: string | undefined): Array<Record<string, string>> {
-  if (!raw?.trim()) return [];
-  const rows: Array<Record<string, string>> = [];
-  for (const entry of raw.split(';')) {
-    const [registrikood = '', esindaja = '', e_post = '', roll = ''] = entry.split(',').map((f) => f.trim());
-    if (!registrikood || !esindaja || !e_post) {
-      if (entry.trim()) console.warn(`[kaskaadhankija] SEED_REPRESENTATIVES: kirje „${entry.trim()}“ jäeti vahele`);
-      continue;
-    }
-    rows.push({ registrikood, esindaja, e_post, roll });
-  }
-  return rows;
-}
-
-/**
- * `SEED_TEAM` — `nimi,e-post[,roll];…` — the buyer team's real members, added on
- * every seed so a reset does not wipe the people who actually sign in.
+ * `SEED_TEAM` — `nimi,e-post[,roll];…` — the buyer team's real members, added
+ * when the seed runs, so the first boot of a fresh volume already has the
+ * people who actually sign in.
  *
- * These are *additional* users: the fictional Mari Tamm persona stays exactly as
- * she is, because the scenarios are replayed as her and the demo must keep
- * showing the specialists what they reviewed [L-16]. Malformed entries are
- * dropped with a warning rather than failing the boot — a typo in a secret must
- * not leave the environment unusable.
+ * These are *additional* users: the sample Mari Tamm stays exactly as she is,
+ * because the example rounds are replayed as her. Real representatives are no
+ * longer layered on here — they arrive with the framework data an admin
+ * uploads or edits [L-21]. Malformed entries are dropped with a warning rather
+ * than failing the boot: a typo in a secret must not leave the environment
+ * unusable.
  */
 export interface SeedTeamMember {
   name: string;
@@ -221,10 +203,10 @@ export function loadSampleTrainings(ctx: Ctx) {
 }
 
 /**
- * The scenarios replay real engine calls, so they queue real e-mails. Those
- * notices are history being reconstructed, not events happening now, and must
- * never be sent — least of all to the real representatives layered on top by
- * `SEED_REPRESENTATIVES`, on every reset. Record them as not sent, and say why.
+ * The example rounds replay real engine calls, so they queue real e-mails.
+ * Those notices are history being reconstructed, not events happening now, and
+ * must never be sent — least of all to a real address that the framework data
+ * put in the tables. Record them as not sent, and say why.
  */
 export function settleSeedDeliveries(tx: Ctx['tx'], at: number): number {
   return tx

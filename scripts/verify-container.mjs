@@ -22,10 +22,15 @@
  * partner would, SIGKILL the process, boot again against the same file, and
  * check that the application comes back with its data and without re-seeding.
  *
- * **The production posture.** `verify-harness.mjs` checks that `DEMO_MODE` off
- * removes the test harness, but it checks it through `next start`. A deployment
- * without the flag is the real one, so it is worth confirming on the same
- * standalone build: no strip, no personas, and the demo-only actions refused.
+ * **The production posture.** A deployment without `DEMO_MODE` is the real one,
+ * so it is worth confirming on the same standalone build that the sign-in is
+ * the only front door and the act-as screen does not exist.
+ *
+ * **The traced fonts.** The protocol PDF opens pdfkit's `.afm` metrics by name,
+ * which Next's file tracer cannot see [L-22]. Generating a protocol for a round
+ * whose row was deleted — the shape a database migrated from v2.2 has — proves
+ * the metrics really made it into the standalone output, which is the one thing
+ * `next start` from a full node_modules can never prove.
  *
  *   node scripts/verify-container.mjs      (after pnpm build)
  */
@@ -35,10 +40,13 @@ import { chromium } from 'playwright';
 import { cpSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  BUYER_DOMAIN,
   CHROMIUM,
   freePort,
   makeChecker,
   removeDatabase,
+  signInAs,
+  signInAsAdmin,
   waitForHealth,
 } from './lib/browser-harness.mjs';
 import { spawn } from 'node:child_process';
@@ -71,6 +79,10 @@ function startStandalone(port, { demoMode = true } = {}) {
       PORT: String(port),
       DATABASE_PATH: DB,
       ...(demoMode ? { DEMO_MODE: '1' } : {}),
+      // Codes go to the log rather than the post, so a script can read one —
+      // the only place a sign-in code ever exists [L-08].
+      EMAIL_DEV_MODE: '1',
+      AUTO_ADMIN_EMAIL_DOMAINS: BUYER_DOMAIN,
       APP_BASE_URL: `http://localhost:${port}`,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -92,6 +104,7 @@ function inspect() {
       trainings: one('select count(*) n from trainings').n,
       partners: one('select count(*) n from partners').n,
       auditEvents: one('select count(*) n from audit_events').n,
+      protocols: one('select count(*) n from round_protocols').n,
       seedVersion: one('select seed_version v from app_state').v,
       migrations: one("select count(*) n from __drizzle_migrations").n,
     };
@@ -100,17 +113,18 @@ function inspect() {
   }
 }
 
-/** Confirm a partner's marks through the real UI, so the write is a real one. */
-async function confirmAsPartner(browser, base) {
+/**
+ * Confirm a partner's marks through the real UI, so the write is a real one.
+ *
+ * The partner signs in with their own address — the contact the framework data
+ * put in the tables [L-21] — because that is now the only way in [L-08].
+ */
+async function confirmAsPartner(browser, server) {
   const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
-  await page.goto(base);
-  await page.waitForSelector('section:has(h2:text("Raamlepingu partnerid")) form button');
-  await page
-    .locator('section:has(h2:text("Raamlepingu partnerid")) form', { hasText: 'Tehisaru' })
-    .first()
-    .locator('button')
-    .click();
-  await page.waitForURL('**/partner/voorud', { timeout: 20_000 });
+  const landing = await signInAs(page, server, 'jaan.kask@tehisaru-naidis.ee');
+  if (!landing.startsWith('/partner')) {
+    throw new Error(`partner pidi maanduma oma alal, aga maandus ${landing}`);
+  }
 
   const card = page.locator('section:has(h2:text("Ootavad vastust")) li').first();
   await card.waitFor({ timeout: 20_000 });
@@ -124,6 +138,24 @@ async function confirmAsPartner(browser, base) {
   const receipt = await page.locator('text=Viimane kinnitus').first().textContent();
   await page.close();
   return receipt.trim();
+}
+
+/**
+ * A confirmed round with no protocol, made by deleting the row the confirmation
+ * wrote — the shape a database carried over from v2.2 has [L-22].
+ */
+function protocolLessRound() {
+  const db = new Database(DB);
+  try {
+    const round = db
+      .prepare("select id from rounds where status = 'confirmed' order by code limit 1")
+      .get();
+    if (!round) return null;
+    db.prepare('delete from round_protocols where round_id = ?').run(round.id);
+    return round.id;
+  } finally {
+    db.close();
+  }
 }
 
 async function main() {
@@ -149,7 +181,7 @@ async function main() {
       first.logs.join('').includes('näidisandmed laaditud'),
     );
 
-    const receipt = await confirmAsPartner(browser, first.base);
+    const receipt = await confirmAsPartner(browser, first);
     check('a partner can confirm through the deployed build', receipt.length > 0, receipt);
 
     const before = inspect();
@@ -199,15 +231,41 @@ async function main() {
     );
 
     /* the application, not just the file, is intact */
-    const page = await browser.newPage();
+    const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
     await page.goto(second.base);
-    await page.waitForSelector('h1');
-    const html = await page.content();
-    check('the persona screen serves after the restart', html.includes('TESTKESKKOND'));
+    await page.waitForSelector('[data-testid="sign-in-form"]', { timeout: 20_000 });
     check(
-      'the partner’s confirmation is still shown as theirs',
-      html.includes('Kinnitatud') || html.includes('kinnitatud'),
+      'the front door serves after the restart, badged as the test environment',
+      (await page.content()).includes('TESTKESKKOND'),
     );
+
+    /* ---------------- a protocol from the standalone build [L-22] ----------------
+       The row is deleted first, which is exactly the state a database migrated
+       from v2.2 is in: a confirmed round with no protocol. Generating one here
+       exercises the PDF renderer inside the traced output, where a missing font
+       metric would be the failure nobody caught at build time. */
+    await signInAsAdmin(page, second);
+    const confirmedRoundId = protocolLessRound();
+    check('a confirmed round is available to protocol by hand', confirmedRoundId !== null);
+    if (confirmedRoundId) {
+      await page.goto(`${second.base}/tellija/voorud/${confirmedRoundId}/protokoll`);
+      await page.waitForSelector('[data-testid="protocol-missing"]', { timeout: 20_000 });
+      page.once('dialog', (dialog) => dialog.accept());
+      await page.getByTestId('generate-protocol').locator('button').click();
+      await page.waitForSelector('[data-testid="protocol-hash"]', { timeout: 30_000 });
+      const hash = (await page.getByTestId('protocol-hash').innerText()).trim();
+      check('the protocol is written on the deployed build', /^[0-9a-f]{64}$/.test(hash), hash);
+
+      const pdf = await page.request.get(
+        `${second.base}/tellija/voorud/${confirmedRoundId}/protokoll/pdf`,
+      );
+      const bytes = await pdf.body();
+      check(
+        'and the PDF renders — the traced font metrics are really there',
+        pdf.status() === 200 && bytes.subarray(0, 5).toString('latin1') === '%PDF-' && bytes.length > 5_000,
+        `${pdf.status()} · ${bytes.length} baiti`,
+      );
+    }
     await page.close();
 
     second.child.kill('SIGKILL');
@@ -227,8 +285,12 @@ async function main() {
     await prodPage.waitForSelector('h1');
     check('no test strip in production', (await prodPage.getByTestId('test-strip').count()) === 0);
     check(
-      'no persona cards in production',
-      (await prodPage.locator('section:has(h2:text("Raamlepingu partnerid")) form').count()) === 0,
+      'no act-as cards in production',
+      (await prodPage.getByTestId('act-as-card').count()) === 0,
+    );
+    check(
+      'and no test-environment badge',
+      !(await prodPage.content()).includes('TESTKESKKOND'),
     );
     check(
       'the sign-in is the front door instead',

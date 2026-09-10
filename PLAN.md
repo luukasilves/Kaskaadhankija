@@ -79,10 +79,11 @@ One container, one SQLite file, no outside services.
 | Database | SQLite via `better-sqlite3` + `drizzle-orm`, WAL, on a mounted volume |
 | Transactions | every mutation is one `BEGIN IMMEDIATE` transaction that re-checks status inside; SQLite serializes writers globally, which is exactly the guarantee a cascade needs |
 | Styling | Tailwind v4 design tokens, light and dark, print stylesheet for orders |
-| Time | a virtual clock offset in the database; the domain never reads a clock |
-| Scheduling | in-process timer started on the first request, plus lazy checks on round pages and after any clock move — idempotent from all three |
+| Time | real time, behind one `currentTimeMs()` seam; the domain never reads a clock at all — every instant is injected [L-23] |
+| Scheduling | in-process timer started on the first request, plus a lazy check on every round page load — idempotent from both |
 | Email | one `sendMail` over configurable SMTP, below the notification log; one delivery row per recipient with retries and a manual re-send [D-10]; the test environment mails only an allowlist [L-19] |
-| Identity | one `getActor()` seam; a session opened by an e-mail code for a buyer user or a partner's representative [L-08][L-18], with personas as the test deployment's fallback |
+| Identity | one `getActor()` seam; a session opened by an e-mail code for a buyer user or a partner's representative [L-08][L-18]; in the test environment an admin may *act as* a participant without ending that session, and both names go on the record |
+| Documents | orders are printable HTML from a frozen snapshot [L-15]; the round protocol is canonical JSON plus its SHA-256, rendered to PDF (pdfmake, standard fonts only) and an .xlsx annex on demand [L-22] |
 | Tests | vitest for domain and engine, plain Node + Playwright for the browser suites |
 
 ### Constraints the implementation expresses structurally
@@ -104,34 +105,67 @@ One container, one SQLite file, no outside services.
   explains [T-01][T-02].
 - **Orders are rendered from a snapshot** frozen at confirmation, so a contract
   says later what it said when it was agreed [T-05].
+- **The framework workbook and the admin forms call the same writers.** There is
+  no "import path" and "edit path" to keep in agreement — `syncFrameworkContacts`,
+  `applyPartnerRows`, `moveLotPartnerRank` are called by both, and a
+  representative row records *who last activated it*, so the two feeders cannot
+  undo each other's decisions [L-21].
+- **Every buyer write goes through one `buyerWrite()` seam** that asserts the
+  admin role, rather than forty call sites that each have to remember [R-01]. It
+  throws rather than redirecting, because each action turns a thrown error into a
+  message on its own form.
+- **A protocol recomputes nothing.** The allocation snapshots are copied as the
+  round stored them and the deadline history is read out of the audit rows that
+  changed it, so a protocol written today about yesterday's decision cannot
+  drift with today's configuration [L-22].
 
 ## The test deployment
 
 The point is that a procurement specialist can walk the whole process from both
-sides without an account, a mail server or a three-day wait.
+sides — with a real sign-in, real mail and a real deadline, but in an afternoon.
 
-- **An opening screen** picks a persona before the environment is shown — the
-  buyer, or any of six fictional partners — and each card shows what that persona
-  currently has waiting, so the tester knows which one is instructive.
-- **A hazard-striped strip above the application** switches persona, moves the
-  virtual clock (`+1 h`, `+1 päev`, `Järgmise tähtajani`) and resets the sample
-  data. It is deliberately not app chrome.
-- **`DEMO_MODE` is the single switch.** Unset, there is no strip, no personas and
-  no clock, and the demo-only actions refuse to run.
+That is a change from v2, and a deliberate one. v2 was *demonstrable*: a persona
+picker, a virtual clock, a reset button. Every one of those became an obstacle
+the moment real data arrived in the environment [L-23]:
+
+- **The sign-in is the front door**, in both environments. `/` is the act-as
+  screen a buyer admin lands on after every sign-in; everyone else goes straight
+  to their own area. With real bidder contacts in the tables, a picker anyone
+  could open was an unlocked door.
+- **Acting as a participant keeps the admin's session.** Two cookies carry two
+  facts, so the trail can name both the participant and the colleague at the
+  keyboard [L-08][D-09].
+- **Time is real.** The virtual clock moved for everyone sharing one database
+  and wrote timestamps for instants that never happened. A test round names a
+  **short window** instead: in `DEMO_MODE` the deadline floor is five minutes
+  rather than the lot's working-day minimum.
+- **There is no reset.** It was safe only while every partner was fictional. A
+  clean slate is a fresh volume — an operator's act, not a button.
+
+`DEMO_MODE` keeps its name and now means *test environment*: the act-as picker,
+the badge, the mail allowlist [L-19], and that relaxed floor. Nothing else.
 
 ### Sample data
 
-Everything is loaded through the *same* import functions the buyer's upload uses,
-so "load from the database" and "upload a table" cannot drift:
+The seed is **the admin's own import, run once on an empty database**. On first
+boot it reads `seed/naidis-raamhange.xlsx` through `applyFrameworkImport` — the
+same function the upload page calls — so "the seeded environment" and "an
+environment an admin set up" are one code path with no second truth to keep in
+step. `scripts/build-datasets.ts` builds that workbook from the CSVs and the lot
+seed, and the same file is downloadable from the Raamhange page for a tester to
+edit and drop back.
 
+- `seed/naidis-raamhange.xlsx` — the framework identity, the four lots with
+  their cascade settings, six fictional partners ranked per lot with their
+  contacts, and the extra representatives;
 - `seed/naidis-koolituskalender.csv` — 48 trainings across the four lots, autumn
   2026, all 15 counties, with an XLSX twin generated from it;
-- `seed/naidis-partnerid.csv` — six fictional partners ranked per lot;
-- four scenario rounds, **replayed as real engine calls against a rewound
-  virtual clock**, so the audit trail, the notification log and the frozen
-  snapshots a tester sees are genuine rather than fabricated rows [L-16].
+- `seed/naidis-voor.xlsx` — one round, for the upload path;
+- four example rounds, **replayed as real engine calls at real-time-relative
+  instants**, so the audit trail, the notification log and the frozen snapshots
+  a tester sees are genuine rather than fabricated rows [L-16].
 
-The open scenario **is Lisa B**, asserted cell by cell against the spec fixture,
+The open example **is Lisa B**, asserted cell by cell against the spec fixture,
 with the rank-3 partner holding an unconfirmed draft — which is where the
 [K-03] trap lives and the most instructive screen in the application.
 
@@ -139,13 +173,13 @@ with the rank-3 partner holding an unconfirmed draft — which is where the
 
 | Suite | What it holds to account |
 |---|---|
-| `pnpm test` — 293 tests | one `describe` per rule ID; Lisa B.1–B.4 exactly; the append-only triggers; the seed *is* Lisa B; migrations against a populated database |
-| `node scripts/verify-harness.mjs` | personas, the strip, the clock, reset, and the production posture with `DEMO_MODE` off |
-| `node scripts/verify-partner.mjs` | Lisa B walked from three partner personas — every cell of B.2, then A's B.3 revision flipping a training to B; a sealed round shows no states; no page names a competitor |
-| `node scripts/e2e.mjs` | Lisa B to the end (close → the T-01 warning → cap → B.4 → confirm → orders); a second round built from an uploaded table with a deliberately broken row, offering both cap kinds, where a partner tries a trainee budget; a third round from an uploaded scheme, refused whole while a row is wrong |
-| `node scripts/verify-admin.mjs` | the representatives' list, template and upload (two broken rows), switching one off and on; the buyer team; the seeded notices addressed to a partner's representatives and nobody else's |
-| `node scripts/verify-auth.mjs` | sign-in by e-mail code with the code read from the server log — wrong code, lock after five, unknown address, rate limit, persona over session — and the production posture where `/` is the sign-in |
-| `node scripts/verify-container.mjs` | what only the container does, on the standalone build it runs: surviving a SIGKILL restart on a volume without re-seeding or re-migrating, and the production posture with `DEMO_MODE` unset |
+| `pnpm test` — 379 tests | one `describe` per rule ID; Lisa B.1–B.4 exactly; the append-only triggers; the seed *is* Lisa B; migrations against a populated database; the protocol's determinism and its hash |
+| `node scripts/e2e.mjs` | the real flow: sign in, act-as, a round from an uploaded workbook, published with a window of about a minute, answered by two partners through act-as and one with their own code, closed by the deadline passing, reviewed, capped, confirmed, and its protocol downloaded — then what a partner may and may not see on the seeded Lisa B round, and finally an **empty** database set up by hand from the sample workbooks |
+| `node scripts/verify-auth.mjs` | sign-in by e-mail code with the code read from the server log — wrong code, lock after five, unknown address, rate limit — the landing rules per role, that switching keeps the session, and the production posture |
+| `node scripts/verify-admin.mjs` | the framework round trip: download the workbook, change one contact with exceljs, upload it, then sign in with that new address as that partner; the admin forms for identity, rank, contact and representative, **each followed by its row in „Muudatuste logi“**; a legacy `.xls` refused; representatives and the buyer team |
+| `node scripts/verify-protocol.mjs` | the protocol's two documents over HTTP: buyer-only, the right filenames and bytes, and the fingerprint on the page appearing in the PDF and in the audit trail |
+| `node scripts/verify-container.mjs` | what only the container does, on the standalone build it runs: surviving a SIGKILL restart on a volume without re-seeding or re-migrating; generating a protocol for a round whose row was deleted, which proves the traced font metrics are really in the output; and the production posture with `DEMO_MODE` unset |
+| `node scripts/verify-demo.mjs` | the separate v1 single-file HTML demo, which has no server and its own life |
 
 ## Deployment
 
@@ -179,12 +213,27 @@ comparable ([kaskaadhankija-v3.fly.dev](https://kaskaadhankija-v3.fly.dev)):
   representatives is both the recipient list and the sign-in list [L-18].
 - **Sign-in by e-mail code** — hashed codes, sessions, rate limits, no
   enumeration; the representative who acted is who the audit trail and the
-  confirmations name [L-08][D-09]. Personas survive in the test environment.
+  confirmations name [L-08][D-09]. It is the front door in both environments,
+  and an admin acting as a participant keeps their own session, so both names
+  are on the record.
 - **Caps by trainings or trainees** — the buyer offers per round which kinds a
   partner may use; a trainee budget skips what does not fit and continues,
   inside the same pure `allocate()` [K-06][L-17].
 - **A round from a workbook** — a *Voor* sheet and a *Koolitused* sheet yield a
-  draft, all or nothing; publication stays the application's act [L-20].
+  draft, all or nothing; publication stays the application's act, and the file
+  may carry the *planned* window while the real instants are fixed at
+  publication [L-20].
+- **The framework data in the application** — identity, lots, ranking,
+  contacts and representatives, editable as a four-sheet workbook *or* form by
+  form, through the same writers, with every change in the audit trail and a
+  change log on the page where the editing happens. The official contact is the
+  partner's sign-in [L-21].
+- **A signable round protocol** — written in the transaction that ends a round,
+  from stored facts only, as canonical JSON plus its SHA-256; the PDF and the
+  .xlsx annex are two renderings of that one row, so the fingerprint on paper
+  names the data [L-22].
+- **Real time** — no virtual clock, no reset; a test cascade is short because
+  its file says so [L-23].
 
 ## Open questions
 

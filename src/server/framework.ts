@@ -74,13 +74,22 @@ export function updateFrameworkIdentity(ctx: Ctx, input: FrameworkIdentity): boo
   }
   if (!next.buyerName) throw new Error('Tellija nimi on puudu.');
 
-  const same =
-    before.title === next.title &&
-    before.procurementReference === next.procurementReference &&
-    before.agreementReference === next.agreementReference &&
-    before.buyerName === next.buyerName &&
-    before.validUntil === next.validUntil;
-  if (same) return false;
+  // Which fields moved, in the words the screen uses. The whole point of the
+  // log is that a reader can see what changed [L-21]; a summary that reads the
+  // same whichever field was edited would not tell them.
+  const changed: string[] = [];
+  const named: Array<[keyof FrameworkIdentity, string]> = [
+    ['title', 'nimetus'],
+    ['procurementReference', 'riigihanke viitenumber'],
+    ['agreementReference', 'raamlepingu number'],
+    ['buyerName', 'tellija'],
+    ['validUntil', 'kehtib kuni'],
+  ];
+  for (const [field, label] of named) {
+    if (before[field] === next[field]) continue;
+    changed.push(`${label}: ${before[field] || '—'} → ${next[field] || '—'}`);
+  }
+  if (changed.length === 0) return false;
 
   ctx.tx
     .insert(frameworkSettings)
@@ -90,7 +99,7 @@ export function updateFrameworkIdentity(ctx: Ctx, input: FrameworkIdentity): boo
 
   logAudit(ctx, {
     eventType: 'framework.updated',
-    summary: `Raamhanke andmed muudetud: „${next.title}“, riigihanke viitenumber ${next.procurementReference}`,
+    summary: `Raamhanke andmed muudetud — ${changed.join('; ')}`,
     before,
     after: next,
   });

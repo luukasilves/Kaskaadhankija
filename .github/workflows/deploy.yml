@@ -167,11 +167,10 @@ jobs:
           # actually arrive; set the secret to override.
           EMAIL_ALLOWED_RECIPIENTS: ${{ secrets.EMAIL_ALLOWED_RECIPIENTS || '@riigikantselei.ee, @agenticstate.org' }}
           TEAM_NOTIFICATIONS_EMAIL: ${{ secrets.TEAM_NOTIFICATIONS_EMAIL }}
-          # `registrikood,nimi,e-post[,roll];…` — the team's own sign-ins, layered
-          # over the sample list on every seed so a reset does not wipe them.
-          SEED_REPRESENTATIVES: ${{ secrets.SEED_REPRESENTATIVES }}
-          # `nimi,e-post[,roll];…` — the buyer team's own members, added on every
-          # seed alongside the fictional Mari Tamm rather than replacing her.
+          # `nimi,e-post[,roll];…` — the buyer team's own members, added when the
+          # seed runs, alongside the sample Mari Tamm rather than replacing her.
+          # Partner representatives are not seeded from a secret any more: they
+          # arrive with the framework workbook an admin uploads [L-21].
           SEED_TEAM: ${{ secrets.SEED_TEAM }}
           # Anyone at these domains may sign in as an admin without being listed
           # first: the buyer organisation, and the team building the tool. A
@@ -183,7 +182,7 @@ jobs:
         run: |
           APP='${{ needs.bootstrap.outputs.app }}'
           ARGS=()
-          for NAME in SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASS EMAIL_FROM EMAIL_ALLOWED_RECIPIENTS TEAM_NOTIFICATIONS_EMAIL SEED_REPRESENTATIVES SEED_TEAM AUTO_ADMIN_EMAIL_DOMAINS; do
+          for NAME in SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASS EMAIL_FROM EMAIL_ALLOWED_RECIPIENTS TEAM_NOTIFICATIONS_EMAIL SEED_TEAM AUTO_ADMIN_EMAIL_DOMAINS; do
             VALUE="${!NAME}"
             if [ -n "$VALUE" ]; then
               ARGS+=("$NAME=$VALUE")

@@ -26,7 +26,7 @@ import { WORKSHOP_TYPE_LABELS } from '@/domain/statuses';
 import { Countdown } from '@/components/countdown';
 import { RankChip, StatusBadge } from '@/components/status-badge';
 import { currentTimeMs } from '@/server/clock';
-import { isDemoMode } from '@/lib/env';
+import { env, isDemoMode } from '@/lib/env';
 import { buyerCanWrite } from '@/server/auth/actor';
 import { ReadOnlyNote } from '@/components/read-only-note';
 import { projectionInput } from '@/server/rounds/allocation-input';
@@ -252,7 +252,7 @@ export default async function RoundDetail({ params }: { params: Promise<{ id: st
           plannedDeadlineLocal={
             round.plannedDeadlineAt ? tallinnLocalInput(round.plannedDeadlineAt) : null
           }
-          testFloor={isDemoMode}
+          testFloorSeconds={isDemoMode ? env.TEST_DEADLINE_FLOOR_SECONDS : undefined}
           trainings={trainingRows.map((t) => ({
             id: t.id,
             code: t.code,

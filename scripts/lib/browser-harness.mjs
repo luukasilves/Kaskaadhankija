@@ -42,6 +42,12 @@ export function startServer({
   devMail = true,
   /** the domain whose addresses sign in as buyer admins without being listed [L-08] */
   adminDomains = BUYER_DOMAIN,
+  /**
+   * How short a test round's response window may be [L-23]. The product default
+   * is five minutes — right for a person trying the environment, far too long
+   * for a script that has to sit through two of them.
+   */
+  deadlineFloorSeconds = 15,
 }) {
   const child = spawn('node', ['node_modules/next/dist/bin/next', 'start', '-p', String(port)], {
     cwd,
@@ -52,6 +58,7 @@ export function startServer({
       ...(demoMode ? { DEMO_MODE: '1' } : {}),
       ...(devMail ? { EMAIL_DEV_MODE: '1' } : {}),
       ...(adminDomains ? { AUTO_ADMIN_EMAIL_DOMAINS: adminDomains } : {}),
+      TEST_DEADLINE_FLOOR_SECONDS: String(deadlineFloorSeconds),
       APP_BASE_URL: `http://localhost:${port}`,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -274,6 +281,58 @@ export function leakDetail(html, names) {
     }
   }
   return found.join('\n        ');
+}
+
+/**
+ * A response deadline a minute or two out, as the publish form wants it.
+ *
+ * `datetime-local` has minute granularity and the server reads the value as
+ * Tallinn time, so the earliest usable deadline is a minute boundary. When the
+ * next one is too close to survive the round trip, take the one after it —
+ * otherwise the server's floor check would reject a deadline that was fine when
+ * the string was built.
+ */
+export function nextMinuteDeadline({ minLeadMs = 25_000 } = {}) {
+  let target = Math.ceil((Date.now() + 1) / 60_000) * 60_000;
+  while (target - Date.now() < minLeadMs) target += 60_000;
+
+  const parts = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Europe/Tallinn',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(new Date(target));
+  // sv-SE gives 'YYYY-MM-DD HH:MM', one space away from the input's format.
+  return { deadlineMs: target, localValue: parts.replace(' ', 'T') };
+}
+
+/**
+ * Publish a draft with an absolute deadline a minute or two out, and return it.
+ *
+ * The form's working-day choices cannot express a window this short, which is
+ * exactly why the absolute field exists [L-20][L-23].
+ */
+export async function publishWithShortDeadline(page, { minLeadMs } = {}) {
+  const { deadlineMs, localValue } = nextMinuteDeadline({ minLeadMs });
+  await page.getByTestId('deadline-at').fill(localValue);
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByTestId('publish-round').locator('button').click();
+  await page.waitForFunction(() => document.body.textContent.includes('Avatud'), null, {
+    timeout: 20_000,
+  });
+  return deadlineMs;
+}
+
+/** Upload a file into the one file input of an import page's form. */
+export async function uploadWorkbook(page, base, path, { form, ready }) {
+  await page.goto(`${base}${path.pageUrl}`);
+  await page.waitForSelector(`[data-testid="${form}"]`, { timeout: 20_000 });
+  await page.setInputFiles('input[type="file"]', path.file);
+  await page.locator(`[data-testid="${form}"] button[type="submit"]`).click();
+  await page.waitForSelector(`[data-testid="${ready}"]`, { timeout: 30_000 });
 }
 
 /**
