@@ -12,7 +12,7 @@ import { formatDateTimeShort } from '@/domain/format';
 import { BUYER_ROLE_LABELS } from '@/domain/round-statuses';
 import { StatusBadge } from '@/components/status-badge';
 import { requireBuyer } from '@/server/auth/actor';
-import { adminAllowlist } from '@/server/auth/codes';
+import { adminAllowlist, adminAllowlistSize } from '@/server/auth/codes';
 import {
   AddTeamMemberForm,
   TeamMemberActiveToggle,
@@ -25,7 +25,7 @@ export default async function TeamPage() {
   const actor = await requireBuyer();
   const isAdmin = actor.role === 'admin';
   const allowlist = adminAllowlist();
-  const allowlistSize = allowlist.addresses.length + allowlist.domains.length;
+  const allowlistSize = adminAllowlistSize(allowlist);
   const rows = getDb()
     .select()
     .from(users)
