@@ -81,6 +81,13 @@ export function SignInRequestForm({
       <button type="submit" className="kh-btn kh-btn-primary">
         Saada kood
       </button>
+      <p className="text-[12.5px] text-[var(--color-muted)]">
+        Esimene kord siin?{' '}
+        <a href="/juhend" className="text-[var(--color-brand)]" data-testid="sign-in-juhend">
+          Juhend koolitajale
+        </a>{' '}
+        selgitab, kuidas voorule vastata.
+      </p>
     </form>
   );
 }

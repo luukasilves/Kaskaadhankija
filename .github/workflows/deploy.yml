@@ -324,6 +324,23 @@ jobs:
             esac
             echo "Sign-in serving, admin allowlist configured: $ALLOWLIST_SIZE entry/entries."
 
+            # The bidder guide, and its figures. It is the only public page
+            # here, and the one thing a bidder reads before they can sign in —
+            # so a 404 on it, or on an image inside it, is a deploy failure.
+            # The figures are static imports emitted to /_next/static/media,
+            # which ship only because the Dockerfile copies .next/static.
+            curl -fsS --max-time 20 "$BASE/juhend" > juhend.html \
+              || { echo '::error::/juhend does not serve — bidders have no instructions.'; exit 1; }
+            grep -q 'data-testid="juhend"' juhend.html \
+              || { echo '::error::/juhend served something, but not the guide.'; exit 1; }
+            FIGURE=$(sed -n 's/.*<img[^>]*src="\(\/_next\/static\/media\/[^"]*\)".*/\1/p' juhend.html | head -1)
+            if [ -z "$FIGURE" ]; then
+              echo '::error::/juhend carries no figures — the static image imports did not ship.'; exit 1
+            fi
+            curl -fsS --max-time 20 -o figure.bin "$BASE$FIGURE" \
+              || { echo "::error::a guide figure 404s: $FIGURE"; exit 1; }
+            echo "Guide serving, first figure $(wc -c < figure.bin) B: $FIGURE"
+
             # What the opening page used to prove: that the framework data is
             # there. On a fresh volume these are 0 until the first upload, so
             # this reports rather than fails.

@@ -239,6 +239,32 @@ async function main() {
       (await page.content()).includes('TESTKESKKOND'),
     );
 
+    /* ---------------- the guide's figures reach a browser [/juhend] ----------------
+       The one thing a build-time `test -f` cannot prove. The guide imports its
+       screenshots statically, so they are emitted to `.next/static/media` and
+       ship only because `Dockerfile:61` copies `.next/static` — which is
+       exactly the layout staged above. Fetching them the way a bidder's browser
+       does is the assertion that matters: a public document with broken images
+       is worse than no document. */
+    await page.goto(`${second.base}/juhend`);
+    check('the guide serves from the standalone build, without a session', (await page.getByTestId('juhend').count()) === 1, page.url());
+    const figures = await page.locator('figure img').evaluateAll((els) =>
+      els.map((el) => ({ src: el.getAttribute('src'), loaded: el.naturalWidth > 0 })),
+    );
+    check('it has its figures', figures.length >= 10, `${figures.length} pilti`);
+    check(
+      'and every one of them loaded',
+      figures.length > 0 && figures.every((f) => f.loaded),
+      figures.filter((f) => !f.loaded).map((f) => f.src).join(' · '),
+    );
+    // Straight from the origin as well, so a cached decode cannot mask a 404.
+    const firstFigure = figures[0]?.src;
+    if (firstFigure) {
+      const res = await fetch(new URL(firstFigure, second.base));
+      const bytes = Number(res.headers.get('content-length') ?? 0);
+      check('the figure is really served, and is not an empty file', res.ok && bytes > 2000, `${res.status}, ${bytes} B`);
+    }
+
     /* ---------------- a protocol from the standalone build [L-22] ----------------
        The row is deleted first, which is exactly the state a database migrated
        from v2.2 is in: a confirmed round with no protocol. Generating one here

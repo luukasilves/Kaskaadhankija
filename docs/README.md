@@ -20,3 +20,22 @@ awaiting legal or specialist review are **L-01, L-05, L-07, L-10**.
 Section **Lisa A** maps verbatim quotes from the specialists' meeting to the rules
 they justify; **Lisa B** is a worked example that doubles as an acceptance test
 for the allocation algorithm and the four partner-facing display states.
+
+## `juhend/` — the bidder guide's working files
+
+The guide itself is a page in the application (`/juhend`, content in
+`src/domain/juhend.ts`); this folder holds what was needed to write it in
+publication-quality Estonian, following the `en-et-translation` skill's method:
+
+- **`job-brief.md`** — the blanket decisions, settled once: audience, purpose,
+  register, and the address (*teie*, which the app's own partner-facing text
+  already chose).
+- **`glossary/`** — the asset layers mined from this project's own Estonian:
+  attested phrasings (`phrase_anchors.tsv`), PREFER/AVOID pairs
+  (`term_preferences.tsv`), the enforceable rules (`locked_decisions.txt`), two
+  register exemplars, and the do-not-translate list.
+- **`decision-register.tsv`** — the forced choices Estonian grammar imposed,
+  with what was chosen and why.
+- **`query-sheet.md`** — **what is left for a person to decide.** Read this one:
+  item 1 is a blocker for the pilot, and items 2–4 are inconsistencies in the
+  application that the guide exposed rather than caused.

@@ -187,7 +187,60 @@
 }
 
 /**
- * The printable order document [T-05].
+/**
+ * The bidder guide's prose [/juhend].
+ *
+ * Tailwind's preflight strips list markers and heading margins, which is right
+ * for an application built out of cards and tables and wrong for the one page
+ * in it that is a document. Scoped to `.kh-juhend` so nothing else moves.
+ */
+.kh-juhend {
+  font-size: 14.5px;
+  line-height: 1.65;
+}
+
+.kh-juhend p,
+.kh-juhend ul,
+.kh-juhend ol {
+  margin-top: 0.7rem;
+  max-width: 72ch;
+}
+
+.kh-juhend ul,
+.kh-juhend ol {
+  padding-left: 1.5rem;
+}
+
+.kh-juhend ul {
+  list-style: disc;
+}
+
+.kh-juhend ol {
+  list-style: decimal;
+}
+
+.kh-juhend li {
+  margin-top: 0.35rem;
+}
+
+.kh-juhend li::marker {
+  color: var(--color-muted);
+}
+
+.kh-juhend h2 {
+  margin-top: 0.5rem;
+}
+
+/* The contents list and the timeline are laid out, not prose. */
+.kh-juhend nav ol,
+.kh-juhend figure ol {
+  list-style: none;
+  padding-left: 0;
+  max-width: none;
+}
+
+/**
+ * The printable order document [T-05], and the guide.
  *
  * Paper is always light, whatever the reader's screen is set to: the dark
  * palette would print as pale text on a black rectangle. So the tokens are
@@ -247,5 +300,21 @@
 
   a[href]::after {
     content: '';
+  }
+
+  /* A figure that straddles a page break is worse than no figure — and a
+     heading orphaned at the foot of a page is worse than a short page. */
+  figure,
+  aside {
+    break-inside: avoid;
+  }
+
+  .kh-juhend h2 {
+    break-after: avoid;
+  }
+
+  .kh-juhend img {
+    max-width: 100%;
+    height: auto;
   }
 }

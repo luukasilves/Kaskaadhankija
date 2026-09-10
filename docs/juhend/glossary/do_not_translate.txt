@@ -1,0 +1,14 @@
+# Pass through verbatim — proper nouns, identifiers and on-screen strings.
+Kaskaadhankija
+Eesti.ai koolitajate tellimine
+RHR 10567384
+Riigikantselei
+TESTKESKKOND
+OSA-1
+OSA-2
+OSA-3
+OSA-4
+VOOR-2026-003
+KK-2026-201
+KH-2026-0001
+Ctrl/Cmd + P

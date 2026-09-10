@@ -246,6 +246,11 @@ comparable ([kaskaadhankija-v3.fly.dev](https://kaskaadhankija-v3.fly.dev)):
   signed protocol and reads every screen; an **admin** also holds the framework
   data, the team and acting-as. Admin arrives by name: one allowlisted address,
   and everyone an admin adds starts as a hankija [R-01][L-08].
+- **A public guide for the bidders** — `/juhend`, the one page that takes no
+  session, because a partner needs it before their first sign-in. Its Estonian
+  is authored against the project's own corpus and its figures are generated
+  from a seeded database by a script that fails if the screen it illustrates has
+  moved, so the document cannot quietly stop being true [R-02].
 
 ## Open questions
 

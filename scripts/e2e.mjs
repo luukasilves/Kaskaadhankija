@@ -36,9 +36,11 @@ import {
   freePort,
   leakDetail,
   makeChecker,
+  openOpenRound,
   pickActAs,
   publishWithShortDeadline,
   removeDatabase,
+  stateOf,
   signInAs,
   signInAsAdmin,
   startServer,
@@ -77,18 +79,6 @@ const LISA_B_LOT = 'OSA-2';
  * helpers over the application's own markup
  * ------------------------------------------------------------------ */
 
-/** The state badge (plus its reason) for one training row on a partner page. */
-async function stateOf(page, code) {
-  const cell = page.locator('tr', { hasText: code }).first().locator('[data-testid="state-cell"]');
-  if ((await cell.count()) === 0) return '(olekuveerg puudub)';
-  const parts = await cell.evaluate((td) => ({
-    badge: td.querySelector('.kh-badge')?.textContent?.trim() ?? null,
-    reason: td.querySelector('div')?.textContent?.trim() ?? null,
-  }));
-  if (!parts.badge) return '(olek puudub)';
-  return parts.reason ? `${parts.badge} (${parts.reason})` : parts.badge;
-}
-
 /** The trainings the review page shows as this rank's final allocation. */
 async function finalCodesByRank(page, rank) {
   const codes = page.getByTestId(`final-codes-${rank}`);
@@ -98,22 +88,6 @@ async function finalCodesByRank(page, rank) {
     .map((code) => code.trim())
     .filter(Boolean)
     .sort();
-}
-
-/** Open a partner's open round in a lot, from their own round list. */
-async function openOpenRound(page, base, lotCode) {
-  await page.goto(`${base}/partner/voorud`);
-  await page.waitForSelector('h1');
-  const cards = page.locator('section:has(h2:text("Ootavad vastust")) li');
-  await cards.first().waitFor({ timeout: 20_000 }).catch(() => {});
-  for (let i = 0; i < (await cards.count()); i++) {
-    if ((await cards.nth(i).textContent()).includes(lotCode)) {
-      await cards.nth(i).locator('a[href^="/partner/voorud/"]').first().click();
-      await page.waitForSelector('table', { timeout: 20_000 });
-      return true;
-    }
-  }
-  return false;
 }
 
 async function markAndConfirm(page, codes) {

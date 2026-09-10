@@ -1,0 +1,17 @@
+concept	PREFER	AVOID	note
+the reader	raamlepingu partner	hankija	CRITICAL: in this app "hankija" is a BUYER role (BUYER_ROLE_LABELS, [R-01]). Calling the bidder that is actively wrong.
+the reader (human)	koolitaja	pakkuja	"pakkuja" is a tenderer in an open procurement; these people already hold the agreement. Use "koolitaja" once, in the opening line, then "partner".
+the reader (never)	—	tarnija	Wrong register: a supplier of goods.
+the buyer	tellija	ostja / hankija	"tellija" is the app's and the spec's word throughout.
+the round	voor	hange / minihange	A "voor" is the unit the partner answers. "Minihange" is the procedure, not the screen.
+the lot	hankeosa	osa / lot	
+the rank	koht (raamlepingu järjestuses)	positsioon / reiting	The app says "koht 3" and "järjestus".
+the ceiling	ülempiir / piirmäär	limiit / kvoot	"ülempiir" in the form's own label, "piirmäär" as the field name.
+the projection	prognoos	ennustus / eeldus	
+the mark	märge (verb: märkima)	valik	"valik" is the whole set of marks; a single one is a "märge".
+the confirmation	kinnitus (verb: kinnitama)	nõustumine / aktsept	
+the deadline	vastamistähtaeg / tähtaeg	deadline / lõppkuupäev	
+the order	tellimus	leping / hankeleping	The order IS treatable as a procurement contract, but its name is "tellimus". Say the relation, do not rename it.
+the representative	esindaja	kontakt / kasutaja	"kontaktisik" is the framework contact specifically; "esindaja" is the person who signs in.
+the environment	katsekeskkond / testkeskkond	demo	The app's badge says TESTKESKKOND and the strip says "Katsetuskeskkond". Never "demo" — it understates what the data is.
+sign in	sisse logima	autentima / logima sisse konto abil	There are no accounts and no passwords; say so.

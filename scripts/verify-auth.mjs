@@ -113,6 +113,14 @@ async function testEnvironment(browser) {
     await page.goto(`${BASE}/tellija`);
     check('the buyer area sends a stranger to the sign-in', page.url().includes('/sisene'), page.url());
 
+    // The one page that must be open to a stranger: a bidder needs it before
+    // their first sign-in, when all they hold is a notice and a code.
+    await page.goto(`${BASE}/juhend`);
+    check('the guide is public — no session needed', (await page.getByTestId('juhend').count()) === 1, page.url());
+    check('and it shows the pilot passages in the test environment', (await page.locator('#katsekeskkond').count()) === 1);
+    await page.goto(`${BASE}/sisene`);
+    check('the sign-in page links to it', (await page.getByTestId('sign-in-juhend').count()) === 1);
+
     /* a representative signs in and lands in their own area */
     await requestCode(page, BASE, REPRESENTATIVE.toUpperCase());
     check('the code page names the (lowercased) address', (await page.locator('main').textContent()).includes(REPRESENTATIVE));
@@ -133,6 +141,7 @@ async function testEnvironment(browser) {
 
     await page.goto(`${BASE}/`);
     check('the act-as screen is not theirs either — it sends them back to their area', page.url().includes('/partner/voorud'), page.url());
+    check('a signed-in partner finds the guide in their own nav', (await page.locator('nav a[href="/juhend"]').count()) === 1);
     await page.goto(`${BASE}/tellija`);
     check('nor is the buyer area', page.url().includes('/sisene'), page.url());
     await page.goto(`${BASE}/sisene`);
@@ -366,6 +375,13 @@ async function productionPosture(browser) {
     check('no environment badge, no act-as cards, no strip', !(await page.locator('main').textContent()).includes('TESTKESKKOND') && (await page.getByTestId('act-as-card').count()) === 0 && (await page.getByTestId('test-strip').count()) === 0);
     await page.goto(`${BASE}/tellija`);
     check('the buyer area sends a stranger to the sign-in', page.url().includes('/sisene'), page.url());
+
+    // Public in this posture too — and here the pilot passages must be gone,
+    // because outside DEMO_MODE „nothing here binds you“ would be a false
+    // statement about a live procurement.
+    await page.goto(`${BASE}/juhend`);
+    check('the guide is public in production as well', (await page.getByTestId('juhend').count()) === 1, page.url());
+    check('and drops the katsekeskkond passages there', (await page.locator('#katsekeskkond').count()) === 0);
 
     const landing = await signInAs(page, server, BUYER);
     check('an admin lands in the buyer area, with no act-as screen in the way', landing === '/tellija', landing);

@@ -267,6 +267,59 @@ export async function switchTo(page, name) {
  * document would always fail; what matters is that the application never names
  * a competitor.
  */
+/* ------------------------------------------------------------------ *
+ * a partner's own screens
+ * ------------------------------------------------------------------ */
+
+/**
+ * Open a partner's open round in a lot, from their own round list.
+ *
+ * Shared rather than duplicated: `e2e.mjs` walks the cascade with it and the
+ * guide's screenshot generator needs the same page.
+ */
+export async function openOpenRound(page, base, lotCode) {
+  await page.goto(`${base}/partner/voorud`);
+  await page.waitForSelector('h1');
+  const cards = page.locator('section:has(h2:text("Ootavad vastust")) li');
+  await cards.first().waitFor({ timeout: 20_000 }).catch(() => {});
+  for (let i = 0; i < (await cards.count()); i++) {
+    if ((await cards.nth(i).textContent()).includes(lotCode)) {
+      await cards.nth(i).locator('a[href^="/partner/voorud/"]').first().click();
+      await page.waitForSelector('table', { timeout: 20_000 });
+      return true;
+    }
+  }
+  return false;
+}
+
+/** The same, for a round whose allocation the buyer has already confirmed. */
+export async function openFinishedRound(page, base, lotCode) {
+  await page.goto(`${base}/partner/voorud`);
+  await page.waitForSelector('h1');
+  const rows = page.locator('section:has(h2:text("Lõpetatud voorud")) li');
+  await rows.first().waitFor({ timeout: 20_000 }).catch(() => {});
+  for (let i = 0; i < (await rows.count()); i++) {
+    if ((await rows.nth(i).textContent()).includes(lotCode)) {
+      await rows.nth(i).locator('a[href^="/partner/voorud/"]').first().click();
+      await page.waitForSelector('table', { timeout: 20_000 });
+      return true;
+    }
+  }
+  return false;
+}
+
+/** The state badge (plus its reason) for one training row on a partner page. */
+export async function stateOf(page, code) {
+  const cell = page.locator('tr', { hasText: code }).first().locator('[data-testid="state-cell"]');
+  if ((await cell.count()) === 0) return '(olekuveerg puudub)';
+  const parts = await cell.evaluate((td) => ({
+    badge: td.querySelector('.kh-badge')?.textContent?.trim() ?? null,
+    reason: td.querySelector('div')?.textContent?.trim() ?? null,
+  }));
+  if (!parts.badge) return '(olek puudub)';
+  return parts.reason ? `${parts.badge} (${parts.reason})` : parts.badge;
+}
+
 export async function appHtml(page) {
   return page.evaluate(() => {
     const main = document.querySelector('main');

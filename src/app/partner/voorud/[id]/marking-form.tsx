@@ -162,7 +162,7 @@ export function MarkingForm({
           )}
           {dynamic && editable && (
             <span className="ml-auto text-[12px] text-[var(--color-muted)]">
-              Iga koolituse saad märkida sõltumata olekust — märge ilma prognoosita on varuvariant,
+              Iga koolituse saate märkida sõltumata olekust — märge ilma prognoosita on varuvariant,
               mis hakkab kehtima, kui eesõigusega partner loobub.
             </span>
           )}
