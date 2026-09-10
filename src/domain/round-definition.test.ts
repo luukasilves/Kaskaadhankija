@@ -28,6 +28,8 @@ describe('parseRoundDefinition', () => {
       capOptions: 'both',
       extraWorkingDays: 2,
       note: 'Sügisvoor',
+      plannedPublishAt: null,
+      plannedDeadlineAt: null,
     });
   });
 
@@ -35,7 +37,15 @@ describe('parseRoundDefinition', () => {
     const result = parseRoundDefinition([{ hankeosa: 'OSA-1', nahtavus: '', piirmaara_valikud: '', lisatoopaevad: '' }], {
       knownLotCodes: LOTS,
     });
-    expect(result.value).toEqual({ lotCode: 'OSA-1', visibilityMode: 'dynamic', capOptions: null, extraWorkingDays: 0, note: '' });
+    expect(result.value).toEqual({
+      lotCode: 'OSA-1',
+      visibilityMode: 'dynamic',
+      capOptions: null,
+      extraWorkingDays: 0,
+      note: '',
+      plannedPublishAt: null,
+      plannedDeadlineAt: null,
+    });
   });
 
   it('knows every cap word', () => {
@@ -69,5 +79,62 @@ describe('parseRoundDefinition', () => {
     expect(result.value).toBeNull();
     expect(result.errors[0]?.message).toMatch(/„väli“ ja „väärtus“/);
     expect(parseRoundDefinition([], { knownLotCodes: LOTS }).value).toBeNull();
+  });
+});
+
+describe('[L-20] the planned response window', () => {
+  const kv = (pairs: Array<[string, string]>) => pairs.map(([vali, vaartus]) => ({ vali, vaartus }));
+
+  it('reads a publication and a deadline, taking the lot’s hour for a bare date', () => {
+    const result = parseRoundDefinition(
+      kv([
+        ['hankeosa', 'OSA-1'],
+        ['avaldamine', '06.10.2026 10:15'],
+        ['vastamistahtaeg', '09.10.2026'],
+      ]),
+      { knownLotCodes: LOTS, deadlineTimeByLot: { 'OSA-1': '16:30' } },
+    );
+    expect(result.errors).toEqual([]);
+    // Tallinn is UTC+3 in October, so 10:15 local is 07:15Z.
+    expect(new Date(result.value!.plannedPublishAt!).toISOString()).toBe('2026-10-06T07:15:00.000Z');
+    expect(new Date(result.value!.plannedDeadlineAt!).toISOString()).toBe('2026-10-09T13:30:00.000Z');
+  });
+
+  it('refuses a deadline and extra working days together — two ways to say one thing', () => {
+    const result = parseRoundDefinition(
+      kv([
+        ['hankeosa', 'OSA-1'],
+        ['lisatoopaevad', '2'],
+        ['vastamistahtaeg', '09.10.2026 17:00'],
+      ]),
+      { knownLotCodes: LOTS },
+    );
+    expect(result.value).toBeNull();
+    expect(result.errors.map((e) => e.field)).toContain('vastamistahtaeg');
+  });
+
+  it('refuses a deadline that is not after the publication', () => {
+    const result = parseRoundDefinition(
+      kv([
+        ['hankeosa', 'OSA-1'],
+        ['avaldamine', '09.10.2026 12:00'],
+        ['vastamistahtaeg', '09.10.2026 11:00'],
+      ]),
+      { knownLotCodes: LOTS },
+    );
+    expect(result.value).toBeNull();
+    expect(result.errors.some((e) => e.message.includes('hiljem'))).toBe(true);
+  });
+
+  it('says what is wrong with an unreadable date', () => {
+    const result = parseRoundDefinition(
+      kv([
+        ['hankeosa', 'OSA-1'],
+        ['vastamistahtaeg', 'järgmine nädal'],
+      ]),
+      { knownLotCodes: LOTS },
+    );
+    expect(result.value).toBeNull();
+    expect(result.errors[0]?.field).toBe('vastamistahtaeg');
   });
 });

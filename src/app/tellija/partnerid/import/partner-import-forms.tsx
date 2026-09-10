@@ -58,12 +58,23 @@ export function PartnerImportPreview({
   summary,
   fileErrors,
   rows,
+  wouldDeactivate,
+  openRoundCount,
+  deactivateMissing,
 }: {
   batchId: string;
   alreadyImported: boolean;
   summary: ImportSummary;
   fileErrors: Array<{ field?: string; message: string }>;
   rows: PartnerPreviewRow[];
+  wouldDeactivate: Array<{
+    lotCode: string;
+    partnerName: string;
+    rank: number;
+    inOpenRound: boolean;
+  }>;
+  openRoundCount: number;
+  deactivateMissing: boolean;
 }) {
   return (
     <div className="space-y-4">
@@ -100,6 +111,41 @@ export function PartnerImportPreview({
               <li key={index}>{error.message}</li>
             ))}
           </ul>
+        )}
+
+        {/* Who this file leaves out, and what that means — above the button,
+            because after the import it is no longer a question [V-07]. */}
+        {wouldDeactivate.length > 0 && (
+          <div
+            className="mt-3 rounded-md border p-3"
+            style={{
+              borderColor: deactivateMissing ? 'var(--color-warning)' : 'var(--color-border)',
+              background: deactivateMissing ? 'var(--color-warning-soft)' : undefined,
+            }}
+            data-testid="partner-import-missing"
+          >
+            <p className="text-[13px] font-semibold">
+              Failist puuduvad partnerid ({wouldDeactivate.length})
+            </p>
+            <ul className="mt-1 space-y-0.5 text-[13px]">
+              {wouldDeactivate.map((member) => (
+                <li key={`${member.lotCode}-${member.partnerName}`}>
+                  {member.lotCode} · {member.partnerName} (koht {member.rank})
+                  {member.inOpenRound && (
+                    <span style={{ color: 'var(--color-warning)' }}> — osaleb avatud voorus</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-1 text-[12px] text-[var(--color-muted)]">
+              {deactivateMissing
+                ? '„Lõpeta puuduvad“ oli valitud: nende osalus lõpetatakse.'
+                : '„Lõpeta puuduvad“ ei olnud valitud: nende osalus jääb kehtima, koht antakse failis olevate järele.'}{' '}
+              {openRoundCount > 0
+                ? `${openRoundCount} avatud voor kasutab avaldamisel külmutatud järjestust ja ei muutu.`
+                : 'Avatud voorud kasutavad avaldamisel külmutatud järjestust ja ei muutu.'}
+            </p>
+          </div>
         )}
 
         {!alreadyImported ? (

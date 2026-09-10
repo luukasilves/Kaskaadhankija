@@ -2,6 +2,8 @@ import { requireBuyer } from '@/server/auth/actor';
 import { AppNav } from '@/components/app-nav';
 import { TestStrip } from '@/components/test-strip';
 import { getDb } from '@/db';
+import { frameworkIdentity } from '@/server/framework';
+import { frameworkSubtitle } from '@/domain/framework';
 import { rounds, trainings } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 
@@ -24,7 +26,7 @@ export default async function BuyerLayout({ children }: { children: React.ReactN
       <TestStrip />
       <AppNav
         title="Kaskaadhankija"
-        subtitle="Eesti.ai koolitajate tellimine · RHR 10567384"
+        subtitle={frameworkSubtitle(frameworkIdentity(db))}
         // A member can open every screen but change nothing [R-01]; saying so
         // in the header beats letting them find out by pressing a button.
         actor={actor.role === 'admin' ? actor.label : `${actor.label} · vaatleja`}
@@ -33,6 +35,9 @@ export default async function BuyerLayout({ children }: { children: React.ReactN
           { href: '/tellija/voorud', label: 'Voorud', count: openCount },
           { href: '/tellija/koolitused', label: 'Koolitused' },
           { href: '/tellija/tellimused', label: 'Tellimused' },
+          // The framework's own data is one admin screen [L-21]; the lot and
+          // partner lists stay for reading.
+          ...(actor.role === 'admin' ? [{ href: '/tellija/raamhange', label: 'Raamhange' }] : []),
           { href: '/tellija/hankeosad', label: 'Hankeosad' },
           { href: '/tellija/partnerid', label: 'Partnerid' },
           { href: '/tellija/partnerid/esindajad', label: 'Esindajad' },

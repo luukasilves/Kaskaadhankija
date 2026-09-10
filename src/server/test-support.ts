@@ -117,14 +117,23 @@ export function rawTrainingRow(over: Record<string, string> = {}): Record<string
 }
 
 /** A partner-ranking row as the CSV reader would deliver it. */
+/**
+ * One row of the ranking sheet.
+ *
+ * The address is derived from the registry code unless the caller says
+ * otherwise, because the official contact is the partner's sign-in [L-21]: one
+ * address cannot represent two companies, so a fixture that gave every row the
+ * same address would be refused — rightly — by the import it is testing.
+ */
 export function rawPartnerRow(over: Record<string, string> = {}): Record<string, string> {
+  const regCode = over.registrikood ?? '10000001';
   return {
     partner: 'Tehisaru Koolitus OÜ',
-    registrikood: '10000001',
+    registrikood: regCode,
     hankeosa: 'OSA-1',
     koht: '1',
     kontaktisik: 'Jaan Kask',
-    e_post: 'jaan.kask@tehisaru-naidis.ee',
+    e_post: regCode === '10000001' ? 'jaan.kask@tehisaru-naidis.ee' : `kontakt.${regCode}@naidis.ee`,
     uhikhind: '1450',
     ...over,
   };

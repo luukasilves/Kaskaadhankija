@@ -40,7 +40,13 @@ export interface RoundPreviewResult extends RoundImportPayload {
 
 function lotRows(ctx: Ctx) {
   return ctx.tx
-    .select({ id: lots.id, code: lots.code, name: lots.name, defaultCapOptions: lots.defaultCapOptions })
+    .select({
+      id: lots.id,
+      code: lots.code,
+      name: lots.name,
+      defaultCapOptions: lots.defaultCapOptions,
+      deadlineLocalTime: lots.deadlineLocalTime,
+    })
     .from(lots)
     .all();
 }
@@ -124,7 +130,12 @@ export function previewRoundImport(
   const lotList = lotRows(ctx);
   const knownLotCodes = lotList.map((l) => l.code);
 
-  const definition = parseRoundDefinition(input.roundRows, { knownLotCodes });
+  const definition = parseRoundDefinition(input.roundRows, {
+    knownLotCodes,
+    // A bare date in „vastamistahtaeg“ lands at the lot's own hour, where the
+    // working-day arithmetic would have put it.
+    deadlineTimeByLot: Object.fromEntries(lotList.map((l) => [l.code, l.deadlineLocalTime])),
+  });
   const parsed = parseTrainingRows(input.trainingRows, { knownLotCodes, todayIso: tallinnIsoDay(ctx.at) });
   const rows: StoredRow[] = parsed.rows.map((row) => ({
     rowNumber: row.rowNumber,
@@ -216,10 +227,21 @@ export function applyRoundImport(ctx: Ctx, batchId: string): { roundId: string; 
     visibilityMode: definition.visibilityMode,
     capOptions: definition.capOptions ?? lot.defaultCapOptions,
   });
-  if (definition.extraWorkingDays > 0) {
+  // The window the scheme asked for: a plan the publish form offers, not the
+  // fact. Publication fixes the real instants and still enforces the lot's
+  // floor from the moment somebody presses it [L-20].
+  if (
+    definition.extraWorkingDays > 0 ||
+    definition.plannedPublishAt !== null ||
+    definition.plannedDeadlineAt !== null
+  ) {
     ctx.tx
       .update(rounds)
-      .set({ plannedExtraWorkingDays: definition.extraWorkingDays })
+      .set({
+        plannedExtraWorkingDays: definition.extraWorkingDays,
+        plannedPublishAt: definition.plannedPublishAt,
+        plannedDeadlineAt: definition.plannedDeadlineAt,
+      })
       .where(eq(rounds.id, roundId))
       .run();
   }

@@ -31,6 +31,8 @@ export function DraftRoundPanel({
   lotDeadlineTime,
   visibilityMode,
   plannedExtraWorkingDays = 0,
+  plannedDeadlineLocal = null,
+  testFloor = false,
   trainings,
 }: {
   roundId: string;
@@ -39,6 +41,10 @@ export function DraftRoundPanel({
   visibilityMode: 'dynamic' | 'sealed';
   /** from an uploaded scheme [L-20]; offered as the default, still the buyer's call */
   plannedExtraWorkingDays?: number;
+  /** the scheme's own deadline, as a value for a datetime-local input */
+  plannedDeadlineLocal?: string | null;
+  /** in the test environment the floor is five minutes, not the lot's window [L-23] */
+  testFloor?: boolean;
   trainings: TrainingRef[];
 }) {
   const extraChoices = [...new Set([0, 1, 2, 5, plannedExtraWorkingDays])].sort((a, b) => a - b);
@@ -88,6 +94,24 @@ export function DraftRoundPanel({
               </select>
               <span className="mt-1 block text-[12px] text-[var(--color-muted)]">
                 Tähtaega saab hiljem ainult pikendada.
+              </span>
+            </label>
+            <label className="block">
+              <span className="text-[12.5px] font-semibold">Või kindel tähtaeg</span>
+              <input
+                type="datetime-local"
+                name="deadlineAt"
+                defaultValue={plannedDeadlineLocal ?? ''}
+                className="kh-input mt-1 w-full"
+                data-testid="deadline-at"
+              />
+              <span className="mt-1 block text-[12px] text-[var(--color-muted)]">
+                {plannedDeadlineLocal
+                  ? 'Skeemifailis kavandatud tähtaeg. Tühjenda, et kasutada tööpäevade valikut.'
+                  : 'Täidetuna kehtib see tööpäevade valiku asemel.'}
+                {testFloor
+                  ? ' Testkeskkonnas piisab viiest minutist tulevikus, nii et kaskaadi saab läbi mängida.'
+                  : ` Vähemalt hankeosa ${lotResponseDays} tööpäeva.`}
               </span>
             </label>
             <label className="block">

@@ -28,6 +28,7 @@ import {
   cancelOrderTraining,
 } from '../rounds/engine';
 import { assertAdminActor } from '../auth/actor';
+import { parseEstonianInstant } from '@/domain/round-definition';
 import { runDueJobs } from '../rounds/jobs';
 import type { VisibilityMode } from '@/domain/round-statuses';
 import { isCapOptions } from '@/domain/round-statuses';
@@ -72,14 +73,23 @@ export async function createRoundAction(form: FormData): Promise<ActionOutcome> 
 
 export async function publishRoundAction(form: FormData): Promise<ActionOutcome> {
   const roundId = fieldText(form, 'roundId');
-  // Expressed in working days rather than a wall-clock date: that is the unit
-  // the framework uses, and it avoids a timezone-less datetime input.
+  // Working days is the unit the framework itself uses, so it stays the
+  // default. An absolute instant is the alternative, because a round scheme
+  // may plan one [L-20] and a test round needs a window of minutes [L-23].
   const extraWorkingDays = fieldNumber(form, 'extraWorkingDays') ?? 0;
   const visibilityMode = (fieldText(form, 'visibilityMode') || undefined) as VisibilityMode | undefined;
+  const deadlineLocal = fieldText(form, 'deadlineAt');
+  let deadlineAt: number | undefined;
+  if (deadlineLocal) {
+    // A `datetime-local` value has no zone; the person typed Tallinn time.
+    const parsed = parseEstonianInstant(deadlineLocal.replace('T', ' '), '17:00');
+    if (!parsed.ok) return fail(`Tähtaeg ei ole loetav: ${parsed.message}`);
+    deadlineAt = parsed.value;
+  }
 
   try {
     await buyerWrite(
-      (ctx) => publishRound(ctx, roundId, { extraWorkingDays, visibilityMode }),
+      (ctx) => publishRound(ctx, roundId, { extraWorkingDays, visibilityMode, deadlineAt }),
       [ROUNDS, `${ROUNDS}/${roundId}`, DASHBOARD],
     );
     return ok('Voor on avaldatud kõigile hankeosa partneritele.');

@@ -9,6 +9,8 @@
 import Link from 'next/link';
 import { eq, inArray } from 'drizzle-orm';
 import { getDb } from '@/db';
+import { frameworkIdentity } from '@/server/framework';
+import { frameworkTitleLine } from '@/domain/framework';
 import { lots, rounds, trainings } from '@/db/schema';
 import { formatDateTimeShort, formatEur, formatIsoDay } from '@/domain/format';
 import {
@@ -100,7 +102,7 @@ export default async function BuyerDashboard() {
       <div>
         <h1>Töölaud</h1>
         <p className="mt-1 text-[var(--color-muted)]">
-          Raamleping „Eesti.ai koolitajate tellimine“ · riigihanke viitenumber 10567384
+          {frameworkTitleLine(frameworkIdentity(db))}
         </p>
       </div>
 

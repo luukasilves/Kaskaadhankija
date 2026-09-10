@@ -44,10 +44,17 @@ export type AuditEventType =
   | 'training.leftover_cancelled'
   // participants [E-01]
   | 'participant.excluded'
+  // the framework agreement itself [L-21]
+  | 'framework.updated'
   // lots and partners
+  | 'lot.created'
+  | 'lot.updated'
+  | 'lot.deactivated'
   | 'lot.config_changed'
   | 'partner.created'
   | 'partner.rank_changed'
+  | 'partner.joined_lot'
+  | 'partner.contact_changed'
   | 'partner.deactivated'
   | 'partner.activated'
   // representatives [R-02][D-10]
@@ -55,6 +62,7 @@ export type AuditEventType =
   | 'representative.updated'
   | 'representative.deactivated'
   | 'representative.activated'
+  | 'representative.synced_from_framework'
   // buyer team [R-01]
   | 'team.member_added'
   | 'team.member_updated'
@@ -71,6 +79,7 @@ export type AuditEventType =
   | 'import.partners_imported'
   | 'import.representatives_imported'
   | 'import.round_imported'
+  | 'import.framework_imported'
   | 'import.discarded';
 
 export interface AuditInput {

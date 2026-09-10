@@ -55,6 +55,16 @@ const importRows = (rawRows: Array<Record<string, string>>, deactivateMissing = 
     }),
   );
 
+const sourceOf = (email: string) =>
+  harness.read(
+    (db) =>
+      db
+        .select({ source: partnerRepresentatives.source })
+        .from(partnerRepresentatives)
+        .where(eq(partnerRepresentatives.email, email))
+        .get()?.source,
+  );
+
 const activeFor = (regCode: string) =>
   harness.read((db) =>
     db
@@ -69,10 +79,53 @@ const activeFor = (regCode: string) =>
 describe('representatives import', () => {
   it('creates representatives for known companies', () => {
     const result = importRows([rep(), rep({ esindaja: 'Mari Mets', e_post: 'mari.mets@tehisaru-naidis.ee', roll: 'asendaja' })]);
-    expect(result.summary).toMatchObject({ total: 2, valid: 2, created: 2, updated: 0, withErrors: 0 });
+    // Jaan Kask is already there: he is OSA-1's official contact, which the
+    // ranking import turned into a sign-in [L-21]. Listing him here updates
+    // that row and takes ownership of it; Mari Mets is new.
+    expect(result.summary).toMatchObject({ total: 2, valid: 2, created: 1, updated: 1, withErrors: 0 });
     expect(activeFor('10000001')).toEqual([
       { name: 'Jaan Kask', email: 'jaan.kask@tehisaru-naidis.ee', role: 'esindaja' },
       { name: 'Mari Mets', email: 'mari.mets@tehisaru-naidis.ee', role: 'asendaja' },
+    ]);
+    expect(sourceOf('jaan.kask@tehisaru-naidis.ee')).toBe('upload');
+  });
+
+  it('leaves a lot’s official contact to the framework data [L-21]', () => {
+    // Nobody listed Liis on this sheet: her row exists because she is the
+    // official contact of OSA-1's second partner, and the ranking made that a
+    // sign-in. It is the sync's row, not this sheet's.
+    const contact = 'liis.magi@ai-akadeemia-naidis.ee';
+    expect(sourceOf(contact)).toBe('framework');
+
+    const id = harness.read((db) =>
+      db
+        .select({ id: partnerRepresentatives.id })
+        .from(partnerRepresentatives)
+        .where(eq(partnerRepresentatives.email, contact))
+        .get(),
+    )!.id;
+    expect(() => harness.write((ctx) => setRepresentativeActive(ctx, id, false))).toThrow(
+      /raamhanke andmetes/,
+    );
+
+    // Nor does listing somebody else for that company sweep her away, even
+    // with "deactivate the missing" on — this sheet cannot speak for her.
+    const preview = harness.write((ctx) =>
+      previewRepresentativesImport(ctx, {
+        fileName: 'x.csv',
+        fileSize: 1,
+        source: 'upload',
+        rawRows: [
+          rep({ registrikood: '10000002', esindaja: 'Kaia Kuusk', e_post: 'kaia.kuusk@ai-akadeemia-naidis.ee' }),
+        ],
+        options: { deactivateMissing: true },
+      }),
+    );
+    expect(preview.wouldDeactivate).toEqual([]);
+    harness.write((ctx) => applyRepresentativesImport(ctx, preview.batchId));
+    expect(activeFor('10000002').map((r) => r.email)).toEqual([
+      'kaia.kuusk@ai-akadeemia-naidis.ee',
+      contact,
     ]);
   });
 
@@ -150,7 +203,15 @@ describe('representatives import', () => {
 
   it('a representative can be switched off and back on by hand', () => {
     importRows([rep()]);
-    const id = harness.read((db) => db.select({ id: partnerRepresentatives.id }).from(partnerRepresentatives).get())!.id;
+    // By address: the company's rows now include the framework-owned contact,
+    // which is deliberately not switchable here.
+    const id = harness.read((db) =>
+      db
+        .select({ id: partnerRepresentatives.id })
+        .from(partnerRepresentatives)
+        .where(eq(partnerRepresentatives.email, 'jaan.kask@tehisaru-naidis.ee'))
+        .get(),
+    )!.id;
     harness.write((ctx) => setRepresentativeActive(ctx, id, false));
     expect(activeFor('10000001')).toHaveLength(0);
     harness.write((ctx) => setRepresentativeActive(ctx, id, true));

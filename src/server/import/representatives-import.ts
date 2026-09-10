@@ -157,6 +157,7 @@ export function previewRepresentativesImport(
       email: partnerRepresentatives.email,
       name: partnerRepresentatives.name,
       isActive: partnerRepresentatives.isActive,
+      source: partnerRepresentatives.source,
     })
     .from(partnerRepresentatives)
     .all();
@@ -178,7 +179,13 @@ export function previewRepresentativesImport(
 
   const wouldDeactivate = input.options.deactivateMissing
     ? existing
-        .filter((r) => r.isActive && touchedPartnerIds.has(r.partnerId) && !keptKeys.has(key(r.partnerId, r.email)))
+        .filter(
+          (r) =>
+            r.isActive &&
+            r.source !== 'framework' &&
+            touchedPartnerIds.has(r.partnerId) &&
+            !keptKeys.has(key(r.partnerId, r.email)),
+        )
         .map((r) => ({
           partnerName: partnerRows.find((p) => p.id === r.partnerId)?.name ?? '',
           name: r.name,
@@ -227,7 +234,45 @@ export function applyRepresentativesImport(
   const options = (batch.options ?? {}) as Partial<RepresentativeImportOptions>;
   const rows = payload.rows;
 
-  // The state may have moved since the preview; re-check rather than trust it.
+  const summary = applyRepresentativeRows(ctx, rows, {
+    deactivateMissing: Boolean(options.deactivateMissing),
+    batchId,
+  });
+
+  ctx.tx
+    .update(importBatches)
+    .set({
+      status: 'imported',
+      importedAt: ctx.at,
+      rowsJson: { rows, fileErrors: payload.fileErrors } satisfies Payload,
+      summary,
+    })
+    .where(eq(importBatches.id, batchId))
+    .run();
+
+  logAudit(ctx, {
+    eventType: 'import.representatives_imported',
+    summary: `Esindajad imporditud failist ${batch.fileName}: ${summary.created} uut, ${summary.updated} uuendatud${options.deactivateMissing ? ', puuduvad lõpetatud' : ''}`,
+    after: { batchId, summary, deactivateMissing: Boolean(options.deactivateMissing) },
+  });
+
+  return { summary, rows };
+}
+
+/**
+ * Write a set of representative rows.
+ *
+ * Shared with the framework workbook, whose „Esindajad“ sheet is the same list
+ * in another file [L-21], so one address cannot be written two ways. Mutates
+ * each row's `action`, which the preview page shows back, and re-checks the
+ * database because the state may have moved since the preview.
+ */
+export function applyRepresentativeRows(
+  ctx: Ctx,
+  rows: StoredRepresentativeRow[],
+  options: { deactivateMissing: boolean; batchId: string | null },
+): ImportSummary {
+  const batchId = options.batchId;
   checkAgainstDatabase(ctx, rows);
   const summary = summarize(rows);
 
@@ -265,6 +310,9 @@ export function applyRepresentativesImport(
         .all();
       for (const rep of current) {
         if (listedEmails.get(partnerId)?.has(rep.email)) continue;
+        // A lot's official contact is maintained by the framework data [L-21]:
+        // this sheet lists extra people, so its absences say nothing about them.
+        if (rep.source === 'framework') continue;
         ctx.tx
           .update(partnerRepresentatives)
           .set({ isActive: false, deactivatedAt: ctx.at, updatedAt: ctx.at })
@@ -301,6 +349,9 @@ export function applyRepresentativesImport(
             name: row.value.name,
             role: row.value.role,
             phone: row.value.phone,
+            // Listing somebody explicitly makes them this sheet's to maintain,
+            // even if they arrived as a lot's official contact [L-21].
+            source: 'upload',
             isActive: true,
             deactivatedAt: null,
             importBatchId: batchId,
@@ -326,6 +377,7 @@ export function applyRepresentativesImport(
             email: row.value.email,
             role: row.value.role,
             phone: row.value.phone,
+            source: 'upload',
             isActive: true,
             importBatchId: batchId,
             createdAt: ctx.at,
@@ -349,24 +401,7 @@ export function applyRepresentativesImport(
     }
   }
 
-  ctx.tx
-    .update(importBatches)
-    .set({
-      status: 'imported',
-      importedAt: ctx.at,
-      rowsJson: { rows, fileErrors: payload.fileErrors } satisfies Payload,
-      summary,
-    })
-    .where(eq(importBatches.id, batchId))
-    .run();
-
-  logAudit(ctx, {
-    eventType: 'import.representatives_imported',
-    summary: `Esindajad imporditud failist ${batch.fileName}: ${summary.created} uut, ${summary.updated} uuendatud${options.deactivateMissing ? ', puuduvad lõpetatud' : ''}`,
-    after: { batchId, summary, deactivateMissing: Boolean(options.deactivateMissing) },
-  });
-
-  return { summary, rows };
+  return summary;
 }
 
 /** Convenience for the seed: preview then apply in one call. */
@@ -400,6 +435,11 @@ export function importRepresentativesFromRows(
 export function setRepresentativeActive(ctx: Ctx, id: string, active: boolean): void {
   const rep = ctx.tx.select().from(partnerRepresentatives).where(eq(partnerRepresentatives.id, id)).get();
   if (!rep) throw new Error('Esindajat ei leitud.');
+  if (rep.source === 'framework') {
+    // Switching it off here would last until the next sync and no longer [L-21];
+    // the way to end this sign-in is to change the lot's official contact.
+    throw new Error('See on raamlepingu kontaktisik — teda hallatakse raamhanke andmetes, mitte siin.');
+  }
   if (rep.isActive === active) return;
   if (active) {
     const holder = ctx.tx

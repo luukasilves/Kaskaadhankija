@@ -53,9 +53,14 @@ export default async function RepresentativesPage() {
             Laadi alla mall (.xlsx)
           </a>
           {canWrite && (
-            <Link href="/tellija/partnerid/esindajad/import" className="kh-btn kh-btn-primary">
-              Impordi esindajad
-            </Link>
+            <>
+              <Link href="/tellija/raamhange" className="kh-btn kh-btn-primary">
+                Raamhanke andmed
+              </Link>
+              <Link href="/tellija/partnerid/esindajad/import" className="kh-btn">
+                Impordi esindajad
+              </Link>
+            </>
           )}
         </div>
       </div>
@@ -100,7 +105,14 @@ export default async function RepresentativesPage() {
                         <tr key={rep.id} style={rep.isActive ? undefined : { opacity: 0.6 }}>
                           <td className="kh-td font-semibold">{rep.name}</td>
                           <td className="kh-td text-[13px]">{REPRESENTATIVE_ROLE_LABELS[rep.role] ?? rep.role}</td>
-                          <td className="kh-td font-mono text-[13px]">{rep.email}</td>
+                          <td className="kh-td font-mono text-[13px]">
+                            {rep.email}
+                            {rep.source === 'framework' && (
+                              <div className="font-sans text-[11.5px] text-[var(--color-muted)]">
+                                raamlepingu kontakt — hallatakse raamhanke andmetes
+                              </div>
+                            )}
+                          </td>
                           <td className="kh-td text-[13px]">{rep.phone || '—'}</td>
                           <td className="kh-td">
                             {rep.isActive ? (
@@ -114,7 +126,7 @@ export default async function RepresentativesPage() {
                             )}
                           </td>
                           <td className="kh-td text-right">
-                            {canWrite && (
+                            {canWrite && rep.source !== 'framework' && (
                               <RepresentativeActiveToggle id={rep.id} active={rep.isActive} />
                             )}
                           </td>

@@ -57,6 +57,13 @@
       "when": 1789030000000,
       "tag": "0007_acting_via",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1789037400414,
+      "tag": "0008_framework_data",
+      "breakpoints": true
     }
   ]
 }

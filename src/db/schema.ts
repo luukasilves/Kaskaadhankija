@@ -46,6 +46,37 @@ const oneOf = (column: string, values: readonly string[]) =>
   check(`${column}_check`, sql.raw(`${column} in (${values.map((v) => `'${v}'`).join(', ')})`));
 
 /* ------------------------------------------------------------------ *
+ * the framework procurement itself [L-21]
+ * ------------------------------------------------------------------ */
+
+/**
+ * Which framework agreement this environment runs. One row.
+ *
+ * It used to be a string in six files ("Raamleping „Eesti.ai koolitajate
+ * tellimine“, riigihanke viitenumber 10567384"), which was fine until the same
+ * tool had to serve a second framework — and until the end-of-round protocol
+ * needed to print it as data rather than as a hard-coded sentence. The row is
+ * inserted by the migration, not the seed: a live database has already seeded
+ * and never will again.
+ */
+export const frameworkSettings = sqliteTable(
+  'framework_settings',
+  {
+    id: integer().primaryKey(),
+    title: text().notNull(),
+    /** riigihanke viitenumber, e.g. 10567384 */
+    procurementReference: text('procurement_reference').notNull(),
+    /** the agreement's own number, when the buyer uses one */
+    agreementReference: text('agreement_reference').notNull().default(''),
+    buyerName: text('buyer_name').notNull(),
+    /** ISO day, or null when open-ended */
+    validUntil: text('valid_until'),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (t) => [check('framework_settings_single_row', sql`${t.id} = 1`)],
+);
+
+/* ------------------------------------------------------------------ *
  * users (buyer team)
  * ------------------------------------------------------------------ */
 
@@ -173,6 +204,14 @@ export const partnerRepresentatives = sqliteTable(
     /** lowercased; unique among active representatives */
     email: text().notNull(),
     role: text().$type<RepresentativeRole>().notNull().default('esindaja'),
+    /**
+     * Where this row came from, and therefore who may switch it off [L-21]:
+     * `framework` rows mirror a lot's official contact and are maintained by
+     * the framework data, `upload` rows are extra people the buyer listed,
+     * `manual` rows were added on the screen. Whoever last activated a row
+     * owns it, which is what stops the two paths deactivating each other's.
+     */
+    source: text().$type<RepresentativeSource>().notNull().default('upload'),
     phone: text().notNull().default(''),
     isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
     deactivatedAt: integer('deactivated_at'),
@@ -191,6 +230,7 @@ export const partnerRepresentatives = sqliteTable(
 );
 
 export type RepresentativeRole = 'esindaja' | 'asendaja';
+export type RepresentativeSource = 'framework' | 'upload' | 'manual';
 
 /* ------------------------------------------------------------------ *
  * trainings (koolituskalender)
@@ -280,6 +320,14 @@ export const rounds = sqliteTable(
     capOptions: text('cap_options').$type<CapOptions>().notNull().default('trainings'),
     /** [L-20] from an uploaded scheme: working days to offer beyond the lot default, at publication */
     plannedExtraWorkingDays: integer('planned_extra_working_days').notNull().default(0),
+    /**
+     * The window the scheme file asked for [L-20]. A plan, not the fact: the
+     * publish form prefills it and the engine still enforces the lot's floor
+     * from the actual publication instant, so a plan that slipped is offered
+     * the floor instead. The protocol prints planned beside actual.
+     */
+    plannedPublishAt: integer('planned_publish_at'),
+    plannedDeadlineAt: integer('planned_deadline_at'),
     /** [V-03] config frozen at publication, so later lot edits cannot change a live round */
     workloadThresholdSnapshot: integer('workload_threshold_snapshot').notNull().default(25),
     responseWorkingDaysSnapshot: integer('response_working_days_snapshot').notNull().default(3),
@@ -669,7 +717,7 @@ export const emailDeliveries = sqliteTable(
  * imports
  * ------------------------------------------------------------------ */
 
-export type ImportKind = 'trainings' | 'partners' | 'representatives' | 'round';
+export type ImportKind = 'trainings' | 'partners' | 'representatives' | 'round' | 'framework';
 
 export interface ImportSummary {
   total: number;
@@ -705,7 +753,7 @@ export const importBatches = sqliteTable(
   },
   (t) => [
     index('import_batches_kind_idx').on(t.kind, t.status),
-    oneOf('kind', ['trainings', 'partners', 'representatives', 'round']),
+    oneOf('kind', ['trainings', 'partners', 'representatives', 'round', 'framework']),
     oneOf('source', ['upload', 'seed', 'sample']),
     oneOf('status', ['previewed', 'imported', 'discarded']),
   ],

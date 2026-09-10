@@ -18,6 +18,9 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { isDemoMode } from '@/lib/env';
+import { getDb } from '@/db';
+import { frameworkClause } from '@/domain/framework';
+import { frameworkIdentity } from '@/server/framework';
 import { actAs, actAsSelf } from '@/server/actions/act-as';
 import { logoutAction } from '@/server/actions/auth';
 import { listActAsRoster, type ActAsCard } from '@/server/act-as';
@@ -107,6 +110,7 @@ export default async function ActAsScreen() {
   if (!mayActAs(signedIn, isDemoMode)) redirect(areaHome(signedIn.kind));
 
   const roster = listActAsRoster();
+  const framework = frameworkIdentity(getDb());
   const selfKey = `buyer:${signedIn.userId}`;
 
   return (
@@ -220,8 +224,8 @@ export default async function ActAsScreen() {
       <details className="mt-8 border-t border-[var(--color-border)] pt-5">
         <summary className="cursor-pointer font-semibold">Mis keskkond see on?</summary>
         <p className="mt-2 max-w-[70ch] text-[var(--color-muted)]">
-          Kaskaad-minihangete keskkond raamlepingu „Eesti.ai koolitajate tellimine“ (riigihanke
-          viitenumber 10567384) alusel. Kogu kaskaadiloogika, vastamistähtaegade arvutus, e-kirjad
+          Kaskaad-minihangete keskkond, mille alus on {frameworkClause(framework)}. Kogu
+          kaskaadiloogika, vastamistähtaegade arvutus, e-kirjad
           ja auditijälg töötavad päriselt ja <strong>päris ajas</strong>: katsetamiseks tehtud vooru
           vastamisaken pannakse lühikeseks vooru skeemifailis.
         </p>

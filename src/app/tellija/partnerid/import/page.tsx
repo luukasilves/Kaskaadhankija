@@ -14,7 +14,7 @@ import { ReadOnlyNote } from '@/components/read-only-note';
 import { importBatches, lots } from '@/db/schema';
 import { PARTNER_COLUMNS } from '@/domain/import-rows';
 import { formatDateTimeShort } from '@/domain/format';
-import type { StoredPartnerRow } from '@/server/import/partners-import';
+import type { PartnerBatchPayload } from '@/server/import/partners-import';
 import { PartnerImportPreview, PartnerImportUploadForm } from './partner-import-forms';
 
 export const dynamic = 'force-dynamic';
@@ -47,10 +47,8 @@ export default async function PartnersImportPage({
     : undefined;
 
   if (stored && stored.kind === 'partners') {
-    const payload = stored.rowsJson as {
-      rows: StoredPartnerRow[];
-      fileErrors: Array<{ field?: string; message: string }>;
-    };
+    const payload = stored.rowsJson as PartnerBatchPayload;
+    const options = (stored.options ?? {}) as { deactivateMissing?: boolean };
     return (
       <div className="space-y-4">
         <div>
@@ -80,6 +78,9 @@ export default async function PartnersImportPage({
             note: row.note,
             action: row.action,
           }))}
+          wouldDeactivate={payload.wouldDeactivate ?? []}
+          openRoundCount={payload.openRoundCount ?? 0}
+          deactivateMissing={Boolean(options.deactivateMissing)}
         />
       </div>
     );

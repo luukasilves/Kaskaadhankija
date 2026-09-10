@@ -14,7 +14,7 @@ import { eq } from 'drizzle-orm';
 import { getDb } from '@/db';
 import { lots, roundTrainings, rounds, trainings } from '@/db/schema';
 import { allocate } from '@/domain/allocate';
-import { formatDateTimeShort, formatEur, formatIsoDay } from '@/domain/format';
+import { formatDateTimeShort, formatEur, formatIsoDay, tallinnLocalInput } from '@/domain/format';
 import { CAP_OPTIONS_LABELS, capLabel,
   PARTICIPANT_OUTCOME_LABELS,
   RESPONSE_STATE_LABELS,
@@ -26,6 +26,7 @@ import { WORKSHOP_TYPE_LABELS } from '@/domain/statuses';
 import { Countdown } from '@/components/countdown';
 import { RankChip, StatusBadge } from '@/components/status-badge';
 import { currentTimeMs } from '@/server/clock';
+import { isDemoMode } from '@/lib/env';
 import { buyerCanWrite } from '@/server/auth/actor';
 import { ReadOnlyNote } from '@/components/read-only-note';
 import { projectionInput } from '@/server/rounds/allocation-input';
@@ -52,6 +53,8 @@ export default async function RoundDetail({ params }: { params: Promise<{ id: st
       visibilityMode: rounds.visibilityMode,
       capOptions: rounds.capOptions,
       plannedExtraWorkingDays: rounds.plannedExtraWorkingDays,
+      plannedPublishAt: rounds.plannedPublishAt,
+      plannedDeadlineAt: rounds.plannedDeadlineAt,
       publishedAt: rounds.publishedAt,
       deadlineAt: rounds.deadlineAt,
       expectedDecisionAt: rounds.expectedDecisionAt,
@@ -154,6 +157,19 @@ export default async function RoundDetail({ params }: { params: Promise<{ id: st
         </p>
       </div>
 
+      {round.status === 'draft' && (round.plannedPublishAt || round.plannedDeadlineAt) && (
+        <p className="text-[13px] text-[var(--color-muted)]" data-testid="planned-window">
+          Skeemifailis kavandatud:{' '}
+          {round.plannedPublishAt
+            ? `avaldamine ${formatDateTimeShort(round.plannedPublishAt)}`
+            : 'avaldamise aeg määramata'}
+          {round.plannedDeadlineAt
+            ? ` · vastamistähtaeg ${formatDateTimeShort(round.plannedDeadlineAt)}`
+            : ''}
+          . Päris ajad määrab avaldamine.
+        </p>
+      )}
+
       <div className="kh-card p-4">
         <dl className="grid gap-x-6 gap-y-1.5 text-[13px] sm:grid-cols-[auto_1fr_auto_1fr]">
           <dt className="text-[var(--color-muted)]">Avaldatud</dt>
@@ -213,6 +229,10 @@ export default async function RoundDetail({ params }: { params: Promise<{ id: st
           lotDeadlineTime={round.lotDeadlineTime}
           visibilityMode={round.visibilityMode}
           plannedExtraWorkingDays={round.plannedExtraWorkingDays}
+          plannedDeadlineLocal={
+            round.plannedDeadlineAt ? tallinnLocalInput(round.plannedDeadlineAt) : null
+          }
+          testFloor={isDemoMode}
           trainings={trainingRows.map((t) => ({
             id: t.id,
             code: t.code,

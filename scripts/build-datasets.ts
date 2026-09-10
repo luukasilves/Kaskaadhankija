@@ -16,6 +16,10 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseCsv } from '../src/server/import/csv';
 import { buildXlsx } from '../src/server/import/xlsx';
+import { buildFrameworkWorkbook } from '../src/server/import/framework-template';
+import { buildRoundTemplate } from '../src/server/import/round-template';
+import { DEFAULT_FRAMEWORK_IDENTITY } from '../src/domain/framework';
+import { LOT_CODES, LOT_SEED } from '../src/db/lot-seed';
 import {
   countRows,
   parsePartnerRows,
@@ -26,7 +30,6 @@ import {
 } from '../src/domain/import-rows';
 
 const SEED_DIR = join(process.cwd(), 'seed');
-const LOT_CODES = ['OSA-1', 'OSA-2', 'OSA-3', 'OSA-4'];
 
 function report<T>(
   label: string,
@@ -85,6 +88,43 @@ async function main(): Promise<void> {
   });
   ok = report('naidis-esindajad.csv', representatives.rows, representatives.fileErrors) && ok;
   await buildTwin('naidis-esindajad.csv', 'Esindajad');
+
+  /*
+   * The framework workbook: the whole sample procurement as one file [L-21].
+   *
+   * The same shape an admin downloads, so a tester can take this, put their own
+   * address on a partner and upload it back — which is also what the seed loads
+   * (through the same import, from these very rows).
+   */
+  const frameworkPath = join(SEED_DIR, 'naidis-raamhange.xlsx');
+  const frameworkBuffer = await buildFrameworkWorkbook({
+    framework: DEFAULT_FRAMEWORK_IDENTITY,
+    lots: LOT_SEED,
+    partnerRows: partnerCsv.rows,
+    // Only the deputies: a lot's official contact is on the Partnerid sheet,
+    // and repeating them here would make this sheet own rows the framework
+    // data maintains.
+    representativeRows: representativeCsv.rows.filter((row) => (row.roll ?? '') === 'asendaja'),
+  });
+  writeFileSync(frameworkPath, frameworkBuffer);
+  console.log(`  → ${frameworkPath} (${(frameworkBuffer.byteLength / 1024).toFixed(1)} kB)`);
+
+  /*
+   * One round's scheme, for the e2e walk and for a tester to try [L-20]. Filled
+   * with OSA-2's trainings, and with a response window of minutes rather than
+   * working days, because a test cascade has to finish in an afternoon [L-23].
+   */
+  const roundLot = LOT_SEED.find((lot) => lot.code === 'OSA-2')!;
+  const roundTrainings = trainingCsv.rows.filter((row) => (row.hankeosa ?? '') === 'OSA-2').slice(0, 4);
+  const roundPath = join(SEED_DIR, 'naidis-voor.xlsx');
+  const roundBuffer = await buildRoundTemplate({
+    lotCode: roundLot.code,
+    lotCodes: [...LOT_CODES],
+    defaultCapOptions: roundLot.defaultCapOptions ?? 'trainings',
+    trainingRows: roundTrainings,
+  });
+  writeFileSync(roundPath, roundBuffer);
+  console.log(`  → ${roundPath} (${(roundBuffer.byteLength / 1024).toFixed(1)} kB)`);
 
   // Per-lot summary, so a change to the dataset is easy to eyeball.
   const byLot = new Map<string, number>();

@@ -9,7 +9,14 @@
  *
  * These texts go to real framework partners once the tool is live, so the
  * procurement team reviews them here.
+ *
+ * Which framework they name is **data**, not a constant [L-21]: every notice
+ * input carries a `framework`, so the same texts serve whichever agreement the
+ * environment is configured for, and the wording of an order document and of a
+ * notice cannot drift apart.
  */
+
+import { frameworkClause, frameworkSignature, type FrameworkIdentity } from './framework';
 
 export interface RenderedNotice {
   title: string;
@@ -18,11 +25,6 @@ export interface RenderedNotice {
   /** inline-styled HTML for email */
   bodyHtml: string;
 }
-
-const FRAMEWORK =
-  'raamleping „Eesti.ai koolitajate tellimine“ (riigihanke viitenumber 10567384)';
-
-const SIGNATURE = 'Eesti.ai koolitusprogrammi tellimiskeskkond, Riigikantselei';
 
 function escapeHtml(value: string): string {
   return value
@@ -34,7 +36,13 @@ function escapeHtml(value: string): string {
 }
 
 /** Compose the two renderings from one list of paragraphs. */
-export function composeNotice(title: string, paragraphs: string[], link?: { url: string; label: string }): RenderedNotice {
+export function composeNotice(
+  title: string,
+  paragraphs: string[],
+  link?: { url: string; label: string },
+  framework?: FrameworkIdentity,
+): RenderedNotice {
+  const signature = framework ? frameworkSignature(framework) : '';
   const body = paragraphs.join('\n\n') + (link ? `\n\n${link.label}: ${link.url}` : '');
   const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1c2530;max-width:640px">${paragraphs
     .map((p) => `<p>${escapeHtml(p)}</p>`)
@@ -42,8 +50,16 @@ export function composeNotice(title: string, paragraphs: string[], link?: { url:
     link
       ? `<p style="margin:24px 0"><a href="${escapeHtml(link.url)}" style="background:#14507d;color:#fff;text-decoration:none;padding:12px 22px;border-radius:6px;font-weight:600;display:inline-block">${escapeHtml(link.label)}</a></p>`
       : ''
-  }<p style="margin-top:26px;color:#5a6673;font-size:13px">${SIGNATURE}</p></div>`;
+  }${
+    signature
+      ? `<p style="margin-top:26px;color:#5a6673;font-size:13px">${escapeHtml(signature)}</p>`
+      : ''
+  }</div>`;
   return { title, body, bodyHtml: html };
+}
+
+function capitalise(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 /** Bullet list rendered identically in both forms. */
@@ -56,6 +72,8 @@ export interface RoundNoticeBase {
   lotLabel: string;
   deadlineText: string;
   url: string;
+  /** which framework agreement this notice is issued under [L-21] */
+  framework: FrameworkIdentity;
 }
 
 /** [D-01] The round is published to every partner of the lot, at one instant. */
@@ -75,7 +93,7 @@ export function renderRoundPublished(
     `Uus koolitustellimuste voor ${input.roundCode} — vastamistähtaeg ${input.deadlineText}`,
     [
       `Lugupeetud ${input.contactName}`,
-      `Riigikantselei esitab ${FRAMEWORK} alusel, hankeosas ${input.lotLabel}, ettevõttele ${input.partnerName} järgmised koolitused (${input.trainingCount}).`,
+      `${input.framework.buyerName} esitab ${frameworkClause(input.framework)} alusel, hankeosas ${input.lotLabel}, ettevõttele ${input.partnerName} järgmised koolitused (${input.trainingCount}).`,
       list(input.trainingLines),
       `Palume märkida koolitused, mida olete valmis läbi viima, ja oma valik kinnitada hiljemalt ${input.deadlineText}. ${input.capOptionsText}`,
       input.visibilityDynamic
@@ -213,7 +231,7 @@ export function renderOrderIssued(
     `Tellimus ${input.orderNumber} — olete määratud täitjana`,
     [
       `Lugupeetud ${input.contactName}`,
-      `${FRAMEWORK} alusel, hankeosas ${input.lotLabel}, olete voorus ${input.roundCode} määratud täitjana järgmistele koolitustele. Ettevõte: ${input.partnerName}.`,
+      `${capitalise(frameworkClause(input.framework))} alusel, hankeosas ${input.lotLabel}, olete voorus ${input.roundCode} määratud täitjana järgmistele koolitustele. Ettevõte: ${input.partnerName}.`,
       list(input.trainingLines),
       input.totalText,
       `Teie kinnitus on registreeritud ${input.partnerConfirmedAtText} ja tellija kinnitas jaotuse ${input.buyerConfirmedAtText}. Käesolev tellimus on raamlepingu alusel käsitletav hankelepinguna.`,

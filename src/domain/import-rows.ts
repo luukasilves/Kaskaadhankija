@@ -76,7 +76,7 @@ export function foldRow(raw: RawRow): Record<string, string> {
  * field parsers
  * ------------------------------------------------------------------ */
 
-type FieldResult<T> = { ok: true; value: T; warning?: string } | { ok: false; message: string };
+export type FieldResult<T> = { ok: true; value: T; warning?: string } | { ok: false; message: string };
 
 const ok = <T>(value: T, warning?: string): FieldResult<T> => ({ ok: true, value, warning });
 const bad = (message: string): FieldResult<never> => ({ ok: false, message });
@@ -176,7 +176,7 @@ export function parseInteger(
   return ok(value);
 }
 
-function parseText(
+export function parseText(
   input: string,
   fieldName: string,
   { min = 0, max = 200, required = true }: { min?: number; max?: number; required?: boolean } = {},

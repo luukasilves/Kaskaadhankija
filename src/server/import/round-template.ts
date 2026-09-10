@@ -64,6 +64,8 @@ export async function buildRoundTemplate(input: RoundTemplateInput): Promise<Buf
       { väli: 'nahtavus', väärtus: VISIBILITY_SHEET_WORDS.dynamic },
       { väli: 'piirmaara_valikud', väärtus: CAP_OPTIONS_SHEET_WORDS[input.defaultCapOptions] },
       { väli: 'lisatoopaevad', väärtus: '0' },
+      { väli: 'avaldamine', väärtus: '' },
+      { väli: 'vastamistahtaeg', väärtus: '' },
       { väli: 'markus', väärtus: '' },
     ],
     validations: [
@@ -97,6 +99,8 @@ export async function buildRoundTemplate(input: RoundTemplateInput): Promise<Buf
       { 'Leht / veerg': 'Voor · nahtavus', Tähendus: 'dünaamiline (vaikimisi) või suletud — kas partner näeb eesõigusega märgete mõju.' },
       { 'Leht / veerg': 'Voor · piirmaara_valikud', Tähendus: 'puudub, koolitused, osalejad või mõlemad — millise liigi ülempiiri partnerid võivad seada. Tühi = hankeosa vaikeväärtus.' },
       { 'Leht / veerg': 'Voor · lisatoopaevad', Tähendus: 'Täisarv 0–20: mitu tööpäeva lisaks hankeosa vaikimisi vastamisajale antakse avaldamisel. Pakutakse avaldamisvormil ette.' },
+      { 'Leht / veerg': 'Voor · avaldamine', Tähendus: 'Vabatahtlik. Kavandatud avaldamise aeg, nt 06.10.2026 või 06.10.2026 10:15. Pakutakse avaldamisvormil ette; päris hetke määrab avaldamine.' },
+      { 'Leht / veerg': 'Voor · vastamistahtaeg', Tähendus: 'Vabatahtlik. Kavandatud vastamistähtaeg, nt 09.10.2026 17:00. Ainult kuupäeva puhul kasutatakse hankeosa kellaaega. Kas see VÕI lisatoopaevad, mitte mõlemad.' },
       { 'Leht / veerg': 'Voor · markus', Tähendus: 'Tellija sisemärkus vooru kohta, kuni 400 tähemärki. Partnerid seda ei näe.' },
       { 'Leht / veerg': 'Koolitused', Tähendus: 'Koolituskalendri impordi veerud. Olemasoleva koodiga rida uuendab koolitust (kui see ei ole juba voorus või määratud); uue koodiga rida loob koolituse. Kõik read lähevad loodavasse vooru.' },
       { 'Leht / veerg': 'Koolitused · kood', Tähendus: 'Kujul KK-2026-101. Kood on koolituse püsiv tunnus ka uude vooru andmisel.' },

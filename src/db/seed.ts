@@ -22,13 +22,14 @@ import { eq, sql } from 'drizzle-orm';
 import { env } from '@/lib/env';
 import { parseCsv } from '@/server/import/csv';
 import { importTrainingsFromRows } from '@/server/import/trainings-import';
-import { importPartnersFromRows } from '@/server/import/partners-import';
-import { importRepresentativesFromRows } from '@/server/import/representatives-import';
+import { lotSheetRow } from '@/domain/framework-definition';
+import { importFrameworkFromSheets } from '@/server/import/framework-import';
 import { addTeamMember } from '@/server/team';
 import { ensureAppState, readSeedVersion, writeSeedVersion } from '@/server/clock';
 import { NO_EVIDENCE, type Ctx } from '@/server/context';
 import { getDb } from './index';
-import { emailDeliveries, lots, users } from './schema';
+import { LOT_SEED } from './lot-seed';
+import { emailDeliveries, users } from './schema';
 
 export const SEED_VERSION = 1;
 
@@ -123,84 +124,14 @@ export const SEED_BUYER = {
   email: env.SEED_ADMIN_EMAIL,
 } as const;
 
-/**
- * The four lots of the framework.
- *
- * OSA-2's workload threshold is deliberately 4 rather than 25: with mock data
- * nobody would ever reach 25 trainings, and the [T-01] workload warning is one
- * of the things a tester needs to see. The screen labels it as a test value.
- */
-const LOT_SEED = [
-  {
-    code: 'OSA-1',
-    name: 'Koolitused ruumirendiga',
-    description:
-      'Töötubade läbiviimine koolitaja pakutud ruumides koos vajaliku tehnika ja ruumiteenustega.',
-    responseDeadlineWorkingDays: 3,
-    workloadThreshold: 25,
-    thresholdNote: '',
-  },
-  {
-    code: 'OSA-2',
-    name: 'Koolitused ruumirendita',
-    description:
-      'Töötubade läbiviimine tellija määratud asukohas. Koolitaja vastutab sisu ja läbiviimise eest, ruumi ei paku.',
-    responseDeadlineWorkingDays: 3,
-    workloadThreshold: 4,
-    thresholdNote: 'Näidise testväärtus — päris raamlepingus on lähtekohaks 25 koolitust.',
-    // Both cap kinds, so the seeded Lisa B round shows the choice [L-17].
-    defaultCapOptions: 'both' as const,
-  },
-  {
-    code: 'OSA-3',
-    name: 'Veebikoolitused',
-    description:
-      'Töötubade ettevalmistamine ja läbiviimine digikeskkonnas (Teams, Zoom või muu kokkulepitud platvorm).',
-    responseDeadlineWorkingDays: 2,
-    workloadThreshold: 25,
-    thresholdNote: '',
-  },
-  {
-    code: 'OSA-4',
-    name: 'Suursündmused',
-    description:
-      'Suurema osalejate arvuga sündmuste korraldamine ja läbiviimine (ettekanne, loeng, kaasloome või häkaton), sh tehniline koordineerimine, modereerimine, registreerimine ja logistika.',
-    responseDeadlineWorkingDays: 5,
-    workloadThreshold: 25,
-    thresholdNote: '',
-  },
-] as const;
-
 function readSeedFile(name: string): { rows: Array<Record<string, string>>; size: number } {
   const path = join(SEED_DIR, name);
   const content = readFileSync(path);
   return { rows: parseCsv(content.toString('utf8')).rows, size: content.byteLength };
 }
 
-/** Lots and the buyer user — the fixed scaffolding the imports need. */
-function seedLotsAndUsers(ctx: Ctx): void {
-  for (const lot of LOT_SEED) {
-    ctx.tx
-      .insert(lots)
-      .values({
-        id: crypto.randomUUID(),
-        code: lot.code,
-        name: lot.name,
-        description: lot.description,
-        responseDeadlineWorkingDays: lot.responseDeadlineWorkingDays,
-        deadlineLocalTime: '17:00',
-        reviewWorkingDays: 2,
-        workloadThreshold: lot.workloadThreshold,
-        thresholdNote: lot.thresholdNote,
-        defaultVisibilityMode: 'dynamic',
-        defaultCapOptions: 'defaultCapOptions' in lot ? lot.defaultCapOptions : 'trainings',
-        isActive: true,
-        createdAt: ctx.at,
-      })
-      .onConflictDoNothing()
-      .run();
-  }
-
+/** The buyer user the scenarios act as. */
+function seedBuyerUser(ctx: Ctx): void {
   ctx.tx
     .insert(users)
     .values({
@@ -228,45 +159,34 @@ export interface SeedReport {
  * koolituskalender. Scenario rounds are layered on top by `seedScenarios`.
  */
 export function seedBaseData(ctx: Ctx): SeedReport {
-  seedLotsAndUsers(ctx);
+  seedBuyerUser(ctx);
 
-  // Before the representatives are imported: an address that appears in both
-  // lists belongs to the buyer team, and the representatives import then
-  // refuses it rather than quietly making a colleague somebody's partner.
+  // Before the representatives arrive: an address that appears in both lists
+  // belongs to the buyer team, and the import then refuses it rather than
+  // quietly making a colleague somebody's partner.
   const teamMembers = applySeedTeam(ctx, env.SEED_TEAM);
 
+  // The whole framework in one call — the same function an admin's upload
+  // uses [L-21], so the sample procurement is loaded the way a real one will
+  // be: identity, the four lots, the ranking, and the extra representatives.
   const partnerFile = readSeedFile(SEED_FILES.partners);
-  const partnerResult = importPartnersFromRows(ctx, {
-    fileName: SEED_FILES.partners,
-    fileSize: partnerFile.size,
-    source: 'seed',
-    rawRows: partnerFile.rows,
-  });
-
-  // The fictional representatives, then the real ones from the deployment's
-  // secrets — the upload path both times, so the seed cannot drift from it.
   const representativeFile = readSeedFile(SEED_FILES.representatives);
-  const representativeResult = importRepresentativesFromRows(ctx, {
-    fileName: SEED_FILES.representatives,
-    fileSize: representativeFile.size,
+  const framework = importFrameworkFromSheets(ctx, {
+    fileName: SEED_FILES.partners,
+    fileSize: partnerFile.size + representativeFile.size,
     source: 'seed',
-    rawRows: representativeFile.rows,
+    sheets: {
+      hankeosad: LOT_SEED.map(lotSheetRow),
+      partnerid: partnerFile.rows,
+      esindajad: representativeFile.rows,
+    },
   });
-  let representatives = representativeResult.summary.created + representativeResult.summary.updated;
-  const overlay = parseSeedRepresentatives(env.SEED_REPRESENTATIVES);
-  if (overlay.length > 0) {
-    try {
-      const result = importRepresentativesFromRows(ctx, {
-        fileName: 'SEED_REPRESENTATIVES',
-        fileSize: 0,
-        source: 'seed',
-        rawRows: overlay,
-      });
-      representatives += result.summary.created + result.summary.updated;
-    } catch (error) {
-      console.error('[kaskaadhankija] SEED_REPRESENTATIVES ei õnnestunud laadida', error);
-    }
-  }
+  const partnerResult = { summary: framework.summary };
+  let representatives =
+    (framework.representatives?.created ?? 0) +
+    (framework.representatives?.updated ?? 0) +
+    framework.contacts.created.length +
+    framework.contacts.reactivated.length;
 
   const trainingFile = readSeedFile(SEED_FILES.trainings);
   const trainingResult = importTrainingsFromRows(ctx, {
@@ -277,7 +197,7 @@ export function seedBaseData(ctx: Ctx): SeedReport {
   });
 
   return {
-    lots: LOT_SEED.length,
+    lots: framework.lots.created.length + framework.lots.updated.length + framework.lots.unchanged.length,
     teamMembers,
     partners: partnerResult.summary.created + partnerResult.summary.updated,
     representatives,

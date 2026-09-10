@@ -100,3 +100,18 @@ export function tallinnIsoDay(instant: Date | number): string {
   const p = tallinnParts(new Date(instant));
   return `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`;
 }
+
+/**
+ * An instant as a value for `<input type="datetime-local">`, in Tallinn time.
+ *
+ * The input has no timezone of its own, so both directions must agree that the
+ * person is typing Tallinn wall-clock time: this writes it, and
+ * `parseEstonianInstant` reads it back.
+ */
+export function tallinnLocalInput(instant: Date | number): string {
+  const { year, month, day, hour, minute } = tallinnParts(
+    typeof instant === 'number' ? new Date(instant) : instant,
+  );
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${year}-${pad(month)}-${pad(day)}T${pad(hour)}:${pad(minute)}`;
+}

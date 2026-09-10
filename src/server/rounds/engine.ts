@@ -67,9 +67,11 @@ import {
   renderRoundChanged,
   renderRoundPublished,
 } from '@/domain/round-templates';
-import { env } from '@/lib/env';
+import { env, isDemoMode } from '@/lib/env';
 import { logAudit } from '../audit';
 import { evidenceLabel } from '../auth/identity';
+import { frameworkTitleLine } from '@/domain/framework';
+import { frameworkIdentity } from '../framework';
 import { failure, type Ctx, type Db, type Tx } from '../context';
 import { notify } from '../notify';
 import { partnerRecipients, teamRecipients } from '../recipients';
@@ -77,6 +79,9 @@ import { effectiveAdjustments, finalInput, projectionInput, proposalInput } from
 import { latestConfirmation, participantsOf, roundTrainingList, workloadFor } from './views';
 
 const ALGORITHM_VERSION = 1;
+
+/** The test environment's deadline floor [L-23]: a real wait, but a short one. */
+export const TEST_DEADLINE_FLOOR_MS = 5 * 60_000;
 
 /* ------------------------------------------------------------------ *
  * small helpers
@@ -314,9 +319,17 @@ export function publishRound(ctx: Ctx, roundId: string, input: PublishRoundInput
           lot.deadlineLocalTime,
         ).getTime()
       : defaultDeadline);
-  if (deadlineAt < defaultDeadline) {
+  // The floor. In production it is the lot's own working-day window, and a
+  // deadline can only ever be extended afterwards [V-04]. In the test
+  // environment a cascade has to be walkable in an afternoon [L-23], so the
+  // floor is five minutes — long enough to be a real wait, short enough to sit
+  // through. The lot's window is what the round file plans against either way.
+  const floor = isDemoMode ? ctx.at + TEST_DEADLINE_FLOOR_MS : defaultDeadline;
+  if (deadlineAt < floor) {
     throw new Error(
-      `Vastamistähtaeg ei saa olla varasem kui ${lot.responseDeadlineWorkingDays} tööpäeva (${formatDateTimeShort(defaultDeadline)}).`,
+      isDemoMode
+        ? `Vastamistähtaeg peab olema vähemalt viis minutit tulevikus (${formatDateTimeShort(floor)}).`
+        : `Vastamistähtaeg ei saa olla varasem kui ${lot.responseDeadlineWorkingDays} tööpäeva (${formatDateTimeShort(defaultDeadline)}).`,
     );
   }
 
@@ -374,6 +387,7 @@ export function publishRound(ctx: Ctx, roundId: string, input: PublishRoundInput
       roundId,
       emailTo: partnerRecipients(ctx.tx, member.id),
       notice: renderRoundPublished({
+        framework: frameworkIdentity(ctx.tx),
         roundCode: round.code,
         lotLabel: lotLabel(lot),
         deadlineText: formatDateTime(deadlineAt),
@@ -473,6 +487,7 @@ function guardPartnerAction(
       roundId,
       emailTo: teamRecipients(ctx.tx),
       notice: renderLateActionRejected({
+        framework: frameworkIdentity(ctx.tx),
         roundCode: round.code,
         lotLabel: lotLabel(lot),
         url: buyerUrl(roundId),
@@ -655,6 +670,7 @@ export function confirmMarks(
   const receipt =
     kind === 'confirm'
       ? renderConfirmationReceipt({
+          framework: frameworkIdentity(ctx.tx),
           roundCode: round.code,
           lotLabel: lotLabel(lot),
           deadlineText: formatDateTime(round.deadlineAt ?? ctx.at),
@@ -674,6 +690,7 @@ export function confirmMarks(
               : 'Jaotus selgub pärast vastamistähtaega.',
         })
       : renderDeclineReceipt({
+          framework: frameworkIdentity(ctx.tx),
           roundCode: round.code,
           lotLabel: lotLabel(lot),
           deadlineText: formatDateTime(round.deadlineAt ?? ctx.at),
@@ -774,6 +791,7 @@ function notifyProjectionChanges(
       roundId,
       emailTo: partnerRecipients(ctx.tx, participant.lotPartnerId),
       notice: renderProjectionChanged({
+        framework: frameworkIdentity(ctx.tx),
         roundCode: round.code,
         lotLabel: lotLabel(lot),
         deadlineText: formatDateTime(round.deadlineAt ?? ctx.at),
@@ -846,6 +864,7 @@ export function extendDeadline(ctx: Ctx, roundId: string, newDeadlineAt: number,
       roundId,
       emailTo: partnerRecipients(ctx.tx, participant.lotPartnerId),
       notice: renderRoundChanged({
+        framework: frameworkIdentity(ctx.tx),
         roundCode: round.code,
         lotLabel: lotLabel(lot),
         deadlineText: formatDateTime(newDeadlineAt),
@@ -906,6 +925,7 @@ export function withdrawTraining(ctx: Ctx, roundId: string, trainingId: string, 
       roundId,
       emailTo: partnerRecipients(ctx.tx, participant.lotPartnerId),
       notice: renderRoundChanged({
+        framework: frameworkIdentity(ctx.tx),
         roundCode: round.code,
         lotLabel: lotLabel(lot),
         deadlineText: formatDateTime(round.deadlineAt ?? ctx.at),
@@ -951,6 +971,7 @@ export function cancelRound(ctx: Ctx, roundId: string, reason: string): void {
         roundId,
         emailTo: partnerRecipients(ctx.tx, participant.lotPartnerId),
         notice: renderRoundCancelled({
+          framework: frameworkIdentity(ctx.tx),
           roundCode: round.code,
           lotLabel: lotLabel(lot),
           url: partnerUrl(roundId),
@@ -1047,6 +1068,7 @@ export function closeRound(ctx: Ctx, roundId: string): { closed: boolean; code: 
     roundId,
     emailTo: teamRecipients(ctx.tx),
     notice: renderBuyerRoundClosed({
+      framework: frameworkIdentity(ctx.tx),
       roundCode: round.code,
       lotLabel: lotLabel(lot),
       url: `${buyerUrl(roundId)}/ulevaatus`,
@@ -1094,6 +1116,7 @@ export function sendDeadlineReminder(ctx: Ctx, roundId: string): number {
       roundId,
       emailTo: partnerRecipients(ctx.tx, participant.lotPartnerId),
       notice: renderDeadlineReminder({
+        framework: frameworkIdentity(ctx.tx),
         roundCode: round.code,
         lotLabel: lotLabel(lot),
         deadlineText: formatDateTime(round.deadlineAt),
@@ -1272,8 +1295,9 @@ export function confirmAllocation(ctx: Ctx, roundId: string): { orderIds: string
     const total = rows.length * membership.unitPriceEur;
 
     const document: OrderDocument = {
-      frameworkReference:
-        'Raamleping „Eesti.ai koolitajate tellimine“, riigihanke viitenumber 10567384',
+      // Frozen into the document, so an order still names the agreement it was
+      // issued under even after the framework data is edited [T-05][L-21].
+      frameworkReference: frameworkTitleLine(frameworkIdentity(ctx.tx)),
       lotCode: lot.code,
       lotName: lot.name,
       roundCode: round.code,
@@ -1363,6 +1387,7 @@ export function confirmAllocation(ctx: Ctx, roundId: string): { orderIds: string
       orderId,
       emailTo: partnerRecipients(ctx.tx, participant.lotPartnerId),
       notice: renderOrderIssued({
+        framework: frameworkIdentity(ctx.tx),
         roundCode: round.code,
         lotLabel: lotLabel(lot),
         url: orderUrl(orderId),
@@ -1399,6 +1424,7 @@ export function confirmAllocation(ctx: Ctx, roundId: string): { orderIds: string
       roundId,
       emailTo: partnerRecipients(ctx.tx, participant.lotPartnerId),
       notice: renderAllocatedElsewhere({
+        framework: frameworkIdentity(ctx.tx),
         roundCode: round.code,
         lotLabel: lotLabel(lot),
         url: partnerUrl(roundId),
@@ -1437,6 +1463,7 @@ export function confirmAllocation(ctx: Ctx, roundId: string): { orderIds: string
     roundId,
     emailTo: teamRecipients(ctx.tx),
     notice: renderBuyerRoundConfirmed({
+      framework: frameworkIdentity(ctx.tx),
       roundCode: round.code,
       lotLabel: lotLabel(lot),
       url: buyerUrl(roundId),
@@ -1572,6 +1599,7 @@ export function deactivateLotPartner(ctx: Ctx, lotPartnerId: string, reason: str
       roundId: round.id,
       emailTo: partnerRecipients(ctx.tx, lotPartnerId),
       notice: renderParticipantExcluded({
+        framework: frameworkIdentity(ctx.tx),
         roundCode: round.code,
         lotLabel: lotLabel(lot),
         url: partnerUrl(round.id),
