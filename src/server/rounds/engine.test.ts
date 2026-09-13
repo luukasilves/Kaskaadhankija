@@ -55,7 +55,9 @@ import { projectionInput } from './allocation-input';
 import { participantsOf, responseStateFor, workloadFor } from './views';
 import {
   createHarness,
+  seedClusterGroups,
   seedLotWithPartners,
+  type ClusterFixture,
   type LotFixture,
   type TestHarness,
 } from '../test-support';
@@ -1469,5 +1471,103 @@ describe('[E-10][K-04] an identical re-confirmation is a no-op', () => {
     confirm(roundId, 0, marks);
     const participant = harness.read((db) => participantsOf(db, roundId))[0]!;
     expect(participant.draftMarks).toEqual(marks);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * [V-09][K-10] a cluster round
+ * ------------------------------------------------------------------ */
+
+describe('[V-09][K-10] klastrivoor', () => {
+  let cluster: ClusterFixture;
+  const ids = (from: number, to: number) => cluster.trainingIds.slice(from - 1, to);
+  const noticeBodies = (type: NotificationType) =>
+    harness.read((db) => db.select({ body: notifications.body, to: notifications.recipientLotPartnerId }).from(notifications).where(eq(notifications.type, type)).all());
+
+  beforeEach(() => {
+    cluster = seedClusterGroups(harness, fx.lotId, { groups: 10 });
+  });
+
+  it('takes its kind from the first training and refuses the other kind [V-09]', () => {
+    const roundId = harness.write((ctx) => createRound(ctx, { lotId: fx.lotId, trainingIds: ids(1, 9) }));
+    expect(roundRow(roundId)?.kind).toBe('cluster');
+    expect(() => harness.write((ctx) => addTrainingsToRound(ctx, roundId, [fx.trainingIds[0]!]))).toThrow(
+      /on klastrivoor; kindla kuupäevaga koolitust/,
+    );
+    const dated = harness.write((ctx) => createRound(ctx, { lotId: fx.lotId, trainingIds: [fx.trainingIds[0]!] }));
+    expect(roundRow(dated)?.kind).toBe('fixed');
+    // group 10 is still free — the refusal is about the kind, not about being in a round
+    expect(() => harness.write((ctx) => addTrainingsToRound(ctx, dated, [ids(10, 10)[0]!]))).toThrow(
+      /on kindla kuupäevaga koolituste voor; klastri rühma/,
+    );
+    // the audit says what was made, in the round's own unit
+    const created = harness.read((db) => db.select().from(auditEvents).where(eq(auditEvents.roundId, roundId)).all());
+    expect(created[0]?.summary).toContain('9 rühma');
+  });
+
+  it('stores a confirmation canonically — n groups are the first n — so the same count is the same answer [K-10][E-10]', () => {
+    const roundId = openRound(ids(1, 10));
+    const first = confirm(roundId, 1, [ids(3, 3)[0]!, ids(7, 7)[0]!]);
+    expect(first.ok).toBe(true);
+    const stored = harness.read((db) => db.select().from(confirmations).all());
+    expect(stored).toHaveLength(1);
+    expect(stored[0]!.marks).toEqual(ids(1, 2));
+    // two other groups, same count: the answer already stands
+    const again = confirm(roundId, 1, [ids(5, 5)[0]!, ids(9, 9)[0]!]);
+    expect(again).toMatchObject({ ok: true, unchanged: true });
+    expect(harness.read((db) => db.select().from(confirmations).all())).toHaveLength(1);
+    // the receipt speaks in groups
+    const receipts = noticeBodies('confirmation_receipt');
+    expect(receipts).toHaveLength(1);
+    expect(receipts[0]!.body).toContain('2 rühma (01–02) × kuni 50 osalejat (100 kokku)');
+    expect(receipts[0]!.body).toContain('prognoositud 2 rühma');
+    expect(receipts[0]!.body).not.toContain('koolitust');
+  });
+
+  it('allocates 4 + 6 of 10 at close and tells each partner in groups [D-12]', () => {
+    const roundId = openRound(ids(1, 10));
+    confirm(roundId, 0, ids(1, 4));
+    confirm(roundId, 1, ids(1, 6));
+    harness.advance(6 * 86_400_000);
+    harness.write((ctx) => closeRound(ctx, roundId));
+
+    expect(allocationMap(roundId)).toEqual({ 0: ids(1, 4), 1: ids(5, 10) });
+    expect(roundRow(roundId)?.proposalSnapshot?.algorithmVersion).toBe(2);
+
+    const closing = noticeBodies('round_closed_partner');
+    const forB = closing.find((n) => n.to === fx.lotPartnerIds[1])!;
+    expect(forB.body).toContain('Teie kinnitatud valik');
+    expect(forB.body).toContain('6 rühma');
+    expect(forB.body).toContain('läheks teile 6 rühma');
+    expect(forB.body).toContain(`${cluster.clusterCode} —`);
+    expect(forB.body).toContain('6 rühma (05–10) × kuni 50 osalejat (300 kokku)');
+    const forC = closing.find((n) => n.to === fx.lotPartnerIds[2])!;
+    expect(forC.body).toContain('ühtegi rühma');
+  });
+
+  it('publishes the cluster as one line and asks for a count, not marks [D-01]', () => {
+    openRound(ids(1, 10));
+    const published = noticeBodies('round_published');
+    expect(published).toHaveLength(3);
+    expect(published[0]!.body).toContain('järgmise mahulise tellimuse (1 klaster, 10 rühma)');
+    expect(published[0]!.body).toContain('10 rühma × kuni 50 osalejat (500 kokku)');
+    expect(published[0]!.body).toContain('mitu rühma olete valmis läbi viima');
+    expect(published[0]!.body.split(cluster.clusterCode).length).toBe(2);
+  });
+
+  it('confirms the allocation and writes a protocol whose lines are groups [T-04][L-22]', () => {
+    const roundId = openRound(ids(1, 10));
+    confirm(roundId, 0, ids(1, 4), 2);
+    confirm(roundId, 1, ids(1, 6));
+    harness.advance(6 * 86_400_000);
+    harness.write((ctx) => closeRound(ctx, roundId));
+    const result = harness.write((ctx) => confirmAllocation(ctx, roundId));
+    expect(result.allocatedCount).toBe(8);
+    expect(result.leftover).toEqual(ids(9, 10));
+    expect(trainingRow(ids(1, 1)[0]!)?.status).toBe('allocated');
+    expect(trainingRow(ids(10, 10)[0]!)?.status).toBe('leftover');
+    const team = noticeBodies('buyer_round_confirmed');
+    expect(team[0]!.body).toContain('2 rühma');
+    expect(team[0]!.body).toContain('6 rühma');
   });
 });

@@ -17,7 +17,7 @@ import { buyerCanWrite } from '@/server/auth/actor';
 import { ReadOnlyNote } from '@/components/read-only-note';
 import { lots, orders, rounds, trainings } from '@/db/schema';
 import { WORKSHOP_TYPE_LABELS } from '@/domain/statuses';
-import { formatDateTimeShort, formatEur, formatIsoDay, formatEurCents } from '@/domain/format';
+import { formatDateTimeShort, formatEur, formatEventWhen, formatEurCents } from '@/domain/format';
 import { allocationMaxPriceEur } from '@/domain/pricing';
 import { PARTICIPANT_OUTCOME_LABELS, ROUND_STATUS_LABELS, ROUND_STATUS_TONES, TARGET_GROUPS } from '@/domain/round-statuses';
 import { RankChip, StatusBadge } from '@/components/status-badge';
@@ -38,6 +38,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
       id: rounds.id,
       code: rounds.code,
       status: rounds.status,
+      kind: rounds.kind,
       closedAt: rounds.closedAt,
       confirmedAt: rounds.confirmedAt,
       confirmedBy: rounds.confirmedBy,
@@ -120,7 +121,9 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
         .map((t) => ({
           code: t.code,
           title: t.title,
-          eventDate: formatIsoDay(t.eventDate),
+          eventDate: formatEventWhen(t),
+          clusterCode: t.clusterCode,
+          groupIndex: t.groupIndex,
           workshopType: WORKSHOP_TYPE_LABELS[t.workshopType],
           place: `${t.county}${t.locationText ? `, ${t.locationText}` : ''}`,
           targetGroup: TARGET_GROUPS[t.targetGroup],
@@ -146,7 +149,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
       id: trainingId,
       code: training?.code ?? '',
       title: training?.title ?? '',
-      eventDate: formatIsoDay(training?.eventDate ?? ''),
+      eventDate: training ? formatEventWhen(training) : '',
       value: formatEur(training?.estimatedValueEur ?? 0),
     };
   });
@@ -198,6 +201,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
         roundId={id}
         lotId={round.lotId}
         lotCode={round.lotCode}
+        roundKind={round.kind}
         confirmed={isConfirmed}
         threshold={round.workloadThresholdSnapshot}
         thresholdNote={round.lotThresholdNote}

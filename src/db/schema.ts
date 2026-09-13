@@ -37,6 +37,7 @@ import type {
   CapOptions,
 } from '../domain/round-statuses';
 import type { County, OrderLanguage, WorkshopType } from '../domain/statuses';
+import type { DateKind, RoundKind } from '../domain/clusters';
 import type { AllocationInput, AllocationResult, CapKind } from '../domain/allocate';
 
 const uuid = () => text().$defaultFn(() => crypto.randomUUID());
@@ -125,6 +126,12 @@ export const lots = sqliteTable(
     defaultCapOptions: text('default_cap_options').$type<CapOptions>().notNull().default('trainings'),
     /** set when the threshold is a deliberately low test value */
     thresholdNote: text('threshold_note').notNull().default(''),
+    /**
+     * [K-06][L-21][L-28] The framework's ceiling on one group (a workshop of
+     * 75 in the real agreement). Null means no ceiling. A dated training above
+     * it draws a warning on import; a cluster group above it is refused.
+     */
+    maxParticipantsPerGroup: integer('max_participants_per_group'),
     isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
     createdAt: integer('created_at').notNull(),
   },
@@ -264,9 +271,19 @@ export const trainings = sqliteTable(
       .references(() => lots.id),
     title: text().notNull(),
     workshopType: text('workshop_type').$type<WorkshopType>().notNull(),
-    /** ISO day, 'YYYY-MM-DD' */
+    /** ISO day, 'YYYY-MM-DD' — for a cluster's group, the start of its period */
     eventDate: text('event_date').notNull(),
     eventEnd: text('event_end'),
+    /**
+     * [L-28] 'fixed' for a dated training; 'period' for one group of a cluster,
+     * whose `eventDate`/`eventEnd` are then the period it is delivered in.
+     * Validated in code rather than by a CHECK, like `default_cap_options`.
+     */
+    dateKind: text('date_kind').$type<DateKind>().notNull().default('fixed'),
+    /** [L-28] the cluster this group belongs to (KL-2026-001), or null */
+    clusterCode: text('cluster_code'),
+    /** [L-28] 1-based position in the cluster; the code ends in it (…-07) */
+    groupIndex: integer('group_index'),
     county: text().$type<County>().notNull(),
     locationText: text('location_text').notNull().default(''),
     /** the programme's "vertikaal" */
@@ -297,6 +314,7 @@ export const trainings = sqliteTable(
     index('trainings_lot_idx').on(t.lotId),
     index('trainings_round_idx').on(t.currentRoundId),
     index('trainings_allocated_idx').on(t.allocatedLotPartnerId),
+    index('trainings_cluster_idx').on(t.clusterCode),
     oneOf('status', [
       'unassigned',
       'in_round',
@@ -332,6 +350,12 @@ export const rounds = sqliteTable(
       .notNull()
       .references(() => lots.id),
     status: text().$type<RoundStatus>().notNull().default('draft'),
+    /**
+     * [V-09] Dated trainings or clusters, never both. Set by the first training
+     * added to the draft — the one choke point drafts, imports and the jääk
+     * re-issue all pass through — and never changed afterwards.
+     */
+    kind: text('kind').$type<RoundKind>().notNull().default('fixed'),
     visibilityMode: text('visibility_mode').$type<VisibilityMode>().notNull().default('dynamic'),
     /** [K-06][L-17] the cap kinds partners may use in this round; fixed at creation */
     capOptions: text('cap_options').$type<CapOptions>().notNull().default('trainings'),

@@ -14,13 +14,15 @@
  * disagree about layout.
  */
 
-import { formatDateTime, formatDateTimeShort, formatIsoDay } from '@/domain/format';
+import { formatDateTime, formatDateTimeShort, formatEventWhen } from '@/domain/format';
 import {
   ADJUSTMENT_KIND_LABELS,
   BID_KIND_LABELS,
   PROTOCOL_KIND_LABELS,
   TRACE_OUTCOME_LABELS,
   capText,
+  clusterGroupsText,
+  clusterSummary,
   protocolHeadline,
   type RoundProtocolData,
   allocationByPartner,
@@ -133,6 +135,8 @@ export async function buildProtocolXlsx(
         'nimetus',
         'kuupaev',
         'lopp',
+        'klaster',
+        'ruhm',
         'formaat',
         'maakond',
         'asukoht',
@@ -146,8 +150,10 @@ export async function buildProtocolXlsx(
       data.trainings.map((t) => ({
         kood: t.code,
         nimetus: t.title,
-        kuupaev: formatIsoDay(t.eventDate),
-        lopp: t.eventEnd ? formatIsoDay(t.eventEnd) : '',
+        kuupaev: formatEventWhen(t),
+        lopp: t.dateKind === 'period' ? '' : t.eventEnd ? formatEventWhen({ eventDate: t.eventEnd }) : '',
+        klaster: t.clusterCode ?? '',
+        ruhm: t.groupIndex === undefined ? '' : String(t.groupIndex),
         formaat: t.workshopType,
         maakond: t.county,
         asukoht: t.locationText,
@@ -242,7 +248,7 @@ export async function buildProtocolXlsx(
         return {
           koolitus: row.trainingCode,
           nimetus: t?.title ?? '',
-          kuupaev: t ? formatIsoDay(t.eventDate) : '',
+          kuupaev: t ? formatEventWhen(t) : '',
           formaat: t?.workshopType ?? '',
           maakond: t?.county ?? '',
           asukoht: t?.locationText ?? '',
@@ -264,7 +270,7 @@ export async function buildProtocolXlsx(
           registrikood: group.partnerRegCode,
           kood: t.code,
           nimetus: t.title,
-          kuupaev: formatIsoDay(t.eventDate),
+          kuupaev: formatEventWhen(t),
           formaat: t.workshopType,
           maakond: t.county,
           asukoht: t.locationText,
@@ -276,6 +282,43 @@ export async function buildProtocolXlsx(
         })),
       ),
     ),
+    ...(clusterSummary(data).length > 0
+      ? [
+          // [K-10][L-28] one row per cluster × holder, and the leftover groups
+          sheet(
+            'Klastrid',
+            ['klaster', 'nimetus', 'periood', 'ruhmi_kokku', 'osalejaid_kokku', 'koht', 'taitja', 'ruhmi', 'ruhmad', 'osalejaid'],
+            clusterSummary(data).flatMap((cluster) => [
+              ...cluster.holders.map((holder) => ({
+                klaster: cluster.clusterCode,
+                nimetus: cluster.title,
+                periood: cluster.periodText,
+                ruhmi_kokku: String(cluster.groupCount),
+                osalejaid_kokku: String(cluster.participantCount),
+                koht: String(holder.rank),
+                taitja: holder.partnerName,
+                ruhmi: String(holder.groupCount),
+                ruhmad: clusterGroupsText(holder.indices),
+                osalejaid: String(holder.participantCount),
+              })),
+              ...(cluster.leftoverIndices.length > 0
+                ? [{
+                    klaster: cluster.clusterCode,
+                    nimetus: cluster.title,
+                    periood: cluster.periodText,
+                    ruhmi_kokku: String(cluster.groupCount),
+                    osalejaid_kokku: String(cluster.participantCount),
+                    koht: '',
+                    taitja: 'jääk',
+                    ruhmi: String(cluster.leftoverIndices.length),
+                    ruhmad: clusterGroupsText(cluster.leftoverIndices),
+                    osalejaid: '',
+                  }]
+                : []),
+            ]),
+          ),
+        ]
+      : []),
     sheet(
       'Kaskaadi käik',
       ['koht', 'partner', 'tulemus', 'soovis', 'sai', 'piirmaar', 'osalejaid', 'kinnituse_id'],

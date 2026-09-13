@@ -20,7 +20,8 @@ import { eq } from 'drizzle-orm';
 import { getDb } from '@/db';
 import { lots, roundTrainings, rounds, trainings } from '@/db/schema';
 import { partnerView } from '@/domain/allocate';
-import { formatDateTime, formatDateTimeShort, formatEurCents, formatIsoDay, formatTime } from '@/domain/format';
+import { nominalGroupSize, totalParticipants, unitCount } from '@/domain/clusters';
+import { formatDateTime, formatDateTimeShort, formatEurCents, formatIsoDay, formatPeriod, formatTime } from '@/domain/format';
 import { HIND, trainingMaxPriceEur } from '@/domain/pricing';
 import {
   capLabel,
@@ -47,7 +48,7 @@ import {
   responseStateFor,
   workloadFor,
 } from '@/server/rounds/views';
-import { MarkingForm } from './marking-form';
+import { MarkingForm, type MarkingCluster } from './marking-form';
 
 export const dynamic = 'force-dynamic';
 
@@ -73,6 +74,7 @@ export default async function PartnerRoundPage({
       id: rounds.id,
       code: rounds.code,
       status: rounds.status,
+      kind: rounds.kind,
       visibilityMode: rounds.visibilityMode,
       capOptions: rounds.capOptions,
       publishedAt: rounds.publishedAt,
@@ -103,6 +105,9 @@ export default async function PartnerRoundPage({
       workshopType: trainings.workshopType,
       eventDate: trainings.eventDate,
       eventEnd: trainings.eventEnd,
+      dateKind: trainings.dateKind,
+      clusterCode: trainings.clusterCode,
+      groupIndex: trainings.groupIndex,
       county: trainings.county,
       locationText: trainings.locationText,
       targetGroup: trainings.targetGroup,
@@ -162,6 +167,44 @@ export default async function PartnerRoundPage({
   const workload = workloadFor(db, participant.lotPartnerId);
   const overThreshold = workload >= round.workloadThresholdSnapshot;
 
+  /* [K-10] a cluster round is shown as cards — counts, not rows */
+  const clusterViews = new Map((draftView?.clusters ?? []).map((c) => [c.clusterCode, c] as const));
+  const clusterCards: MarkingCluster[] = [];
+  for (const row of trainingRows) {
+    if (row.dateKind !== 'period' || !row.clusterCode) continue;
+    if (clusterCards.some((c) => c.clusterCode === row.clusterCode)) continue;
+    const groups = trainingRows
+      .filter((r) => r.clusterCode === row.clusterCode)
+      .sort((a, b) => (a.groupIndex ?? 0) - (b.groupIndex ?? 0));
+    const likes = groups.map((g) => ({ groupIndex: g.groupIndex ?? 0, participantCount: g.participantCount }));
+    const view = clusterViews.get(row.clusterCode);
+    const parts = view ? viewStateParts(view.state, view.reason) : null;
+    const size = nominalGroupSize(likes);
+    clusterCards.push({
+      clusterCode: row.clusterCode,
+      title: row.title,
+      workshopType: WORKSHOP_TYPE_LABELS[row.workshopType],
+      targetGroup: TARGET_GROUPS[row.targetGroup],
+      county: row.county,
+      locationText: row.locationText,
+      language: LANGUAGE_LABELS[row.language],
+      notes: row.notes,
+      periodText: formatPeriod(row.eventDate, row.eventEnd),
+      periodDaysText: row.eventEnd ? `${formatIsoDay(row.eventDate)} – ${formatIsoDay(row.eventEnd)}` : formatIsoDay(row.eventDate),
+      groupIds: groups.map((g) => g.id),
+      groupSize: size,
+      totalParticipants: totalParticipants(likes),
+      groupPriceText: formatEurCents(trainingMaxPriceEur(size, participant.unitPriceEur)),
+      held: view?.held ?? null,
+      free: view?.free ?? null,
+      projected: view?.projected ?? null,
+      stateLabel: parts?.label ?? null,
+      stateReason: parts?.reason ?? null,
+      stateTone: view ? VIEW_STATE_TONES[view.state] : null,
+      finalIndices: round.status === 'confirmed' ? groups.filter((g) => mine.has(g.id)).map((g) => g.groupIndex ?? 0) : null,
+    });
+  }
+
   return (
     <div className="space-y-5">
       <div>
@@ -170,6 +213,7 @@ export default async function PartnerRoundPage({
         </Link>
         <div className="mt-1 flex flex-wrap items-center gap-3">
           <h1>{round.code}</h1>
+          {round.kind === 'cluster' && <StatusBadge label="Klastrivoor" tone="info" />}
           <RankChip rank={participant.rankAtPublication} />
           <span className="text-[13px] text-[var(--color-muted)]">
             teie koht selle hankeosa järjestuses
@@ -224,11 +268,11 @@ export default async function PartnerRoundPage({
             {latest
               ? `Viimane kinnitus ${formatDateTimeShort(latest.confirmedAt)}: ${
                   latest.kind === 'decline_all'
-                    ? 'loobusite kõigist koolitustest'
-                    : `${latest.marks.length} koolitust${latest.cap !== null ? `, piirmäär ${capLabel(latest.cap, latest.capKind)}` : ''}`
+                    ? `loobusite kõigist ${round.kind === 'cluster' ? 'rühmadest' : 'koolitustest'}`
+                    : `${unitCount(round.kind, latest.marks.length)}${latest.cap !== null ? `, piirmäär ${latest.capKind === 'participants' ? capLabel(latest.cap, latest.capKind) : unitCount(round.kind, latest.cap)}` : ''}`
                 }.`
               : 'Te ei ole veel kinnitanud.'}
-            {confirmedView && ` Kinnitatud seisuga prognoosis ${confirmedView.projectedCount} koolitust.`}
+            {confirmedView && ` Kinnitatud seisuga prognoosis ${unitCount(round.kind, confirmedView.projectedCount)}.`}
           </p>
         </section>
       )}
@@ -287,8 +331,8 @@ export default async function PartnerRoundPage({
           </h2>
           <p className="mt-1 text-[13px]">
             {mine.size > 0
-              ? `Teile on ette nähtud ${mine.size} koolitust — need on tabelis märgitud „Määratud teile“. Tellimuse vormistab tellija eraldi ja võtab teiega ühendust.`
-              : 'Teile ei ole sellest voorust koolitusi ette nähtud.'}
+              ? `Teile on ette nähtud ${unitCount(round.kind, mine.size)} — need on ${round.kind === 'cluster' ? 'klastri kaardil' : 'tabelis'} märgitud „Määratud teile“. Tellimuse vormistab tellija eraldi ja võtab teiega ühendust.`
+              : `Teile ei ole sellest voorust ${round.kind === 'cluster' ? 'rühmi' : 'koolitusi'} ette nähtud.`}
           </p>
         </div>
       )}
@@ -366,8 +410,10 @@ export default async function PartnerRoundPage({
           {showsStates ? (
             <p className="mt-3 text-[12.5px] text-[var(--color-muted)]">
               Prognoos on <strong>esialgne</strong> ja võib muutuda kuni tähtajani: eesõigusega
-              partnerid võivad oma valikut veel muuta. Koolitused jaotatakse rangelt raamlepingu
+              partnerid võivad oma valikut veel muuta. {round.kind === 'cluster' ? 'Rühmad' : 'Koolitused'} jaotatakse rangelt raamlepingu
               järjestuse alusel — vastamise kiirus eelist ei anna.
+              {round.kind === 'cluster' &&
+                ' Klastri rühmad on omavahel vahetatavad: loeb, mitu rühma te võtate, mitte millised; toimumisajad perioodi sees lepitakse kokku pärast jaotust.'}
             </p>
           ) : (
             <p className="mt-3 text-[12.5px] text-[var(--color-muted)]">
@@ -381,6 +427,8 @@ export default async function PartnerRoundPage({
 
       <MarkingForm
         roundId={id}
+        roundKind={round.kind}
+        clusters={clusterCards}
         editable={isOpen}
         dynamic={showsStates}
         responseState={state}
@@ -398,15 +446,16 @@ export default async function PartnerRoundPage({
         finalMine={round.status === 'confirmed' ? [...mine] : null}
         trainings={trainingRows.map((row) => {
           const view = stateByTraining.get(row.id);
-          const sameDay = isOpen ? busyDays.get(row.eventDate) ?? [] : [];
+          // A period is not a day the company is busy on [N-02].
+          const sameDay = isOpen && row.dateKind !== 'period' ? busyDays.get(row.eventDate) ?? [] : [];
           const parts = view ? viewStateParts(view.state, view.reason) : null;
           return {
             id: row.id,
             code: row.code,
             title: row.title,
             workshopType: WORKSHOP_TYPE_LABELS[row.workshopType],
-            eventDate: formatIsoDay(row.eventDate),
-            eventEnd: row.eventEnd ? formatIsoDay(row.eventEnd) : null,
+            eventDate: row.dateKind === 'period' ? formatPeriod(row.eventDate, row.eventEnd) : formatIsoDay(row.eventDate),
+            eventEnd: row.dateKind === 'period' ? null : row.eventEnd ? formatIsoDay(row.eventEnd) : null,
             county: row.county,
             locationText: row.locationText,
             targetGroup: TARGET_GROUPS[row.targetGroup],

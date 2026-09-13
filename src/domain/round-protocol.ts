@@ -25,6 +25,8 @@
  */
 
 import type { CapKind } from './allocate';
+import { groupIndexRange, type DateKind } from './clusters';
+import { formatPeriod } from './format';
 import type { FrameworkIdentity } from './framework';
 import type { AllocationSnapshot } from '@/db/schema';
 
@@ -93,6 +95,14 @@ export interface ProtocolTraining {
   language: string;
   /** the label from `TARGET_GROUPS`; absent in protocols stored before schema 2 */
   targetGroup?: string;
+  /**
+   * [L-28] Set on a cluster's group (v2.7): its period stands in `eventDate`/
+   * `eventEnd`, and the cluster and position name it. Absent on a dated
+   * training and in every earlier protocol, which therefore read unchanged.
+   */
+  dateKind?: DateKind;
+  clusterCode?: string;
+  groupIndex?: number;
   /** [V-04] withdrawn from the round; kept for the record */
   withdrawnAt: number | null;
   withdrawnReason: string;
@@ -325,12 +335,92 @@ export function capText(cap: number | null, capKind: CapKind): string {
 /** The one-line summary under the protocol's title. */
 export function protocolHeadline(data: RoundProtocolData): string {
   const leftover = data.allocation.leftover.length;
+  const cluster = isClusterProtocol(data);
   if (data.kind === 'cancelled') {
-    return `Voor ${data.round.code} tühistati; ükski koolitus ei jaotatud.`;
+    return `Voor ${data.round.code} tühistati; ${cluster ? 'ükski rühm' : 'ükski koolitus'} ei jaotatud.`;
   }
   const byPartner = allocationByPartner(data);
   const allocated = byPartner.reduce((sum, row) => sum + row.trainings.length, 0);
-  return `Voor ${data.round.code}: ${allocated} koolitust ${byPartner.length} täitjale, jääk ${leftover} koolitust.`;
+  const unit = cluster ? 'rühma' : 'koolitust';
+  return `Voor ${data.round.code}: ${allocated} ${unit} ${byPartner.length} täitjale, jääk ${leftover} ${unit}.`;
+}
+
+/** [V-09] A protocol of a cluster round: its trainings are groups. */
+export function isClusterProtocol(data: RoundProtocolData): boolean {
+  return data.trainings.some((t) => t.dateKind === 'period');
+}
+
+export interface ProtocolClusterHolder {
+  rank: number;
+  partnerName: string;
+  groupCount: number;
+  indices: number[];
+  participantCount: number;
+}
+
+export interface ProtocolClusterRow {
+  clusterCode: string;
+  title: string;
+  /** „okt–dets 2026“ */
+  periodText: string;
+  /** non-withdrawn groups */
+  groupCount: number;
+  participantCount: number;
+  holders: ProtocolClusterHolder[];
+  leftoverIndices: number[];
+}
+
+/**
+ * [L-22][K-10] The cluster summary: for each cluster, who holds how many of its
+ * groups — the „Klastrite kokkuvõte“ of the PDF and the annex. A derivation
+ * over `allocation.byTraining` and `trainings`, like `allocationByPartner`.
+ */
+export function clusterSummary(data: RoundProtocolData): ProtocolClusterRow[] {
+  const finalByCode = new Map(data.allocation.byTraining.map((row) => [row.trainingCode, row.final] as const));
+  const rankOf = new Map(data.participants.map((p) => [p.partnerName, p.rank] as const));
+  const rows: ProtocolClusterRow[] = [];
+  for (const training of data.trainings) {
+    if (training.dateKind !== 'period' || !training.clusterCode || training.withdrawnAt !== null) continue;
+    if (rows.some((row) => row.clusterCode === training.clusterCode)) continue;
+    const groups = data.trainings
+      .filter((t) => t.clusterCode === training.clusterCode && t.withdrawnAt === null)
+      .sort((a, b) => (a.groupIndex ?? 0) - (b.groupIndex ?? 0));
+    const holders = new Map<string, ProtocolClusterHolder>();
+    const leftoverIndices: number[] = [];
+    for (const group of groups) {
+      const holder = finalByCode.get(group.code) ?? null;
+      if (holder === null) {
+        leftoverIndices.push(group.groupIndex ?? 0);
+        continue;
+      }
+      const entry = holders.get(holder) ?? {
+        rank: rankOf.get(holder) ?? 0,
+        partnerName: holder,
+        groupCount: 0,
+        indices: [],
+        participantCount: 0,
+      };
+      entry.groupCount += 1;
+      entry.indices.push(group.groupIndex ?? 0);
+      entry.participantCount += group.participantCount;
+      holders.set(holder, entry);
+    }
+    rows.push({
+      clusterCode: training.clusterCode,
+      title: training.title,
+      periodText: formatPeriod(training.eventDate, training.eventEnd),
+      groupCount: groups.length,
+      participantCount: groups.reduce((sum, g) => sum + g.participantCount, 0),
+      holders: [...holders.values()].sort((a, b) => a.rank - b.rank),
+      leftoverIndices,
+    });
+  }
+  return rows;
+}
+
+/** „05–10“ — the annex and the PDF print a holder's groups the same way. */
+export function clusterGroupsText(indices: readonly number[]): string {
+  return groupIndexRange(indices);
 }
 
 export interface ProtocolPartnerAllocation {

@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   allocate,
+  canonicalMarks,
   latestConfirmationBefore,
   partnerView,
   sortTrainings,
@@ -620,5 +621,167 @@ describe('sortTrainings', () => {
     const copy = [...original];
     expect(sortTrainings(original).map((t) => t.id)).toEqual(['K1', 'K2', 'K3', 'K4', 'K5', 'K6']);
     expect(original).toEqual(copy);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * [K-10] clusters — groups are interchangeable
+ * ------------------------------------------------------------------ */
+
+describe('[K-10] klastri rühmad on vahetatavad', () => {
+  const groupsOf = (code: string, n: number, start = '2026-10-01', size = 50): AllocationTraining[] =>
+    Array.from({ length: n }, (_, i) => {
+      const id = `${code}-${String(i + 1).padStart(2, '0')}`;
+      return { id, code: id, eventDate: start, participantCount: size, clusterCode: code };
+    });
+  const KL = groupsOf('KL-2026-001', 10);
+  const ids = (from: number, to: number) => KL.slice(from - 1, to).map((t) => t.id);
+  const run = (participants: AllocationParticipant[], trainings: AllocationTraining[] = KL, over: Partial<AllocationInput> = {}) =>
+    allocate(input(participants, { trainings, ...over }));
+
+  it('gives 4 + 6 of 10: each partner the first still-free groups, whichever they marked', () => {
+    const result = run([participant('A', 1, ids(1, 4)), participant('B', 2, ids(1, 6))]);
+    expect(result.allocations).toEqual([
+      { lotPartnerId: 'A', trainingIds: ids(1, 4) },
+      { lotPartnerId: 'B', trainingIds: ids(5, 10) },
+    ]);
+    expect(result.leftover).toEqual([]);
+    expect(result.trace[1]!.clusterRequests).toEqual({ 'KL-2026-001': 6 });
+  });
+
+  it('gives what is left to a partner who asked for more than the pool holds [J-06]', () => {
+    const result = run([participant('A', 1, ids(1, 4)), participant('B', 2, ids(1, 8))]);
+    expect(result.allocations[1]).toEqual({ lotPartnerId: 'B', trainingIds: ids(5, 10) });
+    expect(result.trace[1]!.wanted).toEqual(ids(5, 10));
+  });
+
+  it('depends only on how many groups were marked, never which [J-03]', () => {
+    const a = run([participant('A', 1, ids(1, 4)), participant('B', 2, [ids(3, 3)[0]!, ids(7, 7)[0]!])]);
+    const b = run([participant('A', 1, ids(1, 4)), participant('B', 2, ids(1, 2))]);
+    expect(a.allocations).toEqual(b.allocations);
+    expect(a.allocations[1]).toEqual({ lotPartnerId: 'B', trainingIds: ids(5, 6) });
+  });
+
+  it('a cap counts groups, and the capped groups stay in the pool [E-04]', () => {
+    const result = run([participant('A', 1, ids(1, 6), { cap: 2 }), participant('B', 2, ids(1, 6))]);
+    expect(result.allocations).toEqual([
+      { lotPartnerId: 'A', trainingIds: ids(1, 2) },
+      { lotPartnerId: 'B', trainingIds: ids(3, 8) },
+    ]);
+  });
+
+  it('the buyer’s cap applies on top [T-02]', () => {
+    const result = run([participant('A', 1, ids(1, 6)), participant('B', 2, ids(1, 6))], KL, {
+      adjustments: [{ lotPartnerId: 'A', kind: 'cap', cap: 3 }],
+    });
+    expect(result.allocations[0]).toEqual({ lotPartnerId: 'A', trainingIds: ids(1, 3) });
+    expect(result.allocations[1]).toEqual({ lotPartnerId: 'B', trainingIds: ids(4, 9) });
+  });
+
+  it('pools two clusters separately', () => {
+    const KL2 = groupsOf('KL-2026-002', 5, '2026-11-01');
+    const both = [...KL, ...KL2];
+    const idsOf = (list: AllocationTraining[], from: number, to: number) => list.slice(from - 1, to).map((t) => t.id);
+    const result = run(
+      [
+        participant('A', 1, [...ids(1, 4), ...idsOf(KL2, 1, 2)]),
+        participant('B', 2, [...ids(1, 6), ...idsOf(KL2, 1, 5)]),
+      ],
+      both,
+    );
+    expect(result.allocations).toEqual([
+      { lotPartnerId: 'A', trainingIds: [...ids(1, 4), ...idsOf(KL2, 1, 2)] },
+      { lotPartnerId: 'B', trainingIds: [...ids(5, 10), ...idsOf(KL2, 3, 5)] },
+    ]);
+  });
+
+  it('a trainee budget skips the groups that do not fit and keeps going [L-17]', () => {
+    const budgeted: AllocationParticipant = {
+      lotPartnerId: 'A',
+      rank: 1,
+      excluded: false,
+      confirmations: [confirmation({ id: 1, marks: ids(1, 3), cap: 120, capKind: 'participants' })],
+    };
+    const result = run([budgeted, participant('B', 2, ids(1, 5))]);
+    expect(result.allocations).toEqual([
+      { lotPartnerId: 'A', trainingIds: ids(1, 2) },
+      { lotPartnerId: 'B', trainingIds: ids(3, 7) },
+    ]);
+  });
+
+  it('leaves dated trainings and a cluster in one input independent', () => {
+    const mixed = [...LISA_B_TRAININGS, ...KL];
+    const result = run(
+      [participant('A', 1, ['K1', ...ids(1, 4)]), participant('B', 2, ['K1', 'K2', ...ids(1, 6)])],
+      mixed,
+    );
+    expect(result.allocations[0]!.trainingIds).toEqual(expect.arrayContaining(['K1', ...ids(1, 4)]));
+    expect(result.allocations[1]!.trainingIds).toEqual(expect.arrayContaining(['K2', ...ids(5, 10)]));
+    expect(result.allocations[1]!.trainingIds).not.toContain('K1');
+  });
+
+  it('never allocates a group twice, whatever the requests [J-07]', () => {
+    for (let seed = 1; seed <= 40; seed++) {
+      const participants = ['A', 'B', 'C', 'D'].map((id, rank) => {
+        const n = (seed * (rank + 3)) % 11;
+        return participant(id, rank + 1, ids(1, n), { cap: seed % 3 === 0 ? (seed % 5) : null });
+      });
+      const result = run(participants);
+      const all = result.allocations.flatMap((a) => a.trainingIds);
+      expect(new Set(all).size).toBe(all.length);
+      expect(all.length + result.leftover.length).toBe(10);
+    }
+  });
+
+  describe('partnerView summarises a cluster as counts [N-03][N-04]', () => {
+    const higher = participant('A', 1, ids(1, 4));
+    const self: AllocationParticipant = participant('B', 2, []);
+    const view = (marks: string[], cap: number | null = null) =>
+      partnerView(input([higher, self], { trainings: KL }), 'B', { marks, cap });
+
+    it('counts held, free, requested and projected groups — never partners', () => {
+      const v = view(ids(1, 6));
+      expect(v.clusters).toEqual([
+        expect.objectContaining({
+          clusterCode: 'KL-2026-001',
+          groupCount: 10,
+          held: 4,
+          free: 6,
+          requested: 6,
+          projected: 6,
+          state: 'projected_to_you',
+          projectedTrainingIds: ids(5, 10),
+        }),
+      ]);
+      expect(v.projectedCount).toBe(6);
+      expect(JSON.stringify(v)).not.toContain('"A"');
+    });
+
+    it('derives the group states from the summary, not from which groups were marked', () => {
+      const v = view(ids(1, 6));
+      const states = Object.fromEntries(v.rows.map((r) => [r.trainingId, r.state]));
+      for (const id of ids(1, 4)) expect(states[id]).toBe('marked_by_higher');
+      for (const id of ids(5, 10)) expect(states[id]).toBe('projected_to_you');
+    });
+
+    it('names the reason for a shortfall: priority above, or the partner’s own cap', () => {
+      const byPriority = view(ids(1, 8)).clusters[0]!;
+      expect(byPriority).toMatchObject({ requested: 8, projected: 6, state: 'marked_not_projected', reason: 'higher_partner' });
+      const byCap = view(ids(1, 6), 2).clusters[0]!;
+      expect(byCap).toMatchObject({ requested: 6, projected: 2, state: 'marked_not_projected', reason: 'over_cap' });
+      expect(view([]).clusters[0]).toMatchObject({ requested: 0, projected: 0, state: 'available' });
+    });
+  });
+
+  describe('canonicalMarks', () => {
+    it('turns n marked groups into the first n, and leaves dated trainings alone', () => {
+      expect(canonicalMarks(KL, [ids(3, 3)[0]!, ids(7, 7)[0]!])).toEqual(ids(1, 2));
+      // take order is (event date, code): the cluster's 1 October precedes Lisa B's 5 October
+      expect(canonicalMarks([...LISA_B_TRAININGS, ...KL], ['K3', ids(9, 9)[0]!, 'K1'])).toEqual([ids(1, 1)[0]!, 'K1', 'K3']);
+    });
+
+    it('drops ids that are not in the round and duplicates', () => {
+      expect(canonicalMarks(KL, ['nope', ids(1, 1)[0]!, ids(1, 1)[0]!])).toEqual(ids(1, 1));
+    });
   });
 });

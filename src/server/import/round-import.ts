@@ -25,18 +25,30 @@ import { countRows, parseTrainingRows, type RowDiagnostic } from '@/domain/impor
 import { parseEstonianInstant, parseRoundDefinition, type RoundDefinition } from '@/domain/round-definition';
 import { isTrainingImportable } from '@/domain/round-statuses';
 import { tallinnIsoDay } from '@/domain/format';
+import { roundKindOf, UNIT_WORDS, type RoundKind } from '@/domain/clusters';
 import { logAudit } from '../audit';
 import type { Ctx } from '../context';
 import { createRound } from '../rounds/engine';
 import { rounds } from '@/db/schema';
-import { applyTrainingRows, type StoredRow } from './trainings-import';
+import { reconcileClusterRows } from './cluster-rows';
+import { applyTrainingRows, lotGroupCeilings, type StoredRow } from './trainings-import';
 
 /** One draft the file would create: a lot and how many of the rows are its. */
 export interface RoundImportGroup {
   lotCode: string;
   lotName: string;
+  /** trainings — or a cluster round's groups — going into this draft */
   count: number;
+  /** [V-09] what kind of round the rows make; absent from batches before v2.7 */
+  kind?: RoundKind;
 }
+
+/** The error field of the one-kind check [V-09], so the apply step can redo it. */
+const ROUND_KIND_FIELD = 'vooru_liik';
+
+/** [V-09] The message for a lot whose rows mix dated trainings and clusters. */
+export const MIXED_KIND_MESSAGE =
+  'Ühes voorus ei saa olla korraga kindla kuupäevaga koolitusi ja klastreid — voor on ühte liiki [V-09]. Tee kaks vooru.';
 
 export interface RoundImportPayload {
   round: { value: RoundDefinition | null; errors: RowDiagnostic[]; lotName: string };
@@ -103,6 +115,26 @@ function checkRows(ctx: Ctx, definition: RoundDefinition | null, rows: StoredRow
       row.action = 'error';
     }
   }
+
+  // [V-09] Every draft the file makes is of one kind: dated trainings or
+  // clusters. Checked per lot, because with no lot named each lot gets its
+  // own draft. The error goes on every row of the mixed lot, so the preview
+  // shows it where the person looks, and the file cannot be applied.
+  const kindsByLot = new Map<string, Set<RoundKind>>();
+  for (const row of rows) {
+    if (!row.value) continue;
+    const set = kindsByLot.get(row.value.lotCode) ?? new Set<RoundKind>();
+    set.add(roundKindOf(row.value.dateKind));
+    kindsByLot.set(row.value.lotCode, set);
+  }
+  for (const row of rows) {
+    if (!row.value) continue;
+    if ((kindsByLot.get(row.value.lotCode)?.size ?? 0) > 1) {
+      row.errors.push({ field: ROUND_KIND_FIELD, message: MIXED_KIND_MESSAGE });
+      row.value = null;
+      row.action = 'error';
+    }
+  }
 }
 
 function summarize(ctx: Ctx, rows: StoredRow[]): ImportSummary {
@@ -144,17 +176,25 @@ function groupsOf(
 ): RoundImportGroup[] {
   if (!definition) return [];
   const counts = new Map<string, number>();
+  const kinds = new Map<string, RoundKind>();
   for (const row of rows) {
     if (!row.value) continue;
     if (definition.lotCode !== null && row.value.lotCode !== definition.lotCode) continue;
     counts.set(row.value.lotCode, (counts.get(row.value.lotCode) ?? 0) + 1);
+    kinds.set(row.value.lotCode, roundKindOf(row.value.dateKind));
   }
   const codes = definition.lotCode !== null ? [definition.lotCode] : [...counts.keys()].sort();
   return codes.map((lotCode) => ({
     lotCode,
     lotName: lotList.find((l) => l.code === lotCode)?.name ?? '',
     count: counts.get(lotCode) ?? 0,
+    kind: kinds.get(lotCode) ?? 'fixed',
   }));
+}
+
+/** „12 koolitust“ / „10 rühma“ — a draft's size in its own unit. */
+export function describeGroupCount(group: RoundImportGroup): string {
+  return `${group.count} ${UNIT_WORDS[group.kind ?? 'fixed'].partitive}`;
 }
 
 export function previewRoundImport(
@@ -175,8 +215,13 @@ export function previewRoundImport(
     // working-day arithmetic would have put it.
     deadlineTimeByLot: Object.fromEntries(lotList.map((l) => [l.code, l.deadlineLocalTime])),
   });
-  const parsed = parseTrainingRows(input.trainingRows, { knownLotCodes, todayIso: tallinnIsoDay(ctx.at) });
-  const rows: StoredRow[] = parsed.rows.map((row) => ({
+  const parsed = parseTrainingRows(input.trainingRows, {
+    knownLotCodes,
+    todayIso: tallinnIsoDay(ctx.at),
+    maxParticipantsPerGroup: lotGroupCeilings(ctx),
+  });
+  // [L-28] cluster rows become their group rows, checked against the database
+  const rows: StoredRow[] = reconcileClusterRows(ctx, parsed.rows).map((row) => ({
     rowNumber: row.rowNumber,
     value: row.value,
     errors: row.errors,
@@ -251,7 +296,11 @@ export function applyRoundImport(
 
   const payload = batch.rowsJson as RoundImportPayload;
   // The state may have moved since the preview; check again, not trust it.
-  for (const row of payload.rows) row.errors = row.errors.filter((e) => e.field !== 'hankeosa' || !e.message.startsWith('koolitus kuulub'));
+  for (const row of payload.rows) {
+    row.errors = row.errors.filter(
+      (e) => (e.field !== 'hankeosa' || !e.message.startsWith('koolitus kuulub')) && e.field !== ROUND_KIND_FIELD,
+    );
+  }
   checkRows(ctx, payload.round.value, payload.rows);
   if (!canApply(payload)) {
     ctx.tx.update(importBatches).set({ rowsJson: payload }).where(eq(importBatches.id, batchId)).run();
@@ -318,7 +367,7 @@ export function applyRoundImport(
     const code = ctx.tx.select({ code: rounds.code }).from(rounds).where(eq(rounds.id, roundId)).get()?.code ?? '';
     logAudit(ctx, {
       eventType: 'import.round_imported',
-      summary: `Voor ${code} loodud mustandina failist ${batch.fileName}: ${trainingIds.length} koolitust, hankeosa ${lot.code}${
+      summary: `Voor ${code} loodud mustandina failist ${batch.fileName}: ${describeGroupCount(group)}, hankeosa ${lot.code}${
         groups.length > 1 ? ` (failist loodi ${groups.length} mustandit)` : ''
       }`,
       roundId,

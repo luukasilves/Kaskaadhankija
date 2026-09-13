@@ -5,11 +5,79 @@
  * nothing. Drop-down lists keep the enumerated cells to their allowed values.
  */
 
+import { nominalGroupSize, totalParticipants, type DateKind } from '@/domain/clusters';
+import { formatIsoDay } from '@/domain/format';
 import { TRAINING_COLUMNS, TRAINING_OPTIONAL_COLUMNS } from '@/domain/import-rows';
 import { CAP_OPTIONS_SHEET_WORDS, VISIBILITY_SHEET_WORDS } from '@/domain/round-definition';
-import { TARGET_GROUPS, type CapOptions } from '@/domain/round-statuses';
-import { COUNTIES, LANGUAGE_LABELS, WORKSHOP_TYPE_LABELS } from '@/domain/statuses';
+import { TARGET_GROUPS, type CapOptions, type TargetGroup } from '@/domain/round-statuses';
+import { COUNTIES, LANGUAGE_LABELS, WORKSHOP_TYPE_LABELS, type WorkshopType } from '@/domain/statuses';
 import { buildWorkbook, type WorkbookSheet } from './xlsx';
+
+/** What the template needs to know about a training it prefills. */
+export interface TemplateTraining {
+  code: string;
+  title: string;
+  workshopType: WorkshopType;
+  eventDate: string;
+  eventEnd: string | null;
+  dateKind: DateKind;
+  clusterCode: string | null;
+  groupIndex: number | null;
+  county: string;
+  locationText: string;
+  targetGroup: TargetGroup;
+  participantCount: number;
+  language: string;
+  estimatedValueEur: number;
+  notes: string;
+}
+
+/**
+ * The prefilled rows for a lot's free trainings [L-20]. A cluster's free groups
+ * collapse back into the **one row** the buyer wrote — the free groups' count
+ * and participants, the period, the group size — so the file reads as an
+ * order and re-imports as exactly those groups, never as dated rows [L-28].
+ */
+export function templateRowsFor(available: readonly TemplateTraining[], lotCode: string): Array<Record<string, string>> {
+  const sorted = [...available].sort((a, b) => a.eventDate.localeCompare(b.eventDate) || a.code.localeCompare(b.code));
+  const entries: Array<TemplateTraining | TemplateTraining[]> = [];
+  const seenClusters = new Set<string>();
+  for (const t of sorted) {
+    if (t.dateKind === 'period' && t.clusterCode) {
+      if (seenClusters.has(t.clusterCode)) continue;
+      seenClusters.add(t.clusterCode);
+      entries.push(sorted.filter((g) => g.clusterCode === t.clusterCode).sort((a, b) => (a.groupIndex ?? 0) - (b.groupIndex ?? 0)));
+    } else {
+      entries.push(t);
+    }
+  }
+  const dotted = (iso: string | null) => (iso ? formatIsoDay(iso) : '');
+  return entries.map((entry) => {
+    const t = Array.isArray(entry) ? entry[0]! : entry;
+    const groups = Array.isArray(entry) ? entry : null;
+    const likes = groups?.map((g) => ({ groupIndex: g.groupIndex ?? 0, participantCount: g.participantCount })) ?? [];
+    const estimate = groups ? groups.reduce((sum, g) => sum + g.estimatedValueEur, 0) : t.estimatedValueEur;
+    return {
+      kood: groups ? (t.clusterCode ?? t.code) : t.code,
+      hankeosa: lotCode,
+      nimetus: t.title,
+      formaat: WORKSHOP_TYPE_LABELS[t.workshopType],
+      kuupaev: groups ? '' : dotted(t.eventDate),
+      lopp_kuupaev: groups ? '' : dotted(t.eventEnd),
+      periood_algus: groups ? dotted(t.eventDate) : '',
+      periood_lopp: groups ? dotted(t.eventEnd) : '',
+      maakond: t.county,
+      asukoht: t.locationText,
+      sihtruhm: TARGET_GROUPS[t.targetGroup],
+      osalejate_arv: String(groups ? totalParticipants(likes) : t.participantCount),
+      ruhma_suurus: groups ? String(nominalGroupSize(likes)) : '',
+      ruhmi: groups ? String(groups.length) : '',
+      keel: t.language,
+      hinnanguline_maksumus: estimate > 0 ? String(Math.round(estimate * 100) / 100) : '',
+      markused: t.notes,
+    };
+  });
+}
 
 /** The calendar import's columns, in the order the buyer's documentation lists them. */
 export const ROUND_TRAINING_HEADERS = [
@@ -19,10 +87,14 @@ export const ROUND_TRAINING_HEADERS = [
   'formaat',
   'kuupaev',
   'lopp_kuupaev',
+  'periood_algus',
+  'periood_lopp',
   'maakond',
   'asukoht',
   'sihtruhm',
   'osalejate_arv',
+  'ruhma_suurus',
+  'ruhmi',
   'keel',
   'hinnanguline_maksumus',
   'markused',
@@ -105,9 +177,12 @@ export async function buildRoundTemplate(input: RoundTemplateInput): Promise<Buf
       { 'Leht / veerg': 'Voor · vastamistahtaeg', Tähendus: 'Vabatahtlik. Kavandatud vastamistähtaeg, nt 09.10.2026 17:00. Ainult kuupäeva puhul kasutatakse hankeosa kellaaega. Kas see VÕI lisatoopaevad, mitte mõlemad.' },
       { 'Leht / veerg': 'Voor · markus', Tähendus: 'Tellija sisemärkus vooru kohta, kuni 400 tähemärki. Partnerid seda ei näe.' },
       { 'Leht / veerg': 'Koolitused', Tähendus: 'Koolituskalendri impordi veerud. Olemasoleva koodiga rida uuendab koolitust (kui see ei ole juba voorus või määratud); uue koodiga rida loob koolituse. Kõik read lähevad loodavasse vooru.' },
-      { 'Leht / veerg': 'Koolitused · kood', Tähendus: 'Kujul KK-2026-101. Kood on koolituse püsiv tunnus ka uude vooru andmisel.' },
-      { 'Leht / veerg': 'Koolitused · kuupaev', Tähendus: '07.10.2026 või 2026-10-07; lopp_kuupaev mitmepäevase sündmuse puhul.' },
-      { 'Leht / veerg': 'Koolitused · osalejate_arv', Tähendus: 'Maksimaalne osalejate arv. Partner näeb „Max osalejaid“ ja hinda rühma täitumisel = see × tema hind osaleja kohta.' },
+      { 'Leht / veerg': 'Koolitused · kood', Tähendus: 'Kujul KK-2026-101 (kindla kuupäevaga koolitus) või KL-2026-001 (klaster — mahuline tellimus). Kood on püsiv tunnus ka uude vooru andmisel. Rühma koodi (KL-2026-001-07) failis ei kirjutata.' },
+      { 'Leht / veerg': 'Koolitused · kuupaev', Tähendus: '07.10.2026 või 2026-10-07; lopp_kuupaev mitmepäevase sündmuse puhul. Klastri real jäta tühjaks.' },
+      { 'Leht / veerg': 'Koolitused · periood_algus, periood_lopp', Tähendus: 'Ainult klastri real (KL-kood): periood, mille jooksul rühmad toimuvad, nt 01.10.2026 ja 31.12.2026. Toimumisajad rühmade kaupa lepitakse kokku pärast jaotust.' },
+      { 'Leht / veerg': 'Koolitused · osalejate_arv', Tähendus: 'Maksimaalne osalejate arv. Partner näeb „Max osalejaid“ ja hinda rühma täitumisel = see × tema hind osaleja kohta. Klastri real on see kogu klastri osalejate arv (nt 500).' },
+      { 'Leht / veerg': 'Koolitused · ruhma_suurus, ruhmi', Tähendus: 'Ainult klastri real: rühma suurus (kuni hankeosa rühma ülempiir) ja/või rühmade arv (1–99). Üks neist piisab — teine arvutatakse; viimane rühm kannab jäägi. Klaster loob rakenduses ruhmi rühma, mida partnerid kinnitavad arvuna („võtan kuni 6 rühma“) ja mis jaotatakse klastri kaupa.' },
+      { 'Leht / veerg': 'Koolitused · (vooru liik)', Tähendus: 'Ühe mustandi read on ühte liiki: kas kindla kuupäevaga koolitused või klastrid, mitte mõlemad [V-09]. Olemasoleva klastri rida tähistab tema vabu rühmi; rühmade arvu faili kaudu ei muudeta.' },
       { 'Leht / veerg': 'Koolitused · hinnanguline_maksumus', Tähendus: 'Vabatahtlik tellija sisemine hinnang eurodes; partneri vaates ega protokollis seda ei ole.' },
       { 'Leht / veerg': 'Koolitused · formaat', Tähendus: Object.values(WORKSHOP_TYPE_LABELS).join(', ') },
       { 'Leht / veerg': 'Koolitused · sihtruhm', Tähendus: Object.values(TARGET_GROUPS).join(', ') },

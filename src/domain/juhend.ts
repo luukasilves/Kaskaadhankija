@@ -139,6 +139,10 @@ export const QUOTED: readonly { tekst: string; fail: string }[] = [
   { tekst: 'Minu kalender', fail: PARTNER_KALENDER },
   { tekst: 'Kinnitatud, otsus ootel', fail: PARTNER_KALENDER },
   { tekst: 'Samal päeval', fail: MARKING_FORM },
+  { tekst: 'Vooru klastrid', fail: MARKING_FORM },
+  { tekst: 'Võtan kuni', fail: MARKING_FORM },
+  { tekst: 'Kõik vabad', fail: MARKING_FORM },
+  { tekst: 'Klastrivoor', fail: PARTNER_VOOR },
 ] as const;
 
 /* ------------------------------------------------------------------ *
@@ -497,6 +501,40 @@ export const SECTIONS: readonly Section[] = [
         title: 'Ülempiir kaitseb teid, mitte tellijat',
         text:
           'Ülempiiri märkimine ei mõjuta teie kohta raamlepingu järjestuses ega järgmisi voore. See on ainus viis öelda „olen valmis, aga mitte piiramatus mahus“ nii, et süsteem sellega arvestab.',
+      },
+    ],
+  },
+
+  {
+    id: 'klastrid',
+    title: 'Klastrivoor: rühmad, mitte kuupäevad',
+    rules: ['V-09', 'K-10', 'L-28'],
+    blocks: [
+      {
+        kind: 'para',
+        text:
+          'Mõnikord tellib tellija **mahu**, mitte kindla kuupäevaga koolituse: näiteks 500 osalejat ühes maakonnas perioodi jooksul. Sellise vooru lehel on pealkirja kõrval märgis **„Klastrivoor“** ja tabeli asemel on kaardid **„Vooru klastrid“**. Klaster on jagatud **rühmadeks** (nt 10 rühma × kuni 50 osalejat) ja iga rühm on eraldi koolitus.',
+      },
+      {
+        kind: 'para',
+        text:
+          'Klastri kaardil ei märgi te linnukesi, vaid ütlete **arvu**: **„Võtan kuni“** N **rühma**. Rühmad on omavahel vahetatavad — loeb ainult, *mitu* rühma te võtate, mitte millised. Nupp **„Kõik vabad“** paneb arvuks need rühmad, mida teist eespool olevad partnerid ei ole kinnitanud.',
+      },
+      {
+        kind: 'list',
+        items: [
+          '**Jaotamine käib klastri kaupa:** eespool olev partner saab klastrist esimesed rühmad oma arvu ulatuses, teie saate järgmised. Näide: klastris on 10 rühma, koht 1 kinnitab 4 ja koht 2 kinnitab 6 — koht 1 saab rühmad 01–04 ja koht 2 rühmad 05–10.',
+          '**Kaart näitab seisu arvudena:** mitu rühma on eesõigusega partnerid kokku kinnitanud, mitu on vaba ja mitu on praeguse seisuga prognoosis teile. Kes need partnerid on, te ei näe — nagu tavalises vooruski.',
+          '**Ülempiir loeb rühmi:** „kuni N koolitust“ tähendab klastrivoorus „kuni N rühma“; osalejate arvu ülempiir loeb rühmade osalejaid kokku.',
+          '**Toimumisajad** perioodi sees lepitakse kokku pärast jaotust, väljaspool seda keskkonda. Kinnitades ütlete, mitu rühma te perioodi jooksul läbi viite.',
+        ],
+      },
+      {
+        kind: 'note',
+        tone: 'info',
+        title: 'Üks voor, üks liik',
+        text:
+          'Ühes voorus on kas kindla kuupäevaga koolitused või klastrid, mitte mõlemad. Kui tellija tellib mõlemat, tulevad need eraldi voorudena.',
       },
     ],
   },

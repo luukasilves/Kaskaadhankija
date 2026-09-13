@@ -82,6 +82,37 @@ export function formatIsoDay(iso: string): string {
   return `${day}.${month}.${year}`;
 }
 
+const MONTHS_SHORT = ['jaan', 'veebr', 'märts', 'apr', 'mai', 'juuni', 'juuli', 'aug', 'sept', 'okt', 'nov', 'dets'];
+
+/**
+ * A cluster's period by months — 'okt–dets 2026', 'okt 2026', 'dets 2026 – jaan
+ * 2027' — the way the buyer team said it („perioodil oktoober–detsember“) [L-28].
+ */
+export function formatPeriod(startIso: string, endIso: string | null): string {
+  const [sy, sm] = startIso.split('-').map(Number);
+  if (!sy || !sm) return startIso;
+  const start = `${MONTHS_SHORT[sm - 1]}`;
+  if (!endIso) return `${start} ${sy}`;
+  const [ey, em] = endIso.split('-').map(Number);
+  if (!ey || !em || (ey === sy && em === sm)) return `${start} ${sy}`;
+  if (ey === sy) return `${start}–${MONTHS_SHORT[em - 1]} ${sy}`;
+  return `${start} ${sy} – ${MONTHS_SHORT[em - 1]} ${ey}`;
+}
+
+/**
+ * When a training happens, for any row: a day (with its end for a multi-day
+ * event) or, for a cluster's group, its period. Every list and table that
+ * used to print `formatIsoDay(eventDate)` goes through this.
+ */
+export function formatEventWhen(row: {
+  dateKind?: 'fixed' | 'period' | null;
+  eventDate: string;
+  eventEnd?: string | null;
+}): string {
+  if (row.dateKind === 'period') return formatPeriod(row.eventDate, row.eventEnd ?? null);
+  return row.eventEnd ? `${formatIsoDay(row.eventDate)} – ${formatIsoDay(row.eventEnd)}` : formatIsoDay(row.eventDate);
+}
+
 /**
  * Whole euros — for the buyer's own planning estimate only. Anything derived
  * from a framework price per participant is not whole (60,50 €) and must go

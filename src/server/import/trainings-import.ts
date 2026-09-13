@@ -20,6 +20,7 @@ import { isTrainingImportable } from '@/domain/round-statuses';
 import { tallinnIsoDay } from '@/domain/format';
 import { logAudit } from '../audit';
 import type { Ctx } from '../context';
+import { reconcileClusterRows } from './cluster-rows';
 import { parseCsv } from './csv';
 import { parseXlsx } from './xlsx';
 
@@ -56,6 +57,17 @@ function knownLotCodes(ctx: Ctx): string[] {
     .map((r) => r.code);
 }
 
+/** [K-06][L-21] each lot's ceiling on one group, for the parser's warnings and refusals. */
+export function lotGroupCeilings(ctx: Ctx): Record<string, number | null> {
+  return Object.fromEntries(
+    ctx.tx
+      .select({ code: lots.code, ceiling: lots.maxParticipantsPerGroup })
+      .from(lots)
+      .all()
+      .map((r) => [r.code, r.ceiling] as const),
+  );
+}
+
 /** Read an uploaded file into raw rows, choosing the reader by extension. */
 export async function readTable(
   fileName: string,
@@ -87,15 +99,27 @@ export function previewTrainingsImport(
 ): PreviewResult {
   const lotCodes = knownLotCodes(ctx);
   const raws = input.rawRows.slice(0, MAX_ROWS);
-  const { rows, fileErrors } = parseTrainingRows(raws, {
+  const parsed = parseTrainingRows(raws, {
     knownLotCodes: lotCodes,
     todayIso: tallinnIsoDay(ctx.at),
+    maxParticipantsPerGroup: lotGroupCeilings(ctx),
   });
+  const fileErrors = [...parsed.fileErrors];
 
   if (input.rawRows.length > MAX_ROWS) {
     fileErrors.push({
       message: `Failis on ${input.rawRows.length} rida; imporditakse esimesed ${MAX_ROWS}.`,
     });
+  }
+
+  // [L-28] A cluster row becomes its group rows here — checked against the
+  // groups the database already holds. The cap counts the expanded rows.
+  let rows = reconcileClusterRows(ctx, parsed.rows);
+  if (rows.length > MAX_ROWS) {
+    fileErrors.push({
+      message: `Failis on klastrite rühmadega kokku ${rows.length} rida; korraga imporditakse kuni ${MAX_ROWS}. Jaga fail kaheks.`,
+    });
+    rows = [];
   }
 
   const counts = countRows(rows);
@@ -268,6 +292,10 @@ export function applyTrainingRows(ctx: Ctx, rows: StoredRow[], batchId: string):
       workshopType: row.value.workshopType,
       eventDate: row.value.eventDate,
       eventEnd: row.value.eventEnd,
+      // [L-28] a group of a cluster, or a dated training
+      dateKind: row.value.dateKind,
+      clusterCode: row.value.clusterCode,
+      groupIndex: row.value.groupIndex,
       county: row.value.county,
       locationText: row.value.locationText,
       targetGroup: row.value.targetGroup,

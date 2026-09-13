@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { ActionForm } from '@/components/action-form';
 import { StatusBadge } from '@/components/status-badge';
 import type { ImportSummary } from '@/db/schema';
+import { UNIT_WORDS, type RoundKind } from '@/domain/clusters';
 import {
   confirmRoundImportAction,
   discardRoundImportAction,
@@ -78,8 +79,11 @@ export function RoundImportPreview({
   fileErrors: Array<{ field?: string; message: string }>;
   rows: RoundPreviewTrainingRow[];
   /** the drafts the file creates — several when the sheet names no lot [L-20] */
-  groups: Array<{ lotCode: string; lotName: string; count: number }>;
+  groups: Array<{ lotCode: string; lotName: string; count: number; kind?: RoundKind }>;
 }) {
+  // [V-09] „koolitust“, „rühma“ — or „rida“ when the drafts are of both kinds.
+  const kinds = new Set(groups.map((g) => g.kind ?? 'fixed'));
+  const unitText = kinds.size === 1 ? UNIT_WORDS[[...kinds][0]!].partitive : 'rida';
   return (
     <div className="space-y-4">
       <section className="kh-card p-4" data-testid="round-import-summary">
@@ -98,7 +102,7 @@ export function RoundImportPreview({
                   iga hankeosa kohta oma mustand:{' '}
                   {groups.length === 0
                     ? '—'
-                    : groups.map((g) => `${g.lotCode} (${g.count} koolitust)`).join(' · ')}
+                    : groups.map((g) => `${g.lotCode} (${g.count} ${UNIT_WORDS[g.kind ?? 'fixed'].partitive})`).join(' · ')}
                 </span>
               )}
             </dd>
@@ -172,7 +176,7 @@ export function RoundImportPreview({
           <div className="mt-4 flex flex-wrap items-start gap-3">
             <ActionForm
               action={confirmRoundImportAction}
-              submitLabel={canApply ? `Loo mustand (${summary.valid} koolitust)` : 'Paranda vead ja laadi uuesti'}
+              submitLabel={canApply ? `Loo mustand (${summary.valid} ${unitText})` : 'Paranda vead ja laadi uuesti'}
               variant="primary"
               disabled={!canApply}
               hidden={{ batchId }}

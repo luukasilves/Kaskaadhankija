@@ -10,7 +10,7 @@
 
 import Link from 'next/link';
 import { getDb } from '@/db';
-import { formatIsoDay, formatMonthLabel, monthKey } from '@/domain/format';
+import { formatEventWhen, formatMonthLabel, monthKey } from '@/domain/format';
 import { WORKSHOP_TYPE_LABELS } from '@/domain/statuses';
 import { StatusBadge } from '@/components/status-badge';
 import { requirePartner } from '@/server/auth/actor';
@@ -63,8 +63,7 @@ export default async function PartnerCalendarPage() {
                 return (
                   <li key={`${entry.trainingId}-${entry.kind}`} className="flex flex-wrap items-baseline gap-x-4 gap-y-1 px-4 py-3">
                     <span className="w-[8.5rem] font-semibold tabular-nums">
-                      {formatIsoDay(entry.eventDate)}
-                      {entry.eventEnd && ` – ${formatIsoDay(entry.eventEnd)}`}
+                      {formatEventWhen(entry)}
                     </span>
                     <span className="min-w-[16rem] flex-1">
                       <span className="font-semibold">{entry.code}</span> — {entry.title}

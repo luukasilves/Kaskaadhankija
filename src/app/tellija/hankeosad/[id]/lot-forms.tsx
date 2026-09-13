@@ -20,6 +20,8 @@ export function LotConfigForm({
     thresholdNote: string;
     defaultVisibilityMode: 'dynamic' | 'sealed';
     defaultCapOptions: CapOptions;
+    /** [K-06][L-28] the framework's ceiling on one group; null = none */
+    maxParticipantsPerGroup: number | null;
   };
   openRoundCodes: string[];
 }) {
@@ -101,6 +103,24 @@ export function LotConfigForm({
             Ainult hoiatustase. Vahelejätmine ja piiramine on tellija õigus, mida ei pea
             rakendama.
             {lot.thresholdNote && ` ${lot.thresholdNote}`}
+          </span>
+        </label>
+
+        <label className="block">
+          <span className="text-[12.5px] font-semibold">Rühma osalejate ülempiir</span>
+          <input
+            type="number"
+            name="maxParticipantsPerGroup"
+            min={1}
+            max={2000}
+            defaultValue={lot.maxParticipantsPerGroup ?? ''}
+            placeholder="piiri ei ole"
+            className="kh-input mt-1"
+            data-testid="max-participants-per-group"
+          />
+          <span className="mt-1 block text-[12px] text-[var(--color-muted)]">
+            Raamlepingu ülempiir ühele töötoale (nt 75). Kindla kuupäevaga koolitus üle piiri saab
+            impordil hoiatuse; klastri rühm üle piiri lükatakse tagasi.
           </span>
         </label>
 

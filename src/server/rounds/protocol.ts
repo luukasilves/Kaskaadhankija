@@ -174,6 +174,9 @@ export function buildRoundProtocol(
       workshopType: trainings.workshopType,
       eventDate: trainings.eventDate,
       eventEnd: trainings.eventEnd,
+      dateKind: trainings.dateKind,
+      clusterCode: trainings.clusterCode,
+      groupIndex: trainings.groupIndex,
       county: trainings.county,
       locationText: trainings.locationText,
       participantCount: trainings.participantCount,
@@ -201,6 +204,11 @@ export function buildRoundProtocol(
     participantCount: row.participantCount,
     language: row.language,
     targetGroup: TARGET_GROUPS[row.targetGroup],
+    // [L-28] only a cluster's group names its cluster; a dated training's
+    // protocol text is byte for byte what it was before clusters existed.
+    ...(row.dateKind === 'period' && row.clusterCode
+      ? { dateKind: 'period' as const, clusterCode: row.clusterCode, groupIndex: row.groupIndex ?? 0 }
+      : {}),
     withdrawnAt: row.withdrawnAt,
     withdrawnReason: row.withdrawnReason,
     withdrawnBy: row.withdrawnBy ?? '',

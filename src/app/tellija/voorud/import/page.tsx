@@ -8,7 +8,7 @@ import { getDb } from '@/db';
 import { buyerCanWrite } from '@/server/auth/actor';
 import { ReadOnlyNote } from '@/components/read-only-note';
 import { importBatches, lots } from '@/db/schema';
-import { formatDateTimeShort, formatIsoDay } from '@/domain/format';
+import { formatDateTimeShort, formatEventWhen } from '@/domain/format';
 import { CAP_OPTIONS_LABELS, VISIBILITY_MODE_LABELS } from '@/domain/round-statuses';
 import type { RoundImportPayload } from '@/server/import/round-import';
 import { ROUND_TRAINING_HEADERS } from '@/server/import/round-template';
@@ -90,7 +90,7 @@ export default async function RoundImportPage({
             code: row.value?.code ?? '',
             title: row.value?.title ?? '',
             lotCode: row.value?.lotCode ?? '',
-            eventDate: row.value ? formatIsoDay(row.value.eventDate) : '',
+            eventDate: row.value ? formatEventWhen(row.value) : '',
             participants: row.value ? String(row.value.participantCount) : '',
             errors: row.errors,
             warnings: row.warnings,

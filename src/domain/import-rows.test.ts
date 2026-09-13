@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   countRows,
+  expandTrainingRows,
   fold,
   parseAmount,
   parseCounty,
@@ -142,6 +143,11 @@ describe('parseTrainingRows', () => {
       language: 'et',
       estimatedValueEur: 1200,
       notes: '',
+      dateKind: 'fixed',
+      clusterCode: null,
+      groupIndex: null,
+      groupSize: null,
+      groupCount: null,
     });
   });
 
@@ -405,5 +411,110 @@ describe('[L-26] the buyer estimate is optional', () => {
     const { rows } = parseTrainings([trainingRow({ hinnanguline_maksumus: 'palju' })]);
     expect(rows[0]?.errors[0]?.field).toBe('hinnanguline_maksumus');
     expect(rows[0]?.errors[0]?.message).toMatch(/tellija hinnang/);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * [L-28] a cluster row: a period, a plan, G groups
+ * ------------------------------------------------------------------ */
+
+const clusterRow = (over: Partial<RawRow> = {}): RawRow =>
+  trainingRow({
+    kood: 'KL-2026-001',
+    hankeosa: 'OSA-2',
+    kuupaev: '',
+    periood_algus: '01.10.2026',
+    periood_lopp: '31.12.2026',
+    osalejate_arv: '500',
+    ruhma_suurus: '50',
+    hinnanguline_maksumus: '20000',
+    ...over,
+  });
+
+describe('[L-28] klastri rida', () => {
+  it('reads a cluster row: the period stands in the dates, the plan beside it', () => {
+    const { rows } = parseTrainings([clusterRow()]);
+    expect(rows[0].errors).toEqual([]);
+    expect(rows[0].value).toMatchObject({
+      code: 'KL-2026-001',
+      dateKind: 'period',
+      clusterCode: 'KL-2026-001',
+      groupIndex: null,
+      eventDate: '2026-10-01',
+      eventEnd: '2026-12-31',
+      participantCount: 500,
+      groupSize: 50,
+      groupCount: 10,
+    });
+  });
+
+  it('derives the count from the size, the size from the count, and refuses a mismatch', () => {
+    expect(parseTrainings([clusterRow({ osalejate_arv: '480' })]).rows[0].value).toMatchObject({ groupSize: 50, groupCount: 10 });
+    expect(parseTrainings([clusterRow({ ruhma_suurus: '', ruhmi: '8' })]).rows[0].value).toMatchObject({ groupSize: 63, groupCount: 8 });
+    const mismatch = parseTrainings([clusterRow({ ruhmi: '12' })]).rows[0];
+    expect(mismatch.value).toBeNull();
+    expect(mismatch.errors[0]).toMatchObject({ field: 'ruhmi' });
+    expect(mismatch.errors[0].message).toContain('ei klapi');
+    const none = parseTrainings([clusterRow({ ruhma_suurus: '' })]).rows[0];
+    expect(none.errors[0].message).toContain('ruhma_suurus');
+  });
+
+  it('needs a period and no date, and a dated row the other way round', () => {
+    const dated = parseTrainings([clusterRow({ kuupaev: '07.10.2026' })]).rows[0];
+    expect(dated.errors.map((e) => e.field)).toContain('kuupaev');
+    const noPeriod = parseTrainings([clusterRow({ periood_lopp: '' })]).rows[0];
+    expect(noPeriod.errors[0]).toMatchObject({ field: 'periood_lopp' });
+    const backwards = parseTrainings([clusterRow({ periood_lopp: '01.09.2026' })]).rows[0];
+    expect(backwards.errors[0].message).toContain('enne algust');
+
+    const periodOnDated = parseTrainings([trainingRow({ periood_algus: '01.10.2026' })]).rows[0];
+    expect(periodOnDated.errors[0]).toMatchObject({ field: 'periood_algus' });
+    const planOnDated = parseTrainings([trainingRow({ ruhmi: '3' })]).rows[0];
+    expect(planOnDated.errors[0]).toMatchObject({ field: 'ruhmi' });
+  });
+
+  it('refuses a group code — groups are derived, never written', () => {
+    const { rows } = parseTrainings([trainingRow({ kood: 'KL-2026-001-07' })]);
+    expect(rows[0].errors[0].message).toContain('rühma koodi failis ei kirjutata');
+    expect(rows[0].errors[0].message).toContain('KL-2026-001');
+  });
+
+  it('warns about a dated row above the lot’s group ceiling and refuses a cluster group above it [K-06]', () => {
+    const context = { knownLotCodes: LOTS, maxParticipantsPerGroup: { 'OSA-1': 75, 'OSA-2': 75 } };
+    const dated = parseTrainingRows([trainingRow({ osalejate_arv: '90' })], context).rows[0];
+    expect(dated.errors).toEqual([]);
+    expect(dated.warnings[0].message).toContain('ületab hankeosa OSA-1 rühma ülempiiri 75');
+    const cluster = parseTrainingRows([clusterRow({ ruhma_suurus: '90' })], context).rows[0];
+    expect(cluster.value).toBeNull();
+    expect(cluster.errors[0]).toMatchObject({ field: 'ruhma_suurus' });
+    expect(cluster.errors[0].message).toContain('ülempiiri 75');
+    // a lot without a ceiling checks nothing
+    expect(parseTrainingRows([clusterRow({ hankeosa: 'OSA-3', ruhma_suurus: '90' })], context).rows[0].errors).toEqual([]);
+  });
+
+  it('warns when the period is already over, not when it has merely started', () => {
+    expect(parseTrainings([clusterRow()], '2026-11-15').rows[0].warnings).toEqual([]);
+    expect(parseTrainings([clusterRow()], '2027-01-05').rows[0].warnings[0].message).toBe('periood on minevikus');
+  });
+
+  it('expands into G group rows: codes, sizes, the split estimate, the same file row', () => {
+    const parsed = parseTrainings([clusterRow({ osalejate_arv: '480' }), trainingRow({ kood: 'KK-2026-102' })]);
+    const expanded = expandTrainingRows(parsed.rows);
+    expect(expanded).toHaveLength(11);
+    const groups = expanded.filter((r) => r.value?.clusterCode === 'KL-2026-001');
+    expect(groups.map((r) => r.value!.code)).toEqual(
+      Array.from({ length: 10 }, (_, i) => `KL-2026-001-${String(i + 1).padStart(2, '0')}`),
+    );
+    expect(groups.map((r) => r.value!.participantCount)).toEqual([...Array(9).fill(50), 30]);
+    expect(groups.map((r) => r.value!.groupIndex)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(groups.every((r) => r.rowNumber === 2 && r.value!.dateKind === 'period')).toBe(true);
+    expect(groups.reduce((sum, r) => sum + r.value!.estimatedValueEur, 0)).toBe(20000);
+    expect(expanded[10].value).toMatchObject({ code: 'KK-2026-102', dateKind: 'fixed' });
+  });
+
+  it('expands onto the group numbers it is told to — an existing cluster’s free groups', () => {
+    const parsed = parseTrainings([clusterRow({ osalejate_arv: '150', ruhma_suurus: '50' })]);
+    const expanded = expandTrainingRows(parsed.rows, () => [8, 9, 10]);
+    expect(expanded.map((r) => r.value!.code)).toEqual(['KL-2026-001-08', 'KL-2026-001-09', 'KL-2026-001-10']);
   });
 });

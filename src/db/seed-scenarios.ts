@@ -354,6 +354,24 @@ function scenarioDraft(tx: Tx, cast: Cast, now: number, buyerLabel: string): voi
   });
 }
 
+/**
+ * Scenario D — a **cluster** round as a draft [L-28][V-09]: the seed calendar's
+ * KL-2026-001 (500 entrepreneurs in Harju county, October–December, ten groups
+ * of fifty), so the buyer can publish a volume order and the partners can try
+ * „võtan kuni n rühma“ without building one first. Never published here: the
+ * groups are interchangeable only once partners answer, and that is the thing
+ * to try live.
+ */
+function scenarioClusterDraft(tx: Tx, cast: Cast, now: number, buyerLabel: string): void {
+  const lotId = cast.lotId('OSA-2');
+  const groupIds = cast.trainingIds(Array.from({ length: 10 }, (_, i) => `KL-2026-001-${String(i + 1).padStart(2, '0')}`));
+  createRound(buyerCtx(tx, now - H, buyerLabel), {
+    lotId,
+    trainingIds: groupIds,
+    note: 'Mahuline tellimus: 500 väikeettevõtjat Harjumaal okt–dets, 10 rühma × 50. Partner kinnitab rühmade arvu.',
+  });
+}
+
 /* ------------------------------------------------------------------ *
  * entry point
  * ------------------------------------------------------------------ */
@@ -370,6 +388,7 @@ export function seedScenarios(tx: Tx, now: number, buyerLabel: string): Scenario
   scenarioLeftover(tx, cast, now, buyerLabel);
   const openRoundId = scenarioLisaB(tx, cast, now, buyerLabel);
   scenarioDraft(tx, cast, now, buyerLabel);
+  scenarioClusterDraft(tx, cast, now, buyerLabel);
 
   return { openRoundId };
 }

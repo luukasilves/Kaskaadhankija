@@ -27,6 +27,8 @@ export const LOT_SEED: readonly LotRow[] = [
     defaultVisibilityMode: 'dynamic',
     defaultCapOptions: 'trainings',
     thresholdNote: '',
+    // [K-06][L-28] the framework's ceiling on one workshop
+    maxParticipantsPerGroup: 75,
   },
   {
     code: 'OSA-2',
@@ -41,6 +43,7 @@ export const LOT_SEED: readonly LotRow[] = [
     // Both cap kinds, so the seeded Lisa B round shows the choice [L-17].
     defaultCapOptions: 'both',
     thresholdNote: 'Näidise testväärtus — päris raamlepingus on lähtekohaks 25 koolitust.',
+    maxParticipantsPerGroup: 75,
   },
   {
     code: 'OSA-3',
@@ -54,6 +57,7 @@ export const LOT_SEED: readonly LotRow[] = [
     defaultVisibilityMode: 'dynamic',
     defaultCapOptions: 'trainings',
     thresholdNote: '',
+    maxParticipantsPerGroup: null,
   },
   {
     code: 'OSA-4',
@@ -67,6 +71,7 @@ export const LOT_SEED: readonly LotRow[] = [
     defaultVisibilityMode: 'dynamic',
     defaultCapOptions: 'trainings',
     thresholdNote: '',
+    maxParticipantsPerGroup: null,
   },
 ];
 

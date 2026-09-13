@@ -13,6 +13,7 @@
 import Link from 'next/link';
 import { HIND } from '@/domain/pricing';
 import { ActionForm, Disclosure } from '@/components/action-form';
+import { groupIndexRange, UNIT_WORDS, type RoundKind } from '@/domain/clusters';
 import { RankChip, StatusBadge } from '@/components/status-badge';
 import {
   applyAdjustmentAction,
@@ -34,6 +35,9 @@ export interface ReviewRow {
     code: string;
     title: string;
     eventDate: string;
+    /** [L-28] set on a cluster's group, so the code list can collapse */
+    clusterCode?: string | null;
+    groupIndex?: number | null;
     workshopType: string;
     place: string;
     targetGroup: string;
@@ -54,9 +58,27 @@ export interface LeftoverRef {
   value: string;
 }
 
+/** „KK-2026-101, KK-2026-102“ — or „KL-2026-001: 6 rühma (05–10)“ for a cluster's groups [K-10]. */
+function codesText(list: ReviewRow['finalTrainings']): string {
+  const parts: string[] = [];
+  const seen = new Set<string>();
+  for (const t of list) {
+    if (!t.clusterCode) {
+      parts.push(t.code);
+      continue;
+    }
+    if (seen.has(t.clusterCode)) continue;
+    seen.add(t.clusterCode);
+    const indices = list.filter((g) => g.clusterCode === t.clusterCode).map((g) => g.groupIndex ?? 0);
+    parts.push(`${t.clusterCode}: ${indices.length} rühma (${groupIndexRange(indices)})`);
+  }
+  return parts.join(', ');
+}
+
 export function ReviewPanel({
   roundId,
   lotCode,
+  roundKind = 'fixed',
   confirmed,
   canWrite,
   threshold,
@@ -69,6 +91,8 @@ export function ReviewPanel({
   roundId: string;
   lotId: string;
   lotCode: string;
+  /** [V-09] the unit word: koolitust / rühma */
+  roundKind?: RoundKind;
   confirmed: boolean;
   /** a member reads the proposal; adjusting and confirming are an admin's [R-01] */
   canWrite: boolean;
@@ -81,6 +105,7 @@ export function ReviewPanel({
 }) {
   const adjusted = rows.filter((row) => row.adjustment !== null);
   const totalAllocated = rows.reduce((sum, row) => sum + row.finalCount, 0);
+  const unit = UNIT_WORDS[roundKind];
   const changedByAdjustment = rows.some((row) => row.finalCount !== row.proposedCount);
 
   return (
@@ -141,7 +166,7 @@ export function ReviewPanel({
                     {row.markCount}
                     {row.cap !== null && (
                       <span className="ml-1 text-[12px] text-[var(--color-muted)]">
-                        (piir {row.cap} {row.capKind === 'participants' ? 'osalejat' : 'koolitust'})
+                        (piir {row.cap} {row.capKind === 'participants' ? 'osalejat' : unit.partitive})
                       </span>
                     )}
                   </td>
@@ -163,7 +188,7 @@ export function ReviewPanel({
                         data-testid={`final-codes-${row.rank}`}
                         className="mt-0.5 text-[11px] font-normal text-[var(--color-muted)]"
                       >
-                        {row.finalTrainings.map((t) => t.code).join(', ')}
+                        {codesText(row.finalTrainings)}
                       </div>
                     )}
                   </td>
@@ -311,12 +336,12 @@ export function ReviewPanel({
           </p>
           <ul className="mt-2 text-[13px]">
             <li>
-              Jaotatakse <strong>{totalAllocated}</strong> koolitust{' '}
+              Jaotatakse <strong>{totalAllocated}</strong> {unit.partitive}{' '}
               {rows.filter((r) => r.finalCount > 0).length} partnerile
             </li>
             {leftovers.length > 0 && (
               <li>
-                Jääk: <strong>{leftovers.length}</strong> koolitust
+                Jääk: <strong>{leftovers.length}</strong> {unit.partitive}
               </li>
             )}
             {adjusted.length > 0 && (

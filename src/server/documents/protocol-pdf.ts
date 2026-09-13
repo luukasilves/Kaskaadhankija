@@ -20,7 +20,7 @@ import type {
   CustomTableLayout,
   TDocumentDefinitions,
 } from 'pdfmake/interfaces';
-import { formatDateTime, formatDateTimeShort, formatEur, formatIsoDay, formatEurCents } from '@/domain/format';
+import { formatDateTime, formatDateTimeShort, formatEur, formatIsoDay, formatEurCents, formatEventWhen } from '@/domain/format';
 import {
   ADJUSTMENT_KIND_LABELS,
   BID_KIND_LABELS,
@@ -32,6 +32,9 @@ import {
   respondingPartnerCount,
   type RoundProtocolData,
   allocationByPartner,
+  clusterGroupsText,
+  clusterSummary,
+  isClusterProtocol,
 } from '@/domain/round-protocol';
 import { NOTIFICATION_TYPE_LABELS } from '@/domain/round-statuses';
 import { frameworkTitleLine } from '@/domain/framework';
@@ -319,25 +322,41 @@ function buildDefinition(data: RoundProtocolData, hash: string): TDocumentDefini
     );
   }
 
-  /* 2. trainings */
+  /* 2. trainings — a cluster's groups under one header row [L-28] */
   const live = data.trainings.filter((t) => t.withdrawnAt === null);
   const trainingByCode = new Map(data.trainings.map((t) => [t.code, t] as const));
   const withdrawn = data.trainings.filter((t) => t.withdrawnAt !== null);
+  const clusters = clusterSummary(data);
+  const isCluster = isClusterProtocol(data);
+  const trainingRows: string[][] = [];
+  const headed = new Set<string>();
+  for (const t of live) {
+    if (t.clusterCode && !headed.has(t.clusterCode)) {
+      headed.add(t.clusterCode);
+      const summary = clusters.find((c) => c.clusterCode === t.clusterCode);
+      trainingRows.push([
+        `Klaster ${t.clusterCode}`,
+        `${t.title} · ${summary?.periodText ?? formatEventWhen(t)} · ${summary?.groupCount ?? 0} rühma, ${summary?.participantCount ?? 0} osalejat kokku`,
+        '', '', '', '', '', '',
+      ]);
+    }
+    trainingRows.push([
+      t.code,
+      t.title,
+      formatEventWhen(t),
+      t.workshopType,
+      `${t.county}${t.locationText ? `, ${t.locationText}` : ''}`,
+      t.targetGroup ?? DASH,
+      String(t.participantCount),
+      t.language,
+    ]);
+  }
   content.push(
-    heading(`2. Vooru koolitused (${live.length})`),
+    heading(isCluster ? `2. Vooru klastrid ja rühmad (${live.length} rühma)` : `2. Vooru koolitused (${live.length})`),
     table(
-      ['Kood', 'Nimetus', 'Kuupäev', 'Formaat', 'Maakond', 'Sihtrühm', 'Osalejaid', 'Keel'],
+      ['Kood', 'Nimetus', isCluster ? 'Periood' : 'Kuupäev', 'Formaat', 'Maakond', 'Sihtrühm', 'Osalejaid', 'Keel'],
       [11, 27, 10, 10, 17, 13, 7, 5],
-      live.map((t) => [
-        t.code,
-        t.title,
-        formatIsoDay(t.eventDate),
-        t.workshopType,
-        `${t.county}${t.locationText ? `, ${t.locationText}` : ''}`,
-        t.targetGroup ?? DASH,
-        String(t.participantCount),
-        t.language,
-      ]),
+      trainingRows,
       { empty: 'Voorus ei olnud ühtki koolitust.' },
     ),
   );
@@ -453,7 +472,7 @@ function buildDefinition(data: RoundProtocolData, hash: string): TDocumentDefini
           return [
             row.trainingCode,
             training?.title ?? DASH,
-            training ? formatIsoDay(training.eventDate) : DASH,
+            training ? formatEventWhen(training) : DASH,
             training?.workshopType ?? DASH,
             row.proposed ?? 'jääk',
             row.final ?? 'jääk',
@@ -515,11 +534,49 @@ function buildDefinition(data: RoundProtocolData, hash: string): TDocumentDefini
           group.trainings.map((t) => [
             t.code,
             t.title,
-            formatIsoDay(t.eventDate),
+            formatEventWhen(t),
             t.workshopType,
             `${t.county}${t.locationText ? `, ${t.locationText}` : ''}`,
             t.targetGroup ?? DASH,
             String(t.participantCount),
+          ]),
+        ),
+      );
+    }
+
+    /* 6b. clusters: who holds how many groups of each [K-10][L-28] */
+    if (clusters.length > 0) {
+      content.push(
+        { text: 'Klastrite kokkuvõte', style: 'h3', margin: [0, 6, 0, 4] },
+        paragraph(
+          'Klastri rühmad on omavahel vahetatavad: iga partner sai klastrist esimesed veel jaotamata rühmad oma kinnitatud arvu ulatuses. Rühmade toimumisajad perioodi sees lepitakse kokku pärast otsust.',
+        ),
+        table(
+          ['Klaster', 'Nimetus', 'Periood', 'Rühmi', 'Täitja', 'Rühmi', 'Rühmad', 'Osalejaid'],
+          [11, 22, 11, 6, 22, 6, 12, 10],
+          clusters.flatMap((cluster) => [
+            ...cluster.holders.map((holder, index) => [
+              index === 0 ? cluster.clusterCode : '',
+              index === 0 ? cluster.title : '',
+              index === 0 ? cluster.periodText : '',
+              index === 0 ? String(cluster.groupCount) : '',
+              `${holder.rank}. ${holder.partnerName}`,
+              String(holder.groupCount),
+              clusterGroupsText(holder.indices),
+              String(holder.participantCount),
+            ]),
+            ...(cluster.leftoverIndices.length > 0
+              ? [[
+                  cluster.holders.length === 0 ? cluster.clusterCode : '',
+                  cluster.holders.length === 0 ? cluster.title : '',
+                  cluster.holders.length === 0 ? cluster.periodText : '',
+                  cluster.holders.length === 0 ? String(cluster.groupCount) : '',
+                  'jääk',
+                  String(cluster.leftoverIndices.length),
+                  clusterGroupsText(cluster.leftoverIndices),
+                  '',
+                ]]
+              : []),
           ]),
         ),
       );

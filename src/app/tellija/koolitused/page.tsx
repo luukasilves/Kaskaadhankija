@@ -13,7 +13,8 @@ import { eq } from 'drizzle-orm';
 import { getDb } from '@/db';
 import { buyerCanWrite } from '@/server/auth/actor';
 import { lots, partners, lotPartners, trainings } from '@/db/schema';
-import { formatEur, formatIsoDay, formatMonthLabel, monthKey } from '@/domain/format';
+import { describeGroups } from '@/domain/clusters';
+import { formatEur, formatEventWhen, formatMonthLabel, formatPeriod, monthKey } from '@/domain/format';
 import {
   TARGET_GROUPS,
   TRAINING_STATUS_LABELS,
@@ -50,6 +51,10 @@ export default async function TrainingsPage({
       title: trainings.title,
       workshopType: trainings.workshopType,
       eventDate: trainings.eventDate,
+      eventEnd: trainings.eventEnd,
+      dateKind: trainings.dateKind,
+      clusterCode: trainings.clusterCode,
+      groupIndex: trainings.groupIndex,
       county: trainings.county,
       targetGroup: trainings.targetGroup,
       participantCount: trainings.participantCount,
@@ -197,6 +202,20 @@ export default async function TrainingsPage({
                       </td>
                     </tr>
                   )}
+                  {/* [L-28] a cluster's groups sit under one header row */}
+                  {row.clusterCode && (index === 0 || filtered[index - 1]!.clusterCode !== row.clusterCode) && (
+                    <tr data-testid="cluster-header">
+                      <td colSpan={12} className="kh-td text-[12.5px] font-semibold">
+                        Klaster {row.clusterCode} · {row.title} · {formatPeriod(row.eventDate, row.eventEnd)} ·{' '}
+                        {describeGroups(
+                          filtered
+                            .filter((r) => r.clusterCode === row.clusterCode)
+                            .map((r) => ({ groupIndex: r.groupIndex ?? 0, participantCount: r.participantCount })),
+                          [],
+                        )}
+                      </td>
+                    </tr>
+                  )}
                 <tr>
                   <td className="kh-td font-semibold whitespace-nowrap">{row.code}</td>
                   <td className="kh-td">{row.title}</td>
@@ -205,7 +224,7 @@ export default async function TrainingsPage({
                     {WORKSHOP_TYPE_LABELS[row.workshopType]}
                   </td>
                   <td className="kh-td whitespace-nowrap tabular-nums">
-                    {formatIsoDay(row.eventDate)}
+                    {formatEventWhen(row)}
                   </td>
                   <td className="kh-td text-[13px] whitespace-nowrap">{row.county}</td>
                   <td className="kh-td text-[13px] whitespace-nowrap">

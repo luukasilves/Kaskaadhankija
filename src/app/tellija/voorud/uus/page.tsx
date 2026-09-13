@@ -12,7 +12,7 @@ import { getDb } from '@/db';
 import { buyerCanWrite } from '@/server/auth/actor';
 import { ReadOnlyNote } from '@/components/read-only-note';
 import { lotPartners, lots, trainings } from '@/db/schema';
-import { formatEur, formatIsoDay } from '@/domain/format';
+import { formatEur, formatEventWhen } from '@/domain/format';
 import { TARGET_GROUPS } from '@/domain/round-statuses';
 import { WORKSHOP_TYPE_LABELS } from '@/domain/statuses';
 import { NewRoundForm } from './new-round-form';
@@ -136,12 +136,15 @@ export default async function NewRoundPage({
           code: t.code,
           title: t.title,
           workshopType: WORKSHOP_TYPE_LABELS[t.workshopType],
-          eventDate: formatIsoDay(t.eventDate),
+          eventDate: formatEventWhen(t),
           county: t.county,
           targetGroup: TARGET_GROUPS[t.targetGroup],
           participantCount: t.participantCount,
           value: formatEur(t.estimatedValueEur),
           isLeftover: t.status === 'leftover',
+          dateKind: t.dateKind,
+          clusterCode: t.clusterCode,
+          groupIndex: t.groupIndex,
         }))}
       />
     </div>

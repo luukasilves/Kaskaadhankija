@@ -365,6 +365,39 @@ describe('0013_notice_preferences on a populated v2.6 database', () => {
   });
 });
 
+describe('0014_clusters on a populated v2.7 database', () => {
+  it('adds the cluster columns with dated defaults and gives the sample lots their group ceiling [L-28][K-06]', () => {
+    const raw = databaseThrough('0013_notice_preferences');
+    raw
+      .prepare("INSERT INTO lots (id, code, name, created_at) VALUES ('l1', 'OSA-1', 'Hankeosa 1', 1000), ('l3', 'OSA-3', 'Veeb', 1000)")
+      .run();
+    raw
+      .prepare(
+        `INSERT INTO trainings (id, code, lot_id, title, workshop_type, event_date, county, target_group, participant_count, language, created_at, updated_at)
+         VALUES ('t1', 'KK-2026-101', 'l1', 'Koolitus', 'tootuba_1', '2026-10-05', 'Harju maakond', 'kov', 20, 'et', 1000, 1000)`,
+      )
+      .run();
+    raw
+      .prepare("INSERT INTO rounds (id, code, lot_id, created_at, created_by) VALUES ('r1', 'VOOR-2026-001', 'l1', 1000, 'test')")
+      .run();
+
+    migrate(drizzle(raw, { schema }), { migrationsFolder: folder });
+
+    expect(raw.prepare('SELECT date_kind, cluster_code, group_index FROM trainings').all()).toEqual([
+      { date_kind: 'fixed', cluster_code: null, group_index: null },
+    ]);
+    expect(raw.prepare('SELECT kind FROM rounds').all()).toEqual([{ kind: 'fixed' }]);
+    expect(raw.prepare('SELECT code, max_participants_per_group FROM lots ORDER BY code').all()).toEqual([
+      { code: 'OSA-1', max_participants_per_group: 75 },
+      { code: 'OSA-3', max_participants_per_group: null },
+    ]);
+    const triggers = raw.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type = 'trigger'").get() as { n: number };
+    expect(triggers.n).toBe(6);
+    expect(raw.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+    raw.close();
+  });
+});
+
 describe('0007_acting_via on a populated v2 database', () => {
   it('adds the two columns without disturbing the append-only trail [L-08]', () => {
     const raw = v2Database();

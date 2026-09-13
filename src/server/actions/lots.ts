@@ -21,6 +21,8 @@ export async function updateLotConfigAction(form: FormData): Promise<ActionOutco
   const deadlineLocalTime = fieldText(form, 'deadlineLocalTime') || '17:00';
   const reviewWorkingDays = fieldNumber(form, 'reviewWorkingDays');
   const workloadThreshold = fieldNumber(form, 'workloadThreshold');
+  // [K-06][L-28] empty means no ceiling
+  const maxParticipantsPerGroup = fieldText(form, 'maxParticipantsPerGroup').trim() === '' ? null : fieldNumber(form, 'maxParticipantsPerGroup');
   const defaultVisibilityMode = fieldText(form, 'defaultVisibilityMode') as VisibilityMode;
   const rawCapOptions = fieldText(form, 'defaultCapOptions') || 'trainings';
   if (!isCapOptions(rawCapOptions)) return fail('Tundmatu piirmäära valik.');
@@ -38,6 +40,9 @@ export async function updateLotConfigAction(form: FormData): Promise<ActionOutco
   if (!/^\d{2}:\d{2}$/.test(deadlineLocalTime)) {
     return fail('Kellaaeg peab olema kujul 17:00.');
   }
+  if (maxParticipantsPerGroup !== null && (!Number.isInteger(maxParticipantsPerGroup) || maxParticipantsPerGroup < 1)) {
+    return fail('Rühma osalejate ülempiir peab olema vähemalt 1 või tühi.');
+  }
 
   try {
     await adminWrite(
@@ -54,13 +59,14 @@ export async function updateLotConfigAction(form: FormData): Promise<ActionOutco
             workloadThreshold,
             defaultVisibilityMode,
             defaultCapOptions,
+            maxParticipantsPerGroup,
           })
           .where(eq(lots.id, lotId))
           .run();
 
         logAudit(ctx, {
           eventType: 'lot.config_changed',
-          summary: `${before.code} kaskaadi seaded muudetud: ${responseDeadlineWorkingDays} tööpäeva kell ${deadlineLocalTime}, töömahu piir ${workloadThreshold}, nähtavus ${defaultVisibilityMode === 'dynamic' ? 'dünaamiline' : 'suletud'}, piirmäära liigid ${defaultCapOptions}`,
+          summary: `${before.code} kaskaadi seaded muudetud: ${responseDeadlineWorkingDays} tööpäeva kell ${deadlineLocalTime}, töömahu piir ${workloadThreshold}, nähtavus ${defaultVisibilityMode === 'dynamic' ? 'dünaamiline' : 'suletud'}, piirmäära liigid ${defaultCapOptions}, rühma ülempiir ${maxParticipantsPerGroup ?? 'puudub'}`,
           lotId,
           before: {
             responseDeadlineWorkingDays: before.responseDeadlineWorkingDays,
@@ -69,6 +75,7 @@ export async function updateLotConfigAction(form: FormData): Promise<ActionOutco
             workloadThreshold: before.workloadThreshold,
             defaultVisibilityMode: before.defaultVisibilityMode,
             defaultCapOptions: before.defaultCapOptions,
+            maxParticipantsPerGroup: before.maxParticipantsPerGroup,
           },
           after: {
             responseDeadlineWorkingDays,
@@ -77,6 +84,7 @@ export async function updateLotConfigAction(form: FormData): Promise<ActionOutco
             workloadThreshold,
             defaultVisibilityMode,
             defaultCapOptions,
+            maxParticipantsPerGroup,
           },
         });
       },

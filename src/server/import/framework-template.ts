@@ -94,6 +94,12 @@ const EXPLANATION_ROWS: ReadonlyArray<Record<string, string>> = [
   },
   {
     leht: 'Hankeosad',
+    väli: 'max_osalejaid_ruhmas',
+    selgitus:
+      'Ühe rühma (töötoa) osalejate ülempiir raamlepingu järgi, nt 75. Tühi = piiri ei ole. Kindla kuupäevaga koolitus, mille max osalejaid on üle piiri, saab impordil hoiatuse; klastri rühm, mis on piirist suurem, lükatakse tagasi.',
+  },
+  {
+    leht: 'Hankeosad',
     väli: '(puuduv hankeosa)',
     selgitus:
       'Failist puuduvat hankeosa ei kustutata kunagi. Kui valid „lõpeta puuduvad“, arvatakse see raamhankest välja ainult siis, kui tal ei ole ühtki mustandit, avatud ega ootel vooru.',

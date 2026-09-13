@@ -216,7 +216,8 @@ describe('ülejäänud stsenaariumid', () => {
       db.select({ id: rounds.id, code: rounds.code, status: rounds.status }).from(rounds).all(),
     );
     expect(finished.filter((r) => r.status === 'confirmed')).toHaveLength(2);
-    expect(finished.filter((r) => r.status === 'draft')).toHaveLength(1);
+    // scenario C (dated) and scenario D (the cluster) [L-28]
+    expect(finished.filter((r) => r.status === 'draft')).toHaveLength(2);
     expect(finished.filter((r) => r.status === 'open')).toHaveLength(1);
 
     // [L-25] no orders: the decision is made outside the application, so the

@@ -20,7 +20,7 @@ specialists edit it directly.
 
 | | |
 |---|---|
-| **[`docs/kaskaadi-ariloogika.md`](docs/kaskaadi-ariloogika.md)** | The business logic: 93 numbered rules, decisions with their alternatives, a traceability appendix, and a worked example (Lisa B). **The source of truth.** |
+| **[`docs/kaskaadi-ariloogika.md`](docs/kaskaadi-ariloogika.md)** | The business logic: 96 numbered rules, decisions with their alternatives, a traceability appendix, and a worked example (Lisa B). **The source of truth.** |
 | **[`PLAN.md`](PLAN.md)** | Why the design is what it is, and what is deliberately structural |
 | **`src/`** | The application: buyer and partner screens, the round engine, the framework and round imports, the protocol |
 | **[`demo/`](demo/)** | The v1 single-file HTML demo of the *sequential* cascade — still useful, no server needed |
@@ -206,6 +206,15 @@ The file may name the window it wants: `avaldamine` and `vastamistahtaeg`
 **plan, not a fact** — the draft page shows it, the publish form offers it, and
 the real instants are fixed at publication, where the floor is still enforced
 from the moment publication actually happens [L-20].
+
+A row of the *Koolitused* sheet can also be a **cluster** — a volume order such as "500 participants
+in Harju county, October to December" (`KL-2026-001`, `periood_algus`/`periood_lopp`, `ruhma_suurus` or
+`ruhmi`). The import turns it into that many identical **groups** (`KL-2026-001-01…-10`), each an
+ordinary training with a period instead of a date; a round is of one kind, dated or cluster [V-09].
+Partners answer a cluster with a *count* ("võtan kuni 6 rühma") and the groups are interchangeable:
+each partner gets the first still-unallocated groups of the cluster in rank order [K-10][L-28]. The
+lot carries the framework's ceiling on one group (`max_osalejaid_ruhmas`, 75 for the sample OSA-1 and
+OSA-2): a dated training above it draws a warning, a cluster group above it is refused [K-06].
 
 ### Caps by trainings or by trainees
 

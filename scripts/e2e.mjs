@@ -448,6 +448,70 @@ async function walkPartnerVisibility(page, server) {
     await page.getByTestId('frozen-threshold').innerText(),
   );
   await page.screenshot({ path: join(SHOTS, '10-buyer-matrix.png'), fullPage: true });
+
+  /* [L-28][K-10] the seeded cluster: ten groups under one header on the
+     calendar, one row in the buyer's matrix, a count on the partner's card */
+  await page.goto(`${base}/tellija/koolitused?hankeosa=${LISA_B_LOT}`);
+  await page.waitForSelector('h1', { timeout: 20_000 });
+  check(
+    'the calendar shows the seeded cluster as one header over its groups [L-28]',
+    (await page.getByTestId('cluster-header').count()) === 1 &&
+      (await appHtml(page)).includes('10 rühma × kuni 50 osalejat (500 kokku)'),
+  );
+  await page.goto(`${base}/tellija/voorud`);
+  await page.waitForSelector('h1', { timeout: 20_000 });
+  const clusterLink = page.locator('tr', { hasText: 'klastrivoor' }).locator('a').first();
+  check('the rounds list marks the seeded cluster draft', (await clusterLink.count()) === 1);
+  const clusterHref = await clusterLink.getAttribute('href');
+  await page.goto(`${base}${clusterHref}`);
+  await page.waitForSelector('h1', { timeout: 20_000 });
+  check(
+    'the cluster round is labelled and its matrix is one row per cluster [V-09][N-01]',
+    (await appHtml(page)).includes('Klastrivoor') && (await page.getByTestId('cluster-matrix').count()) === 1,
+  );
+  const clusterDeadline = await publishWithShortDeadline(page);
+  note(`klastrivooru vastamistähtaeg ${new Date(clusterDeadline).toISOString()}`);
+  const clusterRoundId = new URL(page.url()).pathname.split('/').pop();
+
+  /* koht 3 of OSA-2 asks for four groups — a count, not four rows [K-10] */
+  await switchTo(page, 'Tehisaru');
+  await page.goto(`${base}/partner/voorud/${clusterRoundId}`);
+  await page.waitForSelector('[data-testid="cluster-card"]', { timeout: 20_000 });
+  check(
+    'the partner sees the cluster as one card with a count field [K-10]',
+    (await page.getByTestId('cluster-card').count()) === 1 && (await page.getByTestId('cluster-count').count()) === 1,
+  );
+  await page.locator('input[aria-label="Rühmi klastris KL-2026-001"]').fill('4');
+  await page.getByTestId('confirm-marks').locator('button').click();
+  await page.waitForFunction(() => document.body.textContent.includes('Viimane kinnitus'), null, {
+    timeout: 20_000,
+  });
+  const clusterStatus = await page.getByTestId('confirmation-status').textContent();
+  check('the confirmation counts groups', clusterStatus.includes('4 rühma'), clusterStatus);
+  check(
+    'and the card projects them all, since nobody above asked',
+    (await page.getByTestId('cluster-projected').textContent()).includes('4 rühma'),
+    await page.getByTestId('cluster-projected').textContent(),
+  );
+  const cardHtml = await appHtml(page);
+  check(
+    '[N-04] the card names no other partner',
+    !cardHtml.includes('AI Akadeemia') && !cardHtml.includes('Digioskus'),
+    leakDetail(cardHtml, ['AI Akadeemia', 'Digioskus']),
+  );
+  await page.screenshot({ path: join(SHOTS, '11-cluster-card.png'), fullPage: true });
+
+  /* the buyer's matrix shows the request as a count and who would get what */
+  await switchTo(page, BUYER);
+  await page.goto(`${base}/tellija/voorud/${clusterRoundId}`);
+  await page.waitForSelector('[data-testid="cluster-matrix"]', { timeout: 20_000 });
+  const clusterMatrix = await page.getByTestId('cluster-matrix').innerText();
+  check(
+    'the buyer’s matrix shows the count and the projected holder of the first four groups [K-10]',
+    clusterMatrix.includes('saab 4') && clusterMatrix.includes('4 rühma (01–04)'),
+    clusterMatrix.replace(/\s+/g, ' ').slice(0, 300),
+  );
+  await page.screenshot({ path: join(SHOTS, '12-cluster-matrix.png'), fullPage: true });
 }
 
 /* ------------------------------------------------------------------ *

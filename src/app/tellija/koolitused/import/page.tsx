@@ -13,7 +13,7 @@ import { buyerCanWrite } from '@/server/auth/actor';
 import { ReadOnlyNote } from '@/components/read-only-note';
 import { importBatches, lots } from '@/db/schema';
 import { TRAINING_COLUMNS, TRAINING_OPTIONAL_COLUMNS } from '@/domain/import-rows';
-import { formatDateTimeShort } from '@/domain/format';
+import { formatDateTimeShort, formatEventWhen } from '@/domain/format';
 import { TARGET_GROUPS } from '@/domain/round-statuses';
 import { WORKSHOP_TYPE_LABELS } from '@/domain/statuses';
 import type { StoredRow } from '@/server/import/trainings-import';
@@ -72,7 +72,7 @@ export default async function TrainingsImportPage({
             code: row.value?.code ?? '',
             title: row.value?.title ?? '',
             lotCode: row.value?.lotCode ?? '',
-            eventDate: row.value?.eventDate ?? '',
+            eventDate: row.value ? formatEventWhen(row.value) : '',
             county: row.value?.county ?? '',
             errors: row.errors,
             warnings: row.warnings,
@@ -117,16 +117,18 @@ export default async function TrainingsImportPage({
             </thead>
             <tbody>
               {[
-                ['kood', true, 'kujul KK-2026-101; sama koodiga rida uuendab olemasolevat koolitust'],
+                ['kood', true, 'kujul KK-2026-101 (koolitus) või KL-2026-001 (klaster — mahuline tellimus rühmadena); sama koodiga rida uuendab olemasolevat'],
                 ['hankeosa', true, lotCodes.join(', ')],
                 ['nimetus', true, '3–160 tähemärki'],
                 ['formaat', true, Object.values(WORKSHOP_TYPE_LABELS).join(', ')],
-                ['kuupaev', true, '07.10.2026 või 2026-10-07'],
+                ['kuupaev', true, '07.10.2026 või 2026-10-07; klastri real tühi'],
                 ['lopp_kuupaev', false, 'mitmepäevase sündmuse lõpp'],
+                ['periood_algus, periood_lopp', false, 'ainult klastri real (KL-kood): periood, mille jooksul rühmad toimuvad'],
                 ['maakond', true, 'nt Harju maakond, Harjumaa, Harju, või Veebipõhine'],
                 ['asukoht', false, 'täpsem asukoht või platvorm'],
                 ['sihtruhm', true, Object.values(TARGET_GROUPS).join(', ')],
-                ['osalejate_arv', true, 'maksimaalne osalejate arv, 1–2000'],
+                ['osalejate_arv', true, 'maksimaalne osalejate arv, 1–2000; klastri real kogu klastri osalejate arv'],
+                ['ruhma_suurus, ruhmi', false, 'ainult klastri real: rühma suurus (kuni hankeosa rühma ülempiir) ja/või rühmade arv (1–99); üks piisab, viimane rühm kannab jäägi'],
                 ['keel', true, 'et, ru, en'],
                 ['hinnanguline_maksumus', false, 'tellija sisemine hinnang (€); partnerid seda ei näe — nende hind tuleb raamlepingust'],
                 ['markused', false, 'kuni 600 tähemärki'],

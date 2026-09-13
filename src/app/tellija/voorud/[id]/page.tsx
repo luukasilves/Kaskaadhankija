@@ -14,7 +14,8 @@ import { eq } from 'drizzle-orm';
 import { getDb } from '@/db';
 import { lots, roundTrainings, rounds, trainings } from '@/db/schema';
 import { allocate } from '@/domain/allocate';
-import { formatDateTimeShort, formatEur, formatIsoDay, formatTime, tallinnLocalInput } from '@/domain/format';
+import { describeGroups, groupIndexRange, UNIT_WORDS } from '@/domain/clusters';
+import { formatDateTimeShort, formatEur, formatEventWhen, formatIsoDay, formatPeriod, formatTime, tallinnLocalInput } from '@/domain/format';
 import { CAP_OPTIONS_LABELS, capLabel,
   PARTICIPANT_OUTCOME_LABELS,
   RESPONSE_STATE_LABELS,
@@ -23,6 +24,7 @@ import { CAP_OPTIONS_LABELS, capLabel,
   VISIBILITY_MODE_LABELS,
 } from '@/domain/round-statuses';
 import { WORKSHOP_TYPE_LABELS } from '@/domain/statuses';
+import { Disclosure } from '@/components/action-form';
 import { AutoRefresh } from '@/components/auto-refresh';
 import { Countdown } from '@/components/countdown';
 import { RankChip, StatusBadge } from '@/components/status-badge';
@@ -51,6 +53,7 @@ export default async function RoundDetail({ params }: { params: Promise<{ id: st
       id: rounds.id,
       code: rounds.code,
       status: rounds.status,
+      kind: rounds.kind,
       note: rounds.note,
       visibilityMode: rounds.visibilityMode,
       capOptions: rounds.capOptions,
@@ -137,11 +140,37 @@ export default async function RoundDetail({ params }: { params: Promise<{ id: st
   const nonResponders = partnerColumns.filter(
     (column) => column.participant.excludedAt === null && !column.latest,
   );
-  const unmarked = trainingRows.filter(
-    (training) =>
-      training.withdrawnAt === null &&
-      !partnerColumns.some((column) => column.confirmedMarks.has(training.id)),
-  );
+  const isCluster = round.kind === 'cluster';
+  const unit = UNIT_WORDS[round.kind];
+  // In a cluster round a mark is a count, so „unmarked“ is meaningless per
+  // group; what the buyer needs is which groups the projection leaves over.
+  const unmarked = isCluster
+    ? []
+    : trainingRows.filter(
+        (training) =>
+          training.withdrawnAt === null &&
+          !partnerColumns.some((column) => column.confirmedMarks.has(training.id)),
+      );
+
+  /* [K-10] the matrix collapses to one row per cluster: counts per partner */
+  const clusterRows = isCluster
+    ? [...new Set(trainingRows.filter((t) => t.clusterCode).map((t) => t.clusterCode as string))].map((clusterCode) => {
+        const groups = trainingRows
+          .filter((t) => t.clusterCode === clusterCode)
+          .sort((a, b) => (a.groupIndex ?? 0) - (b.groupIndex ?? 0));
+        const live = groups.filter((g) => g.withdrawnAt === null);
+        const likes = live.map((g) => ({ groupIndex: g.groupIndex ?? 0, participantCount: g.participantCount }));
+        const holders = new Map<string, number[]>();
+        for (const g of live) {
+          const holder = shown?.byTraining[g.id];
+          if (!holder) continue;
+          holders.set(holder, [...(holders.get(holder) ?? []), g.groupIndex ?? 0]);
+        }
+        const leftoverIndices = live.filter((g) => shown && !shown.byTraining[g.id]).map((g) => g.groupIndex ?? 0);
+        return { clusterCode, head: groups[0]!, groups, live, likes, holders, leftoverIndices };
+      })
+    : [];
+  const leftoverGroups = clusterRows.filter((c) => c.leftoverIndices.length > 0);
 
   return (
     <div className="space-y-5">
@@ -155,6 +184,7 @@ export default async function RoundDetail({ params }: { params: Promise<{ id: st
             label={ROUND_STATUS_LABELS[round.status]}
             tone={ROUND_STATUS_TONES[round.status]}
           />
+          {isCluster && <StatusBadge label="Klastrivoor" tone="info" />}
           {round.status === 'closed' && (
             <Link href={`/tellija/voorud/${id}/ulevaatus`} className="kh-btn kh-btn-primary">
               Ava ülevaatus
@@ -302,7 +332,7 @@ export default async function RoundDetail({ params }: { params: Promise<{ id: st
             id: t.id,
             code: t.code,
             title: t.title,
-            eventDate: formatIsoDay(t.eventDate),
+            eventDate: formatEventWhen(t),
           }))}
         />
       )}
@@ -339,7 +369,7 @@ export default async function RoundDetail({ params }: { params: Promise<{ id: st
                 <th className="kh-th">Partner</th>
                 <th className="kh-th">Vastus</th>
                 <th className="kh-th">Kinnitatud</th>
-                <th className="kh-th">Märkeid</th>
+                <th className="kh-th">{isCluster ? 'Rühmi küsitud' : 'Märkeid'}</th>
                 <th className="kh-th">Piirmäär</th>
                 <th className="kh-th">{finalResult ? 'Lõplikus jaotuses' : 'Prognoosis'}</th>
               </tr>
@@ -407,7 +437,11 @@ export default async function RoundDetail({ params }: { params: Promise<{ id: st
                       </span>
                     )}
                   </td>
-                  <td className="kh-td tabular-nums">{capLabel(column.cap, column.capKind)}</td>
+                  <td className="kh-td tabular-nums">
+                    {isCluster && column.cap !== null && column.capKind !== 'participants'
+                      ? `${column.cap} rühma`
+                      : capLabel(column.cap, column.capKind)}
+                  </td>
                   <td className="kh-td font-semibold tabular-nums">{column.projectedCount}</td>
                 </tr>
               ))}
@@ -419,13 +453,131 @@ export default async function RoundDetail({ params }: { params: Promise<{ id: st
       {/* ---------------- the matrix ---------------- */}
       <section className="kh-card">
         <div className="border-b border-[var(--color-border)] px-4 py-3">
-          <h2>Maatriks — koolitused × partnerid</h2>
+          <h2>{isCluster ? 'Maatriks — klastrid × partnerid' : 'Maatriks — koolitused × partnerid'}</h2>
           <p className="mt-0.5 text-[12.5px] text-[var(--color-muted)]">
-            <strong>✓</strong> kinnitatud märge · <strong>◌</strong> kinnitamata mustand ·{' '}
-            <strong>tume taust</strong> {finalResult ? 'lõplik täitja' : 'prognoositud täitja'}
+            {isCluster ? (
+              <>
+                Arv on partneri kinnitatud rühmade soov klastris (<strong>◌</strong> kinnitamata mustand) ·{' '}
+                <strong>tume taust</strong> {finalResult ? 'lõplikud täitjad' : 'prognoositud täitjad'} rühmade arvuga.
+                Rühmad on vahetatavad: iga partner saab klastrist esimesed veel jaotamata rühmad [K-10].
+              </>
+            ) : (
+              <>
+                <strong>✓</strong> kinnitatud märge · <strong>◌</strong> kinnitamata mustand ·{' '}
+                <strong>tume taust</strong> {finalResult ? 'lõplik täitja' : 'prognoositud täitja'}
+              </>
+            )}
           </p>
         </div>
-        <div className="overflow-x-auto">
+        {isCluster && (
+          <div className="overflow-x-auto" data-testid="cluster-matrix">
+            <table className="w-full">
+              <thead>
+                <tr>
+                  <th className="kh-th">Klaster</th>
+                  <th className="kh-th">Periood</th>
+                  {partnerColumns.map((column) => (
+                    <th key={column.participant.lotPartnerId} className="kh-th text-center">
+                      <div className="flex flex-col items-center gap-0.5">
+                        <RankChip rank={column.participant.rankAtPublication} />
+                        <span className="max-w-[9rem] truncate text-[11px] normal-case">
+                          {column.participant.partnerName}
+                        </span>
+                      </div>
+                    </th>
+                  ))}
+                  <th className="kh-th">{finalResult ? 'Täitjad' : 'Prognoos'}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {clusterRows.map((cluster) => (
+                  <tr key={cluster.clusterCode}>
+                    <td className="kh-td">
+                      <div className="font-semibold whitespace-nowrap">{cluster.clusterCode}</div>
+                      <div className="text-[12px] text-[var(--color-muted)]">
+                        {cluster.head.title} · {describeGroups(cluster.likes, cluster.likes)}
+                      </div>
+                      <Disclosure summary={`Rühmad (${cluster.live.length})`}>
+                        <ul className="space-y-0.5 text-[12px]">
+                          {cluster.groups.map((g) => {
+                            const holder = partnerColumns.find(
+                              (column) => column.participant.lotPartnerId === shown?.byTraining[g.id],
+                            );
+                            return (
+                              <li key={g.id} style={g.withdrawnAt !== null ? { opacity: 0.5 } : undefined}>
+                                <span className="font-semibold">{g.code}</span> · kuni {g.participantCount} osalejat ·{' '}
+                                {g.withdrawnAt !== null
+                                  ? `tagasi võetud: ${g.withdrawnReason}`
+                                  : holder
+                                    ? holder.participant.partnerName
+                                    : 'jaotamata'}
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </Disclosure>
+                    </td>
+                    <td className="kh-td text-[13px] whitespace-nowrap">
+                      {formatPeriod(cluster.head.eventDate, cluster.head.eventEnd)}
+                      <div className="text-[11px] text-[var(--color-muted)]">
+                        {WORKSHOP_TYPE_LABELS[cluster.head.workshopType]} · {cluster.head.county}
+                      </div>
+                    </td>
+                    {partnerColumns.map((column) => {
+                      const liveIds = cluster.live.map((g) => g.id);
+                      const confirmed = liveIds.filter((id) => column.confirmedMarks.has(id)).length;
+                      const draft = liveIds.filter((id) => column.draftMarks.has(id)).length;
+                      const got = cluster.holders.get(column.participant.lotPartnerId)?.length ?? 0;
+                      return (
+                        <td
+                          key={column.participant.lotPartnerId}
+                          className="kh-td text-center tabular-nums"
+                          style={got > 0 ? { background: 'var(--color-success-soft)', fontWeight: 700 } : undefined}
+                          title={
+                            confirmed > 0
+                              ? `Kinnitatud soov: ${confirmed} rühma`
+                              : draft > 0
+                                ? 'Kinnitamata mustand — tähtajal ei arvestata'
+                                : undefined
+                          }
+                        >
+                          {confirmed > 0 ? (
+                            <span style={{ color: 'var(--color-success)' }}>{confirmed}</span>
+                          ) : draft > 0 ? (
+                            <span style={{ color: 'var(--color-warning)' }}>◌ {draft}</span>
+                          ) : (
+                            <span className="text-[var(--color-border-strong)]">·</span>
+                          )}
+                          {got > 0 && <div className="text-[11px] font-normal">saab {got}</div>}
+                        </td>
+                      );
+                    })}
+                    <td className="kh-td text-[13px]">
+                      {[...cluster.holders.entries()].map(([lotPartnerId, indices]) => {
+                        const column = partnerColumns.find((c) => c.participant.lotPartnerId === lotPartnerId);
+                        return (
+                          <div key={lotPartnerId} className="whitespace-nowrap">
+                            <span className="font-semibold">koht {column?.participant.rankAtPublication ?? '?'}</span>:{' '}
+                            {indices.length} rühma ({groupIndexRange(indices)})
+                          </div>
+                        );
+                      })}
+                      {cluster.leftoverIndices.length > 0 && (
+                        <div style={{ color: 'var(--color-danger)' }}>
+                          jaotamata {cluster.leftoverIndices.length} ({groupIndexRange(cluster.leftoverIndices)})
+                        </div>
+                      )}
+                      {cluster.holders.size === 0 && cluster.leftoverIndices.length === 0 && (
+                        <span className="text-[var(--color-muted)]">—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <div className="overflow-x-auto" hidden={isCluster}>
           <table className="w-full">
             <thead>
               <tr>
@@ -466,7 +618,7 @@ export default async function RoundDetail({ params }: { params: Promise<{ id: st
                       </div>
                     </td>
                     <td className="kh-td text-[13px] whitespace-nowrap tabular-nums">
-                      {formatIsoDay(training.eventDate)}
+                      {formatEventWhen(training)}
                       <div className="text-[11px] text-[var(--color-muted)]">
                         {WORKSHOP_TYPE_LABELS[training.workshopType]} · {training.county}
                       </div>
@@ -519,8 +671,26 @@ export default async function RoundDetail({ params }: { params: Promise<{ id: st
         </div>
       </section>
 
-      {(unmarked.length > 0 || nonResponders.length > 0) && round.status !== 'confirmed' && (
+      {(unmarked.length > 0 || leftoverGroups.length > 0 || nonResponders.length > 0) && round.status !== 'confirmed' && (
         <section className="grid gap-4 sm:grid-cols-2">
+          {leftoverGroups.length > 0 && (
+            <div className="kh-card p-4" data-testid="leftover-groups">
+              <h3 style={{ color: 'var(--color-danger)' }}>
+                Prognoosis jaotamata rühmad ({leftoverGroups.reduce((sum, c) => sum + c.leftoverIndices.length, 0)})
+              </h3>
+              <p className="mt-1 text-[12.5px] text-[var(--color-muted)]">
+                Partnerite kinnitatud soovid ei kata neid rühmi. Kui see tähtajaks ei muutu, jäävad need jäägiks.
+              </p>
+              <ul className="mt-2 space-y-0.5 text-[13px]">
+                {leftoverGroups.map((cluster) => (
+                  <li key={cluster.clusterCode}>
+                    <span className="font-semibold">{cluster.clusterCode}</span> · {cluster.leftoverIndices.length}{' '}
+                    {unit.partitive} ({groupIndexRange(cluster.leftoverIndices)})
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           {unmarked.length > 0 && (
             <div className="kh-card p-4">
               <h3 style={{ color: 'var(--color-danger)' }}>

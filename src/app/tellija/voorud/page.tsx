@@ -25,6 +25,7 @@ export default async function RoundsList() {
       id: rounds.id,
       code: rounds.code,
       status: rounds.status,
+      kind: rounds.kind,
       lotCode: lots.code,
       lotName: lots.name,
       visibilityMode: rounds.visibilityMode,
@@ -106,7 +107,12 @@ export default async function RoundsList() {
                       tone={ROUND_STATUS_TONES[round.status]}
                     />
                   </td>
-                  <td className="kh-td tabular-nums">{trainingCounts.get(round.id) ?? 0}</td>
+                  <td className="kh-td tabular-nums">
+                    {trainingCounts.get(round.id) ?? 0}
+                    {round.kind === 'cluster' && (
+                      <span className="ml-1 text-[11px] text-[var(--color-muted)]">rühma · klastrivoor</span>
+                    )}
+                  </td>
                   <td className="kh-td text-[13px] whitespace-nowrap tabular-nums">
                     {round.publishedAt ? formatDateTimeShort(round.publishedAt) : '—'}
                   </td>

@@ -135,10 +135,14 @@ function rows(
       formaat,
       kuupaev,
       lopp_kuupaev,
+      periood_algus: '',
+      periood_lopp: '',
       maakond,
       asukoht,
       sihtruhm,
       osalejate_arv,
+      ruhma_suurus: '',
+      ruhmi: '',
       keel,
       hinnanguline_maksumus,
       markused,
@@ -146,45 +150,82 @@ function rows(
   );
 }
 
+/**
+ * The volume order [L-28]: one cluster row, its own file — a round is of one
+ * kind [V-09], so a cluster cannot share a draft with the dated rows above.
+ * 500 small-business owners in Harju county over the first quarter of 2027,
+ * groups of fifty: the file the buyer team asked for when they asked whether
+ * they could „tellida ettevõtjatele näiteks viiesajale … perioodil“.
+ */
+const CLUSTER_SLUG = 'klaster-osa2-talv-2027';
+const CLUSTER_NOTE = 'Mahuline tellimus: rühmad on vahetatavad, toimumisajad lepitakse kokku pärast jaotust.';
+const CLUSTER_ROWS: TrainingRow[] = [
+  {
+    kood: 'KL-2027-001',
+    hankeosa: 'OSA-2',
+    nimetus: 'Töötuba 1 Harjumaa väikeettevõtjatele (mahuline tellimus, I kvartal 2027)',
+    formaat: 'Töötuba 1',
+    kuupaev: '',
+    lopp_kuupaev: '',
+    periood_algus: '11.01.2027',
+    periood_lopp: '31.03.2027',
+    maakond: 'Harju maakond',
+    asukoht: 'Tellija määratud asukohad Harjumaal',
+    sihtruhm: 'Väikeettevõtjad',
+    osalejate_arv: '500',
+    ruhma_suurus: '50',
+    ruhmi: '10',
+    keel: 'et',
+    hinnanguline_maksumus: '20000',
+    markused: 'Klaster: 10 rühma × kuni 50 osalejat; iga rühm on eraldi koolitus, mille aeg lepitakse kokku täitjaga',
+  },
+];
+
 async function main(): Promise<void> {
   const outDir = process.argv[2] ?? join(process.cwd(), 'data', 'valjund');
   mkdirSync(outDir, { recursive: true });
   const db = getDb();
 
   const lotRows = db
-    .select()
+    .select({ code: lots.code, defaultCapOptions: lots.defaultCapOptions })
     .from(lots)
     .where(eq(lots.isActive, true))
     .all()
     .sort((a, b) => a.code.localeCompare(b.code));
   const lotCodes = lotRows.map((row) => row.code);
   for (const draft of ROUNDS) {
-    if (!lotRows.some((row) => row.code === draft.lotCode)) {
-      throw new Error(`Hankeosa ${draft.lotCode} puudub — käivita esmalt \`pnpm db:seed\`.`);
-    }
+    if (!lotCodes.includes(draft.lotCode)) throw new Error(`Hankeosa ${draft.lotCode} puudub andmebaasis.`);
   }
+
   const out = join(outDir, `${SLUG}.xlsx`);
-
-  // No lot on the Voor sheet and no cap default: each draft takes its own
-  // lot's settings, and every row names its lot [L-20].
+  // One file, no lot on the Voor sheet: the import groups the rows by lot and
+  // makes one draft per lot [L-20]. The cap options are left to each lot.
+  const trainingRows = ROUNDS.flatMap((draft) => draft.trainings.map((row) => ({ ...row, hankeosa: draft.lotCode })));
   const buffer = await buildRoundTemplate({
-    lotCodes,
     lotCode: '',
+    lotCodes,
     defaultCapOptions: null,
-    trainingRows: ROUNDS.flatMap((draft) => draft.trainings.map((row) => ({ ...row, hankeosa: draft.lotCode }))),
+    trainingRows,
   });
-
-  // The template leaves `markus` empty; fill it in the built workbook so the
-  // drafts arrive with the note a hand-made round would have carried.
   const withNote = await withVoorField(buffer, 'markus', NOTE);
   writeFileSync(out, withNote);
+  console.log(`→ ${out} (${(withNote.byteLength / 1024).toFixed(1)} kB, ${trainingRows.length} koolitust, ${ROUNDS.length} mustandit)`);
 
-  /* --- and now read it back the way the upload does --- */
   const expected = ROUNDS.map((draft) => ({ lotCode: draft.lotCode, count: draft.trainings.length }));
-  if (!(await report(db, out, withNote, expected))) process.exitCode = 1;
+  await report(db, out, withNote, expected);
+
+  // The cluster file: one row, ten groups once imported [L-28].
+  const clusterOut = join(outDir, `${CLUSTER_SLUG}.xlsx`);
+  const clusterBuffer = await withVoorField(
+    await buildRoundTemplate({ lotCode: 'OSA-2', lotCodes, defaultCapOptions: null, trainingRows: CLUSTER_ROWS }),
+    'markus',
+    CLUSTER_NOTE,
+  );
+  writeFileSync(clusterOut, clusterBuffer);
+  console.log(`→ ${clusterOut} (${(clusterBuffer.byteLength / 1024).toFixed(1)} kB, 1 klaster)`);
+  await report(db, clusterOut, clusterBuffer, [{ lotCode: 'OSA-2', count: 10 }]);
 }
 
-/** Parse and preview the built workbook exactly as the upload screen would. */
 async function report(
   db: ReturnType<typeof getDb>,
   out: string,
@@ -235,7 +276,8 @@ async function report(
     for (const error of row.errors) console.log(`  rida ${row.rowNumber}: ${error.field ?? ''} ${error.message}`);
     for (const warning of row.warnings) console.log(`  rida ${row.rowNumber} hoiatus: ${warning.message}`);
   }
-  if (preview.round.value?.lotCode !== null) {
+  // The multi-lot file leaves the lot empty on purpose; a single-lot file names it.
+  if (expected.length > 1 && preview.round.value?.lotCode !== null) {
     console.log('  KONTROLL: lehel „Voor“ pidi hankeosa olema tühi — üks mustand iga hankeosa kohta');
     return false;
   }

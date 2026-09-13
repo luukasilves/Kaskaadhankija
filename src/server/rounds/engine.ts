@@ -35,7 +35,14 @@ import {
   trainings,
   type OrderDocument,
 } from '@/db/schema';
-import { type CapKind, allocate, partnerView, type AllocationResult } from '@/domain/allocate';
+import { type CapKind, allocate, canonicalMarks, partnerView, type AllocationResult } from '@/domain/allocate';
+import { roundKindOf, UNIT_WORDS, unitCount, type RoundKind } from '@/domain/clusters';
+import {
+  clusterLine,
+  fixedTrainingLine,
+  trainingLines as describeTrainingLines,
+  type TrainingLineRow,
+} from '@/domain/training-lines';
 import { CAP_KIND_LABELS, allowedCapKinds, type CapOptions,
   canEnterRound,
   canTransitionRound,
@@ -80,9 +87,17 @@ import { notify } from '../notify';
 import { partnerRecipients, teamRecipients } from '../recipients';
 import { effectiveAdjustments, finalInput, projectionInput, proposalInput } from './allocation-input';
 import { storeRoundProtocol } from './protocol';
-import { latestConfirmation, participantsOf, responseStateFor, roundTrainingList, workloadFor } from './views';
+import {
+  latestConfirmation,
+  participantsOf,
+  responseStateFor,
+  roundClusterGroups,
+  roundTrainingList,
+  workloadFor,
+} from './views';
 
-const ALGORITHM_VERSION = 1;
+/** 2 (v2.7): a cluster's groups are pooled — marks count, identity does not [K-10]. */
+const ALGORITHM_VERSION = 2;
 
 /**
  * The test environment's deadline floor [L-23]: a real wait, but a short one.
@@ -147,19 +162,72 @@ function trainingRows(ctx: Ctx, trainingIds: readonly string[]): TrainingRow[] {
     .sort((a, b) => a.eventDate.localeCompare(b.eventDate) || a.code.localeCompare(b.code));
 }
 
-/**
- * One human-readable line for a training, for notifications — code, title,
- * date, format, place, size. The title is there because a partner reads a mail
- * with five of these and has to tell them apart [D-01].
- */
-function trainingLine(row: TrainingRow): string {
-  return `${row.code} — ${row.title} · ${formatIsoDay(row.eventDate)} · ${WORKSHOP_TYPE_LABELS[row.workshopType]} · ${
-    row.county
-  }${row.locationText ? `, ${row.locationText}` : ''} · ${row.participantCount} osalejat`;
+/** A training row in the shape the pure line writer takes. */
+function lineRow(row: TrainingRow): TrainingLineRow {
+  return {
+    id: row.id,
+    code: row.code,
+    title: row.title,
+    dateKind: row.dateKind,
+    eventDate: row.eventDate,
+    eventEnd: row.eventEnd,
+    clusterCode: row.clusterCode,
+    groupIndex: row.groupIndex,
+    workshopTypeLabel: WORKSHOP_TYPE_LABELS[row.workshopType],
+    county: row.county,
+    locationText: row.locationText,
+    participantCount: row.participantCount,
+  };
 }
 
-function trainingLines(ctx: Ctx, trainingIds: readonly string[]): string[] {
-  return trainingRows(ctx, trainingIds).map(trainingLine);
+/**
+ * One human-readable line per training for notifications — code, title, date,
+ * format, place, size — and one per **cluster** in a cluster round, with the
+ * partner's share of it („6 rühma (05–10)“) measured against the round's whole
+ * [D-01][L-28]. The title is there because a partner reads a mail with five of
+ * these and has to tell them apart.
+ */
+function trainingLines(ctx: Ctx, trainingIds: readonly string[], roundId?: string): string[] {
+  const rows = trainingRows(ctx, trainingIds).map(lineRow);
+  const groups = roundId && rows.some((r) => r.dateKind === 'period') ? roundClusterGroups(ctx.tx, roundId) : undefined;
+  return describeTrainingLines(rows, groups);
+}
+
+/**
+ * The [N-03] reason after each lost line — per training, or per cluster, where
+ * every lost group of one cluster shares the cluster's reason.
+ */
+function lostLinesWithReasons(
+  ctx: Ctx,
+  roundId: string,
+  reasons: ReadonlyMap<string, 'higher_partner' | 'over_cap' | undefined>,
+): string[] {
+  const reasonText = (reason: 'higher_partner' | 'over_cap' | undefined) =>
+    reason === 'over_cap' ? 'ületab teie piirmäära' : 'eesõigusega partner saab selle';
+  const rows = trainingRows(ctx, [...reasons.keys()]).map(lineRow);
+  const groups = roundClusterGroups(ctx.tx, roundId);
+  const lines: string[] = [];
+  const seen = new Set<string>();
+  for (const row of rows) {
+    if (row.dateKind !== 'period' || !row.clusterCode) {
+      lines.push(`${fixedTrainingLine(row)} — ${reasonText(reasons.get(row.id))}`);
+      continue;
+    }
+    if (seen.has(row.clusterCode)) continue;
+    seen.add(row.clusterCode);
+    const clusterRows = rows.filter((r) => r.clusterCode === row.clusterCode);
+    lines.push(`${clusterLine(clusterRows, groups.get(row.clusterCode) ?? [])} — ${reasonText(reasons.get(row.id))}`);
+  }
+  return lines;
+}
+
+/** „koolitust“ or „rühma“ after a cap or a count, by the round's kind [V-09]. */
+function capSummary(cap: number | null, capKind: CapKind, kind: RoundKind = 'fixed'): string {
+  return cap !== null ? `, piirmäär ${cap} ${capUnit(capKind, kind)}` : '';
+}
+
+function capUnit(capKind: CapKind, kind: RoundKind): string {
+  return capKind === 'participants' ? CAP_KIND_LABELS.participants : UNIT_WORDS[kind].partitive;
 }
 
 function transition(ctx: Ctx, round: Round, to: RoundStatus): void {
@@ -228,22 +296,35 @@ export function createRound(ctx: Ctx, input: CreateRoundInput): string {
     .run();
 
   addTrainingsToRound(ctx, roundId, input.trainingIds);
+  const kind = loadRound(ctx, roundId).kind;
 
   logAudit(ctx, {
     eventType: 'round.created',
-    summary: `Voor ${code} loodud hankeosas ${lot.code} (${input.trainingIds.length} koolitust)`,
+    summary: `Voor ${code} loodud hankeosas ${lot.code} (${unitCount(kind, input.trainingIds.length)})`,
     roundId,
     lotId: lot.id,
-    after: { code, trainingCount: input.trainingIds.length },
+    after: { code, trainingCount: input.trainingIds.length, kind },
   });
 
   return roundId;
 }
 
-/** Attach trainings to a draft round, claiming each one exclusively [E-09]. */
+/**
+ * Attach trainings to a draft round, claiming each one exclusively [E-09].
+ *
+ * [V-09] The first training decides the round's kind — dated trainings or
+ * clusters — and every later one must match. This is the one choke point the
+ * new-round form, the workbook import and the jääk re-issue all pass through,
+ * so there is no second place for a mixed round to come from.
+ */
 export function addTrainingsToRound(ctx: Ctx, roundId: string, trainingIds: readonly string[]): void {
   const round = loadRound(ctx, roundId);
   if (round.status !== 'draft') throw new Error('Koolitusi saab lisada ainult mustandvoorule.');
+
+  const hasAny =
+    ctx.tx.select({ id: roundTrainings.id }).from(roundTrainings).where(eq(roundTrainings.roundId, roundId)).limit(1).get() !==
+    undefined;
+  let kind: RoundKind | null = hasAny ? round.kind : null;
 
   for (const trainingId of trainingIds) {
     const training = ctx.tx.select().from(trainings).where(eq(trainings.id, trainingId)).get();
@@ -253,6 +334,17 @@ export function addTrainingsToRound(ctx: Ctx, roundId: string, trainingIds: read
     }
     if (!canEnterRound(training.status) || training.currentRoundId !== null) {
       throw new Error(`Koolitus ${training.code} on juba voorus või määratud.`);
+    }
+    const trainingKind = roundKindOf(training.dateKind);
+    if (kind === null) {
+      kind = trainingKind;
+      if (kind !== round.kind) ctx.tx.update(rounds).set({ kind }).where(eq(rounds.id, roundId)).run();
+    } else if (trainingKind !== kind) {
+      throw new Error(
+        kind === 'fixed'
+          ? `Voor ${round.code} on kindla kuupäevaga koolituste voor; klastri rühma ${training.code} sinna lisada ei saa.`
+          : `Voor ${round.code} on klastrivoor; kindla kuupäevaga koolitust ${training.code} sinna lisada ei saa.`,
+      );
     }
 
     ctx.tx
@@ -389,7 +481,16 @@ export function publishRound(ctx: Ctx, roundId: string, input: PublishRoundInput
   const lines = trainingLines(
     ctx,
     trainingsInRound.map((t) => t.id),
+    roundId,
   );
+  // [L-28] A cluster round is offered as what it is: an order of groups.
+  const clusterCount = new Set(trainingsInRound.map((t) => t.clusterCode).filter(Boolean)).size;
+  const offerText =
+    round.kind === 'cluster'
+      ? clusterCount === 1
+        ? `järgmise mahulise tellimuse (1 klaster, ${unitCount('cluster', trainingsInRound.length)})`
+        : `järgmised mahulised tellimused (${clusterCount} klastrit, ${unitCount('cluster', trainingsInRound.length)})`
+      : undefined;
 
   for (const member of members) {
     // [V-07] the rank is snapshotted here and never re-read for this round.
@@ -424,8 +525,10 @@ export function publishRound(ctx: Ctx, roundId: string, input: PublishRoundInput
         trainingCount: trainingsInRound.length,
         trainingLines: lines,
         visibilityDynamic: visibilityMode === 'dynamic',
-        capOptionsText: capOptionsText(round.capOptions),
+        capOptionsText: capOptionsText(round.capOptions, round.kind),
         decisionText: formatDateTimeShort(expectedDecisionAt),
+        offerText,
+        unit: UNIT_WORDS[round.kind],
       }),
     });
   }
@@ -535,10 +638,21 @@ function guardPartnerAction(
   return { ok: true, round, lot, participant };
 }
 
-/** Marks still in the round, in case one was withdrawn since [V-04]. */
+/**
+ * Marks as stored: still in the round (one may have been withdrawn since
+ * [V-04]), each once, dated trainings in the partner's own order — and a
+ * cluster's groups canonically, the first n by position [K-10], so that "6
+ * rühma" is one answer however the form picked them.
+ */
 function validMarks(ctx: Ctx, roundId: string, marks: readonly string[]): string[] {
-  const available = new Set(roundTrainingList(ctx.tx, roundId).map((t) => t.id));
-  return [...new Set(marks)].filter((id) => available.has(id));
+  const inRound = roundTrainingList(ctx.tx, roundId);
+  const groupIds = new Set(inRound.filter((t) => t.clusterCode).map((t) => t.id));
+  const canonical = canonicalMarks(inRound, marks);
+  const canonicalSet = new Set(canonical);
+  return [
+    ...[...new Set(marks)].filter((id) => canonicalSet.has(id) && !groupIds.has(id)),
+    ...canonical.filter((id) => groupIds.has(id)),
+  ];
 }
 
 function currentProjection(
@@ -561,17 +675,18 @@ export interface MarksInput {
   capKind?: CapKind;
 }
 
-/** How a round's cap offer reads in the publication notice [D-01]. */
-export function capOptionsText(options: CapOptions): string {
+/** How a round's cap offer reads in the publication notice [D-01]; groups in a cluster round [V-09]. */
+export function capOptionsText(options: CapOptions, kind: RoundKind = 'fixed'): string {
+  const unit = UNIT_WORDS[kind];
   switch (options) {
     case 'none':
       return 'Selles voorus ülempiiri ei märgita: iga kinnitatud märge on siduv.';
     case 'participants':
-      return 'Soovi korral saate märkida ülempiiri osalejate arvuna („võtan vastu kuni N osalejat kokku“); koolitus, mis järelejäänud eelarvesse ei mahu, jäetakse vahele ja järgmisi proovitakse edasi.';
+      return `Soovi korral saate märkida ülempiiri osalejate arvuna („võtan vastu kuni N osalejat kokku“); ${unit.one}, mis järelejäänud eelarvesse ei mahu, jäetakse vahele ja järgmisi proovitakse edasi.`;
     case 'both':
-      return 'Soovi korral saate märkida ülempiiri kas koolituste arvuna („võtan vastu kuni N koolitust“) või osalejate arvuna („võtan vastu kuni N osalejat kokku“).';
+      return `Soovi korral saate märkida ülempiiri kas ${unit.ofMany} arvuna („võtan vastu kuni N ${unit.partitive}“) või osalejate arvuna („võtan vastu kuni N osalejat kokku“).`;
     default:
-      return 'Soovi korral saate märkida ülempiiri („võtan vastu kuni N koolitust“).';
+      return `Soovi korral saate märkida ülempiiri („võtan vastu kuni N ${unit.partitive}“).`;
   }
 }
 
@@ -599,10 +714,6 @@ function resolveCap(
   return { cap: input.cap, capKind };
 }
 
-function capSummary(cap: number | null, capKind: CapKind): string {
-  return cap !== null ? `, piirmäär ${cap} ${CAP_KIND_LABELS[capKind]}` : '';
-}
-
 /** [K-02] Save the editable draft. Does not bind anything. */
 export function saveDraftMarks(
   ctx: Ctx,
@@ -625,7 +736,7 @@ export function saveDraftMarks(
 
   logAudit(ctx, {
     eventType: 'marks.draft_saved',
-    summary: `${guard.participant.partnerName} salvestas mustandi (${marks.length} märget${capSummary(cap, capKind)})`,
+    summary: `${guard.participant.partnerName} salvestas mustandi (${marks.length} märget${capSummary(cap, capKind, guard.round.kind)})`,
     roundId,
     lotId: guard.lot.id,
     lotPartnerId: guard.participant.lotPartnerId,
@@ -722,7 +833,7 @@ export function confirmMarks(
     eventType: kind === 'confirm' ? 'marks.confirmed' : 'marks.declined_all',
     summary:
       kind === 'confirm'
-        ? `${participant.partnerName} kinnitas ${marks.length} märget${cap !== null ? ` (piirmäär ${cap} ${CAP_KIND_LABELS[capKind]})` : ''}, prognoos ${view.projectedCount}`
+        ? `${participant.partnerName} kinnitas ${marks.length} märget${cap !== null ? ` (piirmäär ${cap} ${capUnit(capKind, round.kind)})` : ''}, prognoos ${view.projectedCount}`
         : `${participant.partnerName} loobus kõigist vooru koolitustest`,
     roundId,
     lotId: lot.id,
@@ -740,16 +851,17 @@ export function confirmMarks(
           url: partnerUrl(roundId),
           contactName: participant.contactName,
           confirmedAtText: formatDateTimeShort(ctx.at),
-          trainingLines: trainingLines(ctx, marks),
+          trainingLines: trainingLines(ctx, marks, roundId),
+          unit: UNIT_WORDS[round.kind],
           capText:
             cap !== null
               ? capKind === 'participants'
-                ? `Märkisite ülempiiri: võtate vastu koolitusi kokku kuni ${cap} osalejale. Koolitus, mis eelarvesse ei mahu, jäetakse vahele ja järgmisi proovitakse edasi.`
-                : `Märkisite ülempiiri: võtate vastu kuni ${cap} koolitust.`
+                ? `Märkisite ülempiiri: võtate vastu ${round.kind === 'cluster' ? 'rühmi' : 'koolitusi'} kokku kuni ${cap} osalejale. ${round.kind === 'cluster' ? 'Rühm' : 'Koolitus'}, mis eelarvesse ei mahu, jäetakse vahele ja järgmisi proovitakse edasi.`
+                : `Märkisite ülempiiri: võtate vastu kuni ${unitCount(round.kind, cap)}.`
               : 'Ülempiiri te ei märkinud.',
           projectionText:
             round.visibilityMode === 'dynamic'
-              ? `Praeguse seisuga on teile prognoositud ${view.projectedCount} koolitust. Prognoos on esialgne.`
+              ? `Praeguse seisuga on teile prognoositud ${unitCount(round.kind, view.projectedCount)}. Prognoos on esialgne.`
               : 'Jaotus selgub pärast vastamistähtaega.',
         })
       : renderDeclineReceipt({
@@ -864,6 +976,7 @@ function notifyProjectionChanges(
         contactName: participant.contactName,
         previousCount: before,
         currentCount: after,
+        unit: UNIT_WORDS[round.kind],
       }),
     });
   }
@@ -996,7 +1109,7 @@ export function withdrawTraining(ctx: Ctx, roundId: string, trainingId: string, 
         deadlineText: formatDateTime(round.deadlineAt ?? ctx.at),
         url: partnerUrl(roundId),
         contactName: participant.contactName,
-        changeText: `koolitus ${training?.code ?? ''} on voorust tagasi võetud`,
+        changeText: `${UNIT_WORDS[round.kind].one} ${training?.code ?? ''} on voorust tagasi võetud`,
         reason: reason.trim(),
       }),
     });
@@ -1121,7 +1234,7 @@ export function closeRound(ctx: Ctx, roundId: string): { closed: boolean; code: 
 
   logAudit(ctx, {
     eventType: 'round.closed',
-    summary: `Voor ${round.code} suletud: kinnitas ${confirmed}, loobus ${declined}, ei vastanud ${noResponse}; ettepanekus ${allocatedCount} koolitust, jääk ${result.leftover.length}`,
+    summary: `Voor ${round.code} suletud: kinnitas ${confirmed}, loobus ${declined}, ei vastanud ${noResponse}; ettepanekus ${unitCount(round.kind, allocatedCount)}, jääk ${result.leftover.length}`,
     roundId,
     lotId: lot.id,
     after: {
@@ -1165,7 +1278,7 @@ export function closeRound(ctx: Ctx, roundId: string): { closed: boolean; code: 
       ? 'Te ei kinnitanud selles voorus ühtegi valikut; vastamata jätmine loeti loobumiseks.'
       : binding.kind === 'decline_all'
         ? `Loobusite ${formatDateTimeShort(binding.confirmedAt)} kõigist vooru koolitustest.`
-        : `Teie kinnitatud valik (${formatDateTimeShort(binding.confirmedAt)}): ${binding.marks.length} koolitust${capSummary(binding.cap, binding.capKind ?? 'trainings')}.`;
+        : `Teie kinnitatud valik (${formatDateTimeShort(binding.confirmedAt)}): ${unitCount(round.kind, binding.marks.length)}${capSummary(binding.cap, binding.capKind ?? 'trainings', round.kind)}.`;
     notify(ctx, {
       recipientKind: 'partner',
       recipientLotPartnerId: participant.lotPartnerId,
@@ -1180,7 +1293,9 @@ export function closeRound(ctx: Ctx, roundId: string): { closed: boolean; code: 
         url: partnerUrl(roundId),
         contactName: participant.contactName,
         answerText,
-        predictedLines: trainingLines(ctx, predicted),
+        predictedLines: trainingLines(ctx, predicted, roundId),
+        predictedCount: predicted.length,
+        unit: UNIT_WORDS[round.kind],
       }),
     });
   }
@@ -1206,7 +1321,7 @@ export function sendDeadlineReminder(ctx: Ctx, roundId: string): number {
       ? 'Te ei ole veel oma valikut kinnitanud.'
       : latest.kind === 'decline_all'
         ? 'Olete loobunud vooru koolitustest.'
-        : `Teie kinnitatud valik sisaldab ${latest.marks.length} koolitust.`;
+        : `Teie kinnitatud valik sisaldab ${unitCount(round.kind, latest.marks.length)}.`;
 
     ctx.tx
       .update(roundParticipants)
@@ -1230,7 +1345,7 @@ export function sendDeadlineReminder(ctx: Ctx, roundId: string): number {
         statusText,
         projectionText:
           round.visibilityMode === 'dynamic'
-            ? `Praeguse seisuga on teile prognoositud ${projected} koolitust (${formatRemaining(ctx.at, round.deadlineAt)}).`
+            ? `Praeguse seisuga on teile prognoositud ${unitCount(round.kind, projected)} (${formatRemaining(ctx.at, round.deadlineAt)}).`
             : 'Jaotus selgub pärast vastamistähtaega.',
       }),
     });
@@ -1282,10 +1397,7 @@ export function sendFinalSummary(ctx: Ctx, roundId: string): number {
     const reasons = new Map(
       view.rows.filter((row) => row.state === 'marked_not_projected').map((row) => [row.trainingId, row.reason] as const),
     );
-    const lostLines = trainingRows(ctx, [...reasons.keys()]).map(
-      (row) =>
-        `${trainingLine(row)} — ${reasons.get(row.id) === 'over_cap' ? 'ületab teie piirmäära' : 'eesõigusega partner saab selle'}`,
-    );
+    const lostLines = lostLinesWithReasons(ctx, roundId, reasons);
 
     notify(ctx, {
       recipientKind: 'partner',
@@ -1301,9 +1413,11 @@ export function sendFinalSummary(ctx: Ctx, roundId: string): number {
         url: partnerUrl(roundId),
         contactName: participant.contactName,
         remainingText: formatRemaining(ctx.at, round.deadlineAt),
-        confirmedText: `Teie kinnitatud valik (${formatDateTimeShort(latest.confirmedAt)}): ${latest.marks.length} koolitust${capSummary(latest.cap, capKind)}.`,
-        projectedLines: trainingLines(ctx, view.projectedTrainingIds),
+        confirmedText: `Teie kinnitatud valik (${formatDateTimeShort(latest.confirmedAt)}): ${unitCount(round.kind, latest.marks.length)}${capSummary(latest.cap, capKind, round.kind)}.`,
+        projectedLines: trainingLines(ctx, view.projectedTrainingIds, roundId),
+        projectedCount: view.projectedCount,
         lostLines,
+        unit: UNIT_WORDS[round.kind],
       }),
     });
     sent += 1;
@@ -1464,7 +1578,7 @@ export function confirmAllocation(
         .where(eq(trainings.id, trainingId))
         .run();
     }
-    allocationLines.push(`koht ${participant.rankAtPublication} · ${participant.partnerName} · ${allocation.trainingIds.length} koolitust`);
+    allocationLines.push(`koht ${participant.rankAtPublication} · ${participant.partnerName} · ${unitCount(round.kind, allocation.trainingIds.length)}`);
   }
 
   // [J-06][T-06] whatever nobody took waits visibly for a decision.
@@ -1483,7 +1597,7 @@ export function confirmAllocation(
 
   logAudit(ctx, {
     eventType: 'round.confirmed',
-    summary: `Voor ${round.code} kinnitatud: ${allocatedCount} koolitust ${partnerCount} partnerile, jääk ${result.leftover.length} koolitust`,
+    summary: `Voor ${round.code} kinnitatud: ${unitCount(round.kind, allocatedCount)} ${partnerCount} partnerile, jääk ${unitCount(round.kind, result.leftover.length)}`,
     roundId,
     lotId: lot.id,
     after: { allocatedCount, partnerCount, leftoverCount: result.leftover.length },
@@ -1662,7 +1776,7 @@ export function issueOrders(ctx: Ctx, roundId: string): { orderIds: string[] } {
         contactName: participant.contactName,
         partnerName: partner.name,
         orderNumber: number,
-        trainingLines: trainingLines(ctx, allocation.trainingIds),
+        trainingLines: trainingLines(ctx, allocation.trainingIds, roundId),
         totalText: priceLine(total, membership.unitPriceEur),
         partnerConfirmedAtText: binding ? formatDateTimeShort(binding.confirmedAt) : '—',
         buyerConfirmedAtText: formatDateTimeShort(round.confirmedAt ?? ctx.at),
@@ -1697,7 +1811,7 @@ export function issueOrders(ctx: Ctx, roundId: string): { orderIds: string[] } {
         lotLabel: lotLabel(lot),
         url: partnerUrl(roundId),
         contactName: participant.contactName,
-        trainingLines: trainingLines(ctx, lost),
+        trainingLines: trainingLines(ctx, lost, roundId),
         allocatedCount: mine.size,
       }),
     });

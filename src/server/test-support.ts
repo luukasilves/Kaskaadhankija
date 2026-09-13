@@ -268,4 +268,65 @@ export function seedLotWithPartners(
   return { lotId, lotPartnerIds, partnerIds, trainingIds, trainingCodes };
 }
 
+/** Distinguishes cluster fixtures within one test, so codes never collide. */
+let clusterSeq = 0;
+
+export interface ClusterFixture {
+  clusterCode: string;
+  /** group training ids in group order */
+  trainingIds: string[];
+  codes: string[];
+}
+
+/**
+ * A cluster of `groups` identical period groups in a lot [L-28] — what the
+ * calendar import writes for one cluster row, inserted directly so an engine
+ * test needs no file.
+ */
+export function seedClusterGroups(
+  harness: TestHarness,
+  lotId: string,
+  options: { groups?: number; groupSize?: number; periodStart?: string; periodEnd?: string } = {},
+): ClusterFixture {
+  const nth = ++clusterSeq;
+  const clusterCode = `KL-2026-${String(nth).padStart(3, '0')}`;
+  const groups = options.groups ?? 10;
+  const groupSize = options.groupSize ?? 50;
+  const trainingIds: string[] = [];
+  const codes: string[] = [];
+  harness.write((ctx) => {
+    for (let i = 1; i <= groups; i++) {
+      const id = crypto.randomUUID();
+      const code = `${clusterCode}-${String(i).padStart(2, '0')}`;
+      trainingIds.push(id);
+      codes.push(code);
+      ctx.tx
+        .insert(schema.trainings)
+        .values({
+          id,
+          code,
+          lotId,
+          title: 'Töötuba 1 Harjumaa väikeettevõtjatele',
+          workshopType: 'tootuba_1',
+          eventDate: options.periodStart ?? '2026-10-01',
+          eventEnd: options.periodEnd ?? '2026-12-31',
+          dateKind: 'period',
+          clusterCode,
+          groupIndex: i,
+          county: 'Harju maakond',
+          locationText: 'Tellija määratud asukohad',
+          targetGroup: 'vaikeettevotjad',
+          participantCount: groupSize,
+          language: 'et',
+          estimatedValueEur: 0,
+          status: 'unassigned',
+          createdAt: ctx.at,
+          updatedAt: ctx.at,
+        })
+        .run();
+    }
+  });
+  return { clusterCode, trainingIds, codes };
+}
+
 export { schema };

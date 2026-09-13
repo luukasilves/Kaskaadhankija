@@ -110,6 +110,8 @@ export interface LotRow {
   defaultVisibilityMode: VisibilityMode | null;
   defaultCapOptions: CapOptions | null;
   thresholdNote: string | null;
+  /** [K-06][L-28] the ceiling on one group; null leaves it, as every optional cell */
+  maxParticipantsPerGroup: number | null;
 }
 
 export const LOT_COLUMNS = ['kood', 'nimetus'] as const;
@@ -123,6 +125,8 @@ export const LOT_OPTIONAL_COLUMNS = [
   'nahtavus_vaikimisi',
   'piirmaara_valikud_vaikimisi',
   'kunnise_markus',
+  // appended last on purpose: the sheet's drop-downs are pinned to columns H and I
+  'max_osalejaid_ruhmas',
 ] as const;
 
 export const LOT_HEADERS = [...LOT_COLUMNS, ...LOT_OPTIONAL_COLUMNS] as const;
@@ -222,6 +226,9 @@ export function parseLotRows(raws: readonly RawRow[]): ParseTableResult<LotRow> 
     const thresholdNote = optional('kunnise_markus', (value) =>
       parseText(value, 'künnise märkus', { max: 300 }),
     );
+    const maxParticipantsPerGroup = optional('max_osalejaid_ruhmas', (value) =>
+      parseInteger(value, 'rühma osalejate ülempiir', 1, 2000),
+    );
 
     const value: LotRow | null =
       errors.length > 0 || !name.ok || !code
@@ -237,6 +244,7 @@ export function parseLotRows(raws: readonly RawRow[]): ParseTableResult<LotRow> 
             defaultVisibilityMode,
             defaultCapOptions,
             thresholdNote,
+            maxParticipantsPerGroup,
           };
 
     rows.push({ rowNumber, value, errors, warnings });
@@ -274,5 +282,6 @@ export function lotSheetRow(lot: LotRow): RawRow {
     nahtavus_vaikimisi: lot.defaultVisibilityMode ? VISIBILITY_SHEET_WORDS[lot.defaultVisibilityMode] : '',
     piirmaara_valikud_vaikimisi: lot.defaultCapOptions ? CAP_OPTIONS_SHEET_WORDS[lot.defaultCapOptions] : '',
     kunnise_markus: lot.thresholdNote ?? '',
+    max_osalejaid_ruhmas: lot.maxParticipantsPerGroup === null ? '' : String(lot.maxParticipantsPerGroup),
   };
 }

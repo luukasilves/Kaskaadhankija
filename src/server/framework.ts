@@ -169,6 +169,7 @@ function lotFieldsFrom(row: LotRow): LotFields {
   if (row.defaultVisibilityMode !== null) fields.defaultVisibilityMode = row.defaultVisibilityMode;
   if (row.defaultCapOptions !== null) fields.defaultCapOptions = row.defaultCapOptions;
   if (row.thresholdNote !== null) fields.thresholdNote = row.thresholdNote;
+  if (row.maxParticipantsPerGroup !== null) fields.maxParticipantsPerGroup = row.maxParticipantsPerGroup;
   return fields;
 }
 
@@ -1090,6 +1091,7 @@ export function frameworkWorkbookData(tx: Reader): FrameworkWorkbookInput {
       defaultVisibilityMode: lot.defaultVisibilityMode,
       defaultCapOptions: lot.defaultCapOptions,
       thresholdNote: lot.thresholdNote,
+      maxParticipantsPerGroup: lot.maxParticipantsPerGroup,
     }));
 
   const memberships = tx

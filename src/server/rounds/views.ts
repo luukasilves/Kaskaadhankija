@@ -19,6 +19,7 @@ import {
 } from '@/db/schema';
 import type { ResponseState } from '@/domain/round-statuses';
 import type { CapKind, AllocationTraining, ConfirmationSnapshot } from '@/domain/allocate';
+import type { DateKind, GroupLike } from '@/domain/clusters';
 import type { Db, Tx } from '../context';
 import type { WorkshopType } from '@/domain/statuses';
 
@@ -69,7 +70,13 @@ export function confirmationSnapshotsByPartner(
   return grouped;
 }
 
-/** Non-withdrawn trainings of a round, in the shape `allocate` expects. [V-04] */
+/**
+ * Non-withdrawn trainings of a round, in the shape `allocate` expects. [V-04]
+ *
+ * A cluster's group carries its cluster code [K-10]; a dated training carries
+ * no key at all, so the input frozen for a dated round is byte-identical to
+ * what it was before clusters existed.
+ */
 export function roundTrainingList(tx: Reader, roundId: string): AllocationTraining[] {
   return tx
     .select({
@@ -77,11 +84,39 @@ export function roundTrainingList(tx: Reader, roundId: string): AllocationTraini
       code: trainings.code,
       eventDate: trainings.eventDate,
       participantCount: trainings.participantCount,
+      clusterCode: trainings.clusterCode,
+    })
+    .from(roundTrainings)
+    .innerJoin(trainings, eq(trainings.id, roundTrainings.trainingId))
+    .where(and(eq(roundTrainings.roundId, roundId), isNull(roundTrainings.withdrawnAt)))
+    .all()
+    .map(({ clusterCode, ...row }) => (clusterCode ? { ...row, clusterCode } : row));
+}
+
+/**
+ * A round's clusters and their non-withdrawn groups, by cluster code — the
+ * whole a partner's share is described against („6 rühma (05–10)“) [L-28].
+ */
+export function roundClusterGroups(tx: Reader, roundId: string): Map<string, GroupLike[]> {
+  const groups = new Map<string, GroupLike[]>();
+  const rows = tx
+    .select({
+      clusterCode: trainings.clusterCode,
+      groupIndex: trainings.groupIndex,
+      participantCount: trainings.participantCount,
     })
     .from(roundTrainings)
     .innerJoin(trainings, eq(trainings.id, roundTrainings.trainingId))
     .where(and(eq(roundTrainings.roundId, roundId), isNull(roundTrainings.withdrawnAt)))
     .all();
+  for (const row of rows) {
+    if (!row.clusterCode) continue;
+    const list = groups.get(row.clusterCode) ?? [];
+    list.push({ groupIndex: row.groupIndex ?? 0, participantCount: row.participantCount });
+    groups.set(row.clusterCode, list);
+  }
+  for (const list of groups.values()) list.sort((a, b) => a.groupIndex - b.groupIndex);
+  return groups;
 }
 
 /**
@@ -224,6 +259,9 @@ export interface CalendarEntry {
   title: string;
   eventDate: string;
   eventEnd: string | null;
+  /** [L-28] a cluster's group has a period, not a day */
+  dateKind: DateKind;
+  clusterCode: string | null;
   workshopType: WorkshopType;
   county: string;
   locationText: string;
@@ -265,6 +303,8 @@ export function partnerCalendar(tx: Reader, partnerId: string): CalendarEntry[] 
     title: trainings.title,
     eventDate: trainings.eventDate,
     eventEnd: trainings.eventEnd,
+    dateKind: trainings.dateKind,
+    clusterCode: trainings.clusterCode,
     workshopType: trainings.workshopType,
     county: trainings.county,
     locationText: trainings.locationText,
@@ -325,6 +365,8 @@ export function commitmentsByDay(
   const byDay = new Map<string, string[]>();
   for (const entry of entries) {
     if (exceptRoundId !== null && entry.roundId === exceptRoundId) continue;
+    // A group's period is not a day the company is booked on [L-28].
+    if (entry.dateKind === 'period') continue;
     const list = byDay.get(entry.eventDate) ?? [];
     if (!list.includes(entry.code)) list.push(entry.code);
     byDay.set(entry.eventDate, list);

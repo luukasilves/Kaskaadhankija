@@ -249,11 +249,12 @@ describe('trainings import — the committed sample dataset', () => {
     const rows = parseCsv(content.toString('utf8')).rows;
     const result = importRows(rows, 'seed');
 
-    expect(result.summary.total).toBe(48);
-    expect(result.summary.valid).toBe(48);
-    expect(result.summary.created).toBe(48);
+    // 48 dated trainings, and the cluster KL-2026-001 as ten groups [L-28]
+    expect(result.summary.total).toBe(58);
+    expect(result.summary.valid).toBe(58);
+    expect(result.summary.created).toBe(58);
     expect(result.summary.withErrors).toBe(0);
-    expect(countTrainings()).toBe(48);
+    expect(countTrainings()).toBe(58);
   });
 
   it('reads the generated .xlsx twin to the same rows as the .csv', async () => {
@@ -267,12 +268,16 @@ describe('trainings import — the committed sample dataset', () => {
     expect(xlsx.rows).toHaveLength(csvRows.length);
     // Import both and compare what actually landed, which is what matters.
     const fromXlsx = importRows(xlsx.rows, 'upload');
-    expect(fromXlsx.summary).toMatchObject({ total: 48, valid: 48, created: 48, withErrors: 0 });
+    expect(fromXlsx.summary).toMatchObject({ total: 58, valid: 58, created: 58, withErrors: 0 });
 
     const codes = harness.read((db) =>
       db.select({ code: trainings.code }).from(trainings).all().map((r) => r.code).sort(),
     );
-    expect(codes).toEqual(csvRows.map((r) => r.kood).sort());
+    // A cluster row in the file is ten group rows in the database [L-28].
+    const expected = csvRows
+      .flatMap((r) => (r.kood.startsWith('KL-') ? Array.from({ length: 10 }, (_, i) => `${r.kood}-${String(i + 1).padStart(2, '0')}`) : [r.kood]))
+      .sort();
+    expect(codes).toEqual(expected);
   });
 
   it('carries the Lisa B dates so the seeded scenario matches the spec', () => {
@@ -486,5 +491,68 @@ describe('partner ranking import', () => {
         .sort((a, b) => a.rank - b.rank),
     );
     expect(after).toEqual(before);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * [L-28] a cluster row in the calendar import
+ * ------------------------------------------------------------------ */
+
+describe('[L-28] a cluster row in the calendar import', () => {
+  const clusterRaw = (over: Record<string, string> = {}) =>
+    rawTrainingRow({
+      kood: 'KL-2026-001',
+      hankeosa: 'OSA-2',
+      kuupaev: '',
+      periood_algus: '01.10.2026',
+      periood_lopp: '31.12.2026',
+      osalejate_arv: '480',
+      ruhma_suurus: '50',
+      hinnanguline_maksumus: '20000',
+      ...over,
+    });
+
+  it('creates one training per group, coded, sized and estimated from the plan', () => {
+    const result = importRows([clusterRaw()]);
+    expect(result.summary).toMatchObject({ total: 10, valid: 10, created: 10, withErrors: 0 });
+    const groups = harness.read((db) => db.select().from(trainings).all()).sort((a, b) => a.code.localeCompare(b.code));
+    expect(groups.map((g) => g.code)[0]).toBe('KL-2026-001-01');
+    expect(groups.map((g) => g.code)[9]).toBe('KL-2026-001-10');
+    expect(groups.map((g) => g.participantCount)).toEqual([...Array(9).fill(50), 30]);
+    expect(groups.reduce((sum, g) => sum + g.estimatedValueEur, 0)).toBe(20000);
+    expect(groups.every((g) => g.dateKind === 'period' && g.clusterCode === 'KL-2026-001')).toBe(true);
+  });
+
+  it('re-imports the same cluster in place, and refuses to change its group count', () => {
+    importRows([clusterRaw()]);
+    const again = importRows([clusterRaw({ nimetus: 'Uus nimetus klastrile' })]);
+    expect(again.summary).toMatchObject({ created: 0, updated: 10 });
+    expect(countTrainings()).toBe(10);
+    expect(harness.read((db) => db.select().from(trainings).all()).every((g) => g.title === 'Uus nimetus klastrile')).toBe(true);
+
+    const preview = harness.write((ctx) =>
+      previewTrainingsImport(ctx, { fileName: 'k.csv', fileSize: 1, source: 'upload', rawRows: [clusterRaw({ ruhma_suurus: '', ruhmi: '12' })] }),
+    );
+    expect(preview.summary).toMatchObject({ valid: 0, withErrors: 1 });
+    expect(preview.rows[0]?.errors[0]?.message).toMatch(/rühmade arvu ei saa faili kaudu muuta/);
+  });
+
+  it('refuses a group above the lot’s ceiling and warns about a dated training above it [K-06]', () => {
+    harness.write((ctx) => ctx.tx.update(lots).set({ maxParticipantsPerGroup: 75 }).where(eq(lots.code, 'OSA-2')).run());
+    const refused = harness.write((ctx) =>
+      previewTrainingsImport(ctx, { fileName: 'k.csv', fileSize: 1, source: 'upload', rawRows: [clusterRaw({ ruhma_suurus: '90' })] }),
+    );
+    expect(refused.summary.valid).toBe(0);
+    expect(refused.rows[0]?.errors[0]?.message).toMatch(/ülempiiri 75/);
+    const warned = harness.write((ctx) =>
+      previewTrainingsImport(ctx, {
+        fileName: 'k.csv',
+        fileSize: 1,
+        source: 'upload',
+        rawRows: [rawTrainingRow({ kood: 'KK-2026-777', hankeosa: 'OSA-2', osalejate_arv: '90' })],
+      }),
+    );
+    expect(warned.summary).toMatchObject({ valid: 1, withWarnings: 1 });
+    expect(warned.rows[0]?.warnings[0]?.message).toMatch(/ületab hankeosa OSA-2 rühma ülempiiri 75/);
   });
 });

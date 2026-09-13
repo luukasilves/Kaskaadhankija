@@ -16,6 +16,7 @@
  * notice cannot drift apart.
  */
 
+import { UNIT_WORDS, type UnitWords } from './clusters';
 import { frameworkClause, frameworkSignature, type FrameworkIdentity } from './framework';
 
 export interface RenderedNotice {
@@ -105,7 +106,14 @@ export interface RoundNoticeBase {
   url: string;
   /** which framework agreement this notice is issued under [L-21] */
   framework: FrameworkIdentity;
+  /**
+   * [V-09] „koolitust“ in a dated round, „rühma“ in a cluster round. Absent
+   * means a dated round, so every existing notice reads exactly as before.
+   */
+  unit?: UnitWords;
 }
+
+const unitOf = (input: { unit?: UnitWords }): UnitWords => input.unit ?? UNIT_WORDS.fixed;
 
 /** [D-01] The round is published to every partner of the lot, at one instant. */
 export function renderRoundPublished(
@@ -118,19 +126,27 @@ export function renderRoundPublished(
     /** which cap kinds this round offers [K-06][L-17] */
     capOptionsText: string;
     decisionText: string;
+    /**
+     * [L-28] In a cluster round, what is offered instead of „järgmised
+     * koolitused (N)“ — e.g. „järgmise mahulise tellimuse (1 klaster, 10 rühma)“.
+     */
+    offerText?: string;
   },
 ): RenderedNotice {
+  const unit = unitOf(input);
   return composeNotice(
     `Uus koolitustellimuste voor ${input.roundCode} — vastamistähtaeg ${input.deadlineText}`,
     [
       `Lugupeetud ${input.contactName}`,
-      `${input.framework.buyerName} esitab ${frameworkClause(input.framework)} alusel, hankeosas ${input.lotLabel}, ettevõttele ${input.partnerName} järgmised koolitused (${input.trainingCount}).`,
+      `${input.framework.buyerName} esitab ${frameworkClause(input.framework)} alusel, hankeosas ${input.lotLabel}, ettevõttele ${input.partnerName} ${input.offerText ?? `järgmised koolitused (${input.trainingCount})`}.`,
       list(input.trainingLines),
-      `Palume märkida koolitused, mida olete valmis läbi viima, ja oma valik kinnitada hiljemalt ${input.deadlineText}. ${input.capOptionsText}`,
+      input.unit && input.unit !== UNIT_WORDS.fixed
+        ? `Palume märkida iga klastri juures, mitu rühma olete valmis läbi viima, ja oma valik kinnitada hiljemalt ${input.deadlineText}. Rühmad on omavahel vahetatavad: loeb, mitu rühma te võtate, mitte millised; toimumisajad perioodi sees lepitakse kokku pärast jaotust. ${input.capOptionsText}`
+        : `Palume märkida koolitused, mida olete valmis läbi viima, ja oma valik kinnitada hiljemalt ${input.deadlineText}. ${input.capOptionsText}`,
       input.visibilityDynamic
-        ? 'Voor on avatud kõigile hankeosa partneritele korraga. Kuni tähtajani näete oma valiku juures esialgset prognoosi: kas koolitus on saadaval, kas selle on märkinud eesõigusega partner ja mida te praeguse seisuga saaksite. Prognoos on esialgne ja võib muutuda kuni tähtajani.'
+        ? `Voor on avatud kõigile hankeosa partneritele korraga. Kuni tähtajani näete oma valiku juures esialgset prognoosi: kas ${unit.one} on saadaval, kas selle on märkinud eesõigusega partner ja mida te praeguse seisuga saaksite. Prognoos on esialgne ja võib muutuda kuni tähtajani.`
         : 'Voor on avatud kõigile hankeosa partneritele korraga. Jaotus selgub pärast vastamistähtaega.',
-      `Koolitused jaotatakse rangelt raamlepingu järjestuse alusel — vastamise kiirus ei anna eelist. Kui te tähtajaks ei kinnita, loetakse see loobumiseks. Jaotuse kinnitame eeldatavasti ${input.decisionText}.`,
+      `${capitalise(unit.many)} jaotatakse rangelt raamlepingu järjestuse alusel — vastamise kiirus ei anna eelist. Kui te tähtajaks ei kinnita, loetakse see loobumiseks. Jaotuse kinnitame eeldatavasti ${input.decisionText}.`,
     ],
     { url: input.url, label: 'Ava voor ja märgi koolitused' },
   );
@@ -150,7 +166,7 @@ export function renderConfirmationReceipt(
     `Kinnitus vastu võetud — voor ${input.roundCode}`,
     [
       `Lugupeetud ${input.contactName}`,
-      `Kinnitame, et võtsime teie valiku vastu ${input.confirmedAtText}. Voorus ${input.roundCode} (${input.lotLabel}) märkisite järgmised koolitused:`,
+      `Kinnitame, et võtsime teie valiku vastu ${input.confirmedAtText}. Voorus ${input.roundCode} (${input.lotLabel}) märkisite järgmised ${unitOf(input).many}:`,
       list(input.trainingLines),
       input.capText,
       input.projectionText,
@@ -180,11 +196,12 @@ export function renderProjectionChanged(
   input: RoundNoticeBase & { contactName: string; previousCount: number; currentCount: number },
 ): RenderedNotice {
   const direction = input.currentCount > input.previousCount ? 'suurenes' : 'vähenes';
+  const unit = unitOf(input);
   return composeNotice(
     `Prognoos muutus — voor ${input.roundCode}`,
     [
       `Lugupeetud ${input.contactName}`,
-      `Voorus ${input.roundCode} (${input.lotLabel}) ${direction} teie prognoositud koolituste arv: ${input.previousCount} → ${input.currentCount}. Põhjus on eesõigusega partnerite kinnituste muutumine.`,
+      `Voorus ${input.roundCode} (${input.lotLabel}) ${direction} teie prognoositud ${unit.ofMany} arv: ${input.previousCount} → ${input.currentCount}. Põhjus on eesõigusega partnerite kinnituste muutumine.`,
       `Prognoos on esialgne ja võib muutuda kuni tähtajani ${input.deadlineText}. Soovi korral saate oma valikut täiendada.`,
     ],
     { url: input.url, label: 'Vaata oma valikut' },
@@ -221,18 +238,23 @@ export function renderFinalSummary(
     confirmedText: string;
     projectedLines: string[];
     lostLines: string[];
+    /** [L-28] groups projected, when the lines are clusters rather than trainings */
+    projectedCount?: number;
   },
 ): RenderedNotice {
+  const unit = unitOf(input);
+  // In a cluster round a line is a cluster, so the count is passed in.
+  const projectedCount = input.projectedCount ?? input.projectedLines.length;
   return composeNotice(
     `Lõppkokkuvõte: voor ${input.roundCode} sulgub ${input.deadlineText}`,
     [
       `Lugupeetud ${input.contactName}`,
       `Voor ${input.roundCode} (${input.lotLabel}) sulgub ${input.deadlineText} (${input.remainingText}). ${input.confirmedText}`,
       input.projectedLines.length > 0
-        ? `Praeguse seisuga prognoositakse teile ${input.projectedLines.length} koolitust:`
-        : 'Praeguse seisuga ei prognoosita teile sellest voorust ühtegi koolitust.',
+        ? `Praeguse seisuga prognoositakse teile ${projectedCount} ${unit.partitive}:`
+        : `Praeguse seisuga ei prognoosita teile sellest voorust ühtegi ${unit.partitive}.`,
       list(input.projectedLines),
-      input.lostLines.length > 0 ? 'Teie märgitud koolitused, mis praeguse seisuga läheksid mujale:' : '',
+      input.lostLines.length > 0 ? `Teie märgitud ${unit.many}, mis praeguse seisuga läheksid mujale:` : '',
       list(input.lostLines),
       'Prognoos on esialgne ja võib muutuda kuni tähtajani. Kui soovite valikut muuta, kinnitage see enne tähtaega — loevad ainult kinnitatud märked.',
     ],
@@ -284,16 +306,24 @@ export function renderParticipantExcluded(
  * round — and it says plainly that it is not an order.
  */
 export function renderRoundClosedPartner(
-  input: RoundNoticeBase & { contactName: string; answerText: string; predictedLines: string[] },
+  input: RoundNoticeBase & {
+    contactName: string;
+    answerText: string;
+    predictedLines: string[];
+    /** [L-28] groups predicted, when the lines are clusters rather than trainings */
+    predictedCount?: number;
+  },
 ): RenderedNotice {
+  const unit = unitOf(input);
+  const predictedCount = input.predictedCount ?? input.predictedLines.length;
   return composeNotice(
     `Voor ${input.roundCode} on lõppenud — täname vastamast`,
     [
       `Lugupeetud ${input.contactName}`,
       `Vooru ${input.roundCode} (${input.lotLabel}) vastamisaeg lõppes ${input.deadlineText}. ${input.answerText}`,
       input.predictedLines.length > 0
-        ? `Esialgse jaotuse järgi läheks teile ${input.predictedLines.length} koolitust:`
-        : 'Esialgse jaotuse järgi ei läheks teile sellest voorust ühtegi koolitust.',
+        ? `Esialgse jaotuse järgi läheks teile ${predictedCount} ${unit.partitive}:`
+        : `Esialgse jaotuse järgi ei läheks teile sellest voorust ühtegi ${unit.partitive}.`,
       list(input.predictedLines),
       `See on esialgne tulemus, mitte tellimus. ${input.framework.buyerName} vaatab jaotuse üle ja võtab tulemuse kinnitamiseks teiega eraldi ühendust.`,
     ],
