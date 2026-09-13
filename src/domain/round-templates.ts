@@ -35,17 +35,48 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
-/** Compose the two renderings from one list of paragraphs. */
+/**
+ * One block of a notice: a paragraph, or a list that is rendered one item per
+ * line in both forms. Lists used to be pre-joined strings; in HTML the newlines
+ * collapsed and a partner's workshops ran together in one paragraph [D-01].
+ */
+export type NoticeBlock = string | { list: readonly string[] };
+
+const HTML_LIST_STYLE = 'margin:0 0 1em;padding-left:1.2em';
+const HTML_ITEM_STYLE = 'margin:0 0 6px';
+
+/** The text form of a list — unchanged from before lists were blocks. */
+function listText(items: readonly string[]): string {
+  return items.map((item) => `· ${item}`).join('\n');
+}
+
+function blockText(block: NoticeBlock): string {
+  return typeof block === 'string' ? block : listText(block.list);
+}
+
+function blockHtml(block: NoticeBlock): string {
+  if (typeof block === 'string') return `<p>${escapeHtml(block)}</p>`;
+  return `<ul style="${HTML_LIST_STYLE}">${block.list
+    .map((item) => `<li style="${HTML_ITEM_STYLE}">${escapeHtml(item)}</li>`)
+    .join('')}</ul>`;
+}
+
+function isEmptyBlock(block: NoticeBlock): boolean {
+  return typeof block === 'string' ? block === '' : block.list.length === 0;
+}
+
+/** Compose the two renderings from one list of blocks. Empty blocks are skipped. */
 export function composeNotice(
   title: string,
-  paragraphs: string[],
+  blocks: readonly NoticeBlock[],
   link?: { url: string; label: string },
   framework?: FrameworkIdentity,
 ): RenderedNotice {
+  const kept = blocks.filter((block) => !isEmptyBlock(block));
   const signature = framework ? frameworkSignature(framework) : '';
-  const body = paragraphs.join('\n\n') + (link ? `\n\n${link.label}: ${link.url}` : '');
-  const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1c2530;max-width:640px">${paragraphs
-    .map((p) => `<p>${escapeHtml(p)}</p>`)
+  const body = kept.map(blockText).join('\n\n') + (link ? `\n\n${link.label}: ${link.url}` : '');
+  const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1c2530;max-width:640px">${kept
+    .map(blockHtml)
     .join('')}${
     link
       ? `<p style="margin:24px 0"><a href="${escapeHtml(link.url)}" style="background:#14507d;color:#fff;text-decoration:none;padding:12px 22px;border-radius:6px;font-weight:600;display:inline-block">${escapeHtml(link.label)}</a></p>`
@@ -62,9 +93,9 @@ function capitalise(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
-/** Bullet list rendered identically in both forms. */
-function list(items: string[]): string {
-  return items.map((item) => `· ${item}`).join('\n');
+/** A list block — one item per line in text and in HTML. */
+function list(items: readonly string[]): NoticeBlock {
+  return { list: items };
 }
 
 export interface RoundNoticeBase {

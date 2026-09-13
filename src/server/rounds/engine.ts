@@ -131,7 +131,11 @@ function protocolUrl(roundId: string): string {
   return `${env.APP_BASE_URL}/tellija/voorud/${roundId}/protokoll`;
 }
 
-/** One human-readable line per training, for notifications. */
+/**
+ * One human-readable line per training, for notifications — code, title, date,
+ * format, place, size. The title is there because a partner reads a mail with
+ * five of these and has to tell them apart [D-01].
+ */
 function trainingLines(ctx: Ctx, trainingIds: readonly string[]): string[] {
   if (trainingIds.length === 0) return [];
   const rows = ctx.tx.select().from(trainings).where(inArray(trainings.id, trainingIds)).all();
@@ -142,7 +146,7 @@ function trainingLines(ctx: Ctx, trainingIds: readonly string[]): string[] {
     .sort((a, b) => a.eventDate.localeCompare(b.eventDate) || a.code.localeCompare(b.code))
     .map(
       (row) =>
-        `${row.code} · ${formatIsoDay(row.eventDate)} · ${WORKSHOP_TYPE_LABELS[row.workshopType]} · ${
+        `${row.code} — ${row.title} · ${formatIsoDay(row.eventDate)} · ${WORKSHOP_TYPE_LABELS[row.workshopType]} · ${
           row.county
         }${row.locationText ? `, ${row.locationText}` : ''} · ${row.participantCount} osalejat`,
     );
