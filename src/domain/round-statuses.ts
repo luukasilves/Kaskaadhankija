@@ -241,6 +241,15 @@ export const VIEW_STATE_TONES: Record<TrainingViewState, StatusTone> = {
   marked_not_projected: 'warning',
 };
 
+/** Only a confirmation is calm; everything else needs the partner's attention [K-03]. */
+export const RESPONSE_STATE_TONES: Record<ResponseState, StatusTone> = {
+  none: 'warning',
+  draft_only: 'warning',
+  confirmed: 'success',
+  declined_all: 'neutral',
+  unconfirmed_changes: 'warning',
+};
+
 /* ------------------------------------------------------------------ *
  * sihtrühm — the "vertikaal" of the training programme
  * ------------------------------------------------------------------ */

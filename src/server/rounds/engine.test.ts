@@ -1177,3 +1177,76 @@ describe('Lisa B through the engine', () => {
     expect(roundRow(roundId)?.finalSnapshot).toBeTruthy();
   });
 });
+
+describe('[E-10][K-04] an identical re-confirmation is a no-op', () => {
+  const confirmationsOf = (roundId: string, partnerIndex: number) =>
+    harness.read((db) =>
+      db
+        .select()
+        .from(confirmations)
+        .where(and(eq(confirmations.roundId, roundId), eq(confirmations.lotPartnerId, fx.lotPartnerIds[partnerIndex]!)))
+        .all(),
+    );
+  const noticesOf = (roundId: string, type: string) =>
+    harness.read((db) =>
+      db
+        .select()
+        .from(notifications)
+        .where(and(eq(notifications.roundId, roundId), eq(notifications.type, type as never)))
+        .all(),
+    );
+
+  it('confirming the same marks twice stores one row and sends one receipt', () => {
+    const roundId = openRound();
+    const marks = [fx.trainingIds[0]!, fx.trainingIds[1]!];
+    const first = confirm(roundId, 0, marks, 2);
+    harness.advance(1_000);
+    const second = confirm(roundId, 0, marks, 2);
+    expect(first.ok && !first.unchanged).toBe(true);
+    expect(second.ok && second.unchanged === true).toBe(true);
+    expect(second.ok && second.confirmedAt).toBe(confirmationsOf(roundId, 0)[0]!.confirmedAt);
+    expect(confirmationsOf(roundId, 0)).toHaveLength(1);
+    expect(noticesOf(roundId, 'confirmation_receipt')).toHaveLength(1);
+    expect(auditTypes(roundId)).toContain('marks.confirm_repeated');
+    expect(auditTypes(roundId).filter((t) => t === 'marks.confirmed')).toHaveLength(1);
+  });
+
+  it('a changed cap or cap kind is a new confirmation', () => {
+    const roundId = openRound();
+    const marks = [fx.trainingIds[0]!];
+    confirm(roundId, 0, marks, 2);
+    harness.advance(1_000);
+    confirm(roundId, 0, marks, 3);
+    expect(confirmationsOf(roundId, 0)).toHaveLength(2);
+  });
+
+  it('declining twice is one decline and one decline receipt', () => {
+    const roundId = openRound();
+    harness.write((ctx) => declineAll(ctx, roundId, fx.partnerIds[0]!));
+    harness.advance(1_000);
+    const again = harness.write((ctx) => declineAll(ctx, roundId, fx.partnerIds[0]!));
+    expect(again.ok && again.unchanged).toBe(true);
+    expect(confirmationsOf(roundId, 0)).toHaveLength(1);
+    expect(noticesOf(roundId, 'decline_receipt')).toHaveLength(1);
+  });
+
+  it('a repeated confirmation sends no projection notices to lower ranks', () => {
+    const roundId = openRound();
+    confirm(roundId, 2, [fx.trainingIds[0]!]);
+    confirm(roundId, 0, [fx.trainingIds[0]!]);
+    const before = noticesOf(roundId, 'projection_changed').length;
+    harness.advance(1_000);
+    confirm(roundId, 0, [fx.trainingIds[0]!]);
+    expect(noticesOf(roundId, 'projection_changed')).toHaveLength(before);
+  });
+
+  it('a repeated confirmation still snaps the draft back to the confirmed set', () => {
+    const roundId = openRound();
+    const marks = [fx.trainingIds[0]!];
+    confirm(roundId, 0, marks);
+    harness.write((ctx) => saveDraftMarks(ctx, roundId, fx.partnerIds[0]!, { marks: fx.trainingIds.slice(0, 3), cap: null }));
+    confirm(roundId, 0, marks);
+    const participant = harness.read((db) => participantsOf(db, roundId))[0]!;
+    expect(participant.draftMarks).toEqual(marks);
+  });
+});

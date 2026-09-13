@@ -77,7 +77,7 @@ import { notify } from '../notify';
 import { partnerRecipients, teamRecipients } from '../recipients';
 import { effectiveAdjustments, finalInput, projectionInput, proposalInput } from './allocation-input';
 import { storeRoundProtocol } from './protocol';
-import { latestConfirmation, participantsOf, roundTrainingList, workloadFor } from './views';
+import { latestConfirmation, participantsOf, responseStateFor, roundTrainingList, workloadFor } from './views';
 
 const ALGORITHM_VERSION = 1;
 
@@ -457,7 +457,14 @@ function resolveParticipant(ctx: Ctx, roundId: string, partnerId: string) {
 }
 
 export type PartnerActionResult =
-  | { ok: true; projectedCount: number }
+  | {
+      ok: true;
+      projectedCount: number;
+      /** [E-10] the answer was already confirmed in this exact form — nothing was written */
+      unchanged?: boolean;
+      /** when `unchanged`: the confirmation that stands */
+      confirmedAt?: number;
+    }
   | { ok: false; reason: string; message: string };
 
 /** Shared guards for any partner action on an open round. */
@@ -641,6 +648,35 @@ export function confirmMarks(
   const marks = validMarks(ctx, roundId, input.marks);
   // [E-03] confirming an empty set is a decline, and the UI asks first.
   const kind = marks.length === 0 ? 'decline_all' : 'confirm';
+
+  // [E-10] An identical re-confirmation — same marks, same cap, same kind — is
+  // a no-op: no new row, no second receipt, no projection notices. A double tap
+  // on a phone or a slow connection produced two receipts for one answer. The
+  // comparison is the one the screen's "unconfirmed changes" banner uses, so
+  // server and UI cannot disagree about what "identical" means. Compared
+  // against the *stored* marks: after a withdrawal [V-04] the reduced set is a
+  // new answer, deliberately, because a confirmation is evidence.
+  const latest = latestConfirmation(ctx.tx, roundId, participant.lotPartnerId);
+  if (latest) {
+    const state = responseStateFor(latest, marks, cap, capKind);
+    if (state === 'confirmed' || state === 'declined_all') {
+      ctx.tx
+        .update(roundParticipants)
+        .set({ draftMarks: marks, draftCap: cap, draftCapKind: capKind, draftUpdatedAt: ctx.at })
+        .where(eq(roundParticipants.id, participant.id))
+        .run();
+      const view = currentProjection(ctx, roundId, participant.lotPartnerId, marks, cap, capKind);
+      logAudit(ctx, {
+        eventType: 'marks.confirm_repeated',
+        summary: `${participant.partnerName} kinnitas uuesti sama valiku — uut kinnitust ei lisatud (kehtib kinnitus ${formatDateTimeShort(latest.confirmedAt)})`,
+        roundId,
+        lotId: lot.id,
+        lotPartnerId: participant.lotPartnerId,
+        after: { confirmationId: latest.id, kind, marks, cap, capKind },
+      });
+      return { ok: true, projectedCount: view.projectedCount, unchanged: true, confirmedAt: latest.confirmedAt };
+    }
+  }
 
   const previousCounts = projectionCounts(ctx, roundId);
 

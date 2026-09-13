@@ -21,7 +21,14 @@ import { getDb } from '@/db';
 import { lots, orders, roundTrainings, rounds, trainings } from '@/db/schema';
 import { partnerView } from '@/domain/allocate';
 import { formatDateTime, formatDateTimeShort, formatEur, formatIsoDay } from '@/domain/format';
-import { capLabel, TARGET_GROUPS, viewStateParts, VIEW_STATE_TONES } from '@/domain/round-statuses';
+import {
+  capLabel,
+  RESPONSE_STATE_LABELS,
+  RESPONSE_STATE_TONES,
+  TARGET_GROUPS,
+  viewStateParts,
+  VIEW_STATE_TONES,
+} from '@/domain/round-statuses';
 import { LANGUAGE_LABELS, WORKSHOP_TYPE_LABELS } from '@/domain/statuses';
 import { Countdown } from '@/components/countdown';
 import { RankChip, StatusBadge } from '@/components/status-badge';
@@ -40,8 +47,17 @@ import { MarkingForm } from './marking-form';
 
 export const dynamic = 'force-dynamic';
 
-export default async function PartnerRoundPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function PartnerRoundPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { id } = await params;
+  const vastusParam = (await searchParams).vastus;
+  /** set by the confirm/decline actions' redirect, so the result lands in view */
+  const vastus = typeof vastusParam === 'string' ? vastusParam : null;
   const actor = await requirePartner();
   runDueJobs();
 
@@ -171,6 +187,54 @@ export default async function PartnerRoundPage({ params }: { params: Promise<{ i
           {round.publishedAt ? formatDateTimeShort(round.publishedAt) : '—'}
         </p>
       </div>
+
+      {/* ---------------- the partner's answer, first ----------------
+          The confirm action redirects here. On a phone the button sat under a
+          long table and its inline message out of view, so people pressed it
+          again [E-10]; the result now sits at the top, where the eye lands. */}
+
+      {(latest || vastus) && (
+        <section
+          id="kinnitus"
+          data-testid="confirmation-status"
+          className="rounded-[10px] border p-4"
+          style={{
+            borderColor: vastus === 'sama' ? 'var(--color-warning)' : 'var(--color-success)',
+            background: vastus === 'sama' ? 'var(--color-warning-soft)' : 'var(--color-success-soft)',
+          }}
+        >
+          <div className="flex flex-wrap items-center gap-3">
+            <h2>Teie vastus</h2>
+            <StatusBadge label={RESPONSE_STATE_LABELS[state]} tone={RESPONSE_STATE_TONES[state]} />
+          </div>
+          {vastus === 'kinnitatud' && (
+            <p className="mt-1 text-[13px] font-semibold" role="status">
+              Valik kinnitatud. Kviitung on menüüs Teavitused.
+            </p>
+          )}
+          {vastus === 'loobutud' && (
+            <p className="mt-1 text-[13px] font-semibold" role="status">
+              Loobumine registreeritud. Saate otsust muuta kuni tähtajani.
+            </p>
+          )}
+          {vastus === 'sama' && latest && (
+            <p className="mt-1 text-[13px] font-semibold" role="status">
+              Teie valik oli juba samal kujul kinnitatud — uut kinnitust ei lisatud ega kviitungit
+              ei saadetud. Kehtib kinnitus {formatDateTimeShort(latest.confirmedAt)}.
+            </p>
+          )}
+          <p className="mt-1 text-[13px]">
+            {latest
+              ? `Viimane kinnitus ${formatDateTimeShort(latest.confirmedAt)}: ${
+                  latest.kind === 'decline_all'
+                    ? 'loobusite kõigist koolitustest'
+                    : `${latest.marks.length} koolitust${latest.cap !== null ? `, piirmäär ${capLabel(latest.cap, latest.capKind)}` : ''}`
+                }.`
+              : 'Te ei ole veel kinnitanud.'}
+            {confirmedView && ` Kinnitatud seisuga prognoosis ${confirmedView.projectedCount} koolitust.`}
+          </p>
+        </section>
+      )}
 
       {/* ---------------- state banners ---------------- */}
 

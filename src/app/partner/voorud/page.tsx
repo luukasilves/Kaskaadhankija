@@ -10,7 +10,12 @@ import { getDb } from '@/db';
 import { frameworkIdentity } from '@/server/framework';
 import { frameworkClause } from '@/domain/framework';
 import { formatDateTimeShort } from '@/domain/format';
-import { RESPONSE_STATE_LABELS, ROUND_STATUS_LABELS, ROUND_STATUS_TONES } from '@/domain/round-statuses';
+import {
+  RESPONSE_STATE_LABELS,
+  RESPONSE_STATE_TONES,
+  ROUND_STATUS_LABELS,
+  ROUND_STATUS_TONES,
+} from '@/domain/round-statuses';
 import { Countdown } from '@/components/countdown';
 import { RankChip, StatusBadge } from '@/components/status-badge';
 import { requirePartner } from '@/server/auth/actor';
@@ -91,13 +96,7 @@ export default async function PartnerRoundsPage() {
                     {participant && <RankChip rank={participant.rankAtPublication} />}
                     <StatusBadge
                       label={RESPONSE_STATE_LABELS[state]}
-                      tone={
-                        state === 'confirmed'
-                          ? 'success'
-                          : state === 'declined_all'
-                            ? 'neutral'
-                            : 'warning'
-                      }
+                      tone={RESPONSE_STATE_TONES[state]}
                     />
                     <span className="text-[13px] text-[var(--color-muted)]">
                       {round.lotCode} — {round.lotName}

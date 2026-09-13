@@ -224,6 +224,16 @@ async function walkFullCascade(page, server) {
   );
   await markAndConfirm(page, [WALK1_CODES[0], WALK1_CODES[1]]);
   check('rank 1 is projected both of its marks', (await stateOf(page, WALK1_CODES[0])) === 'Prognoosis sinule');
+  /* [E-10] the answer lands at the top of the page, and an identical re-confirmation is a no-op */
+  const statusCard = page.getByTestId('confirmation-status');
+  check('the result card is shown after confirming', (await statusCard.textContent()).includes('Valik kinnitatud'));
+  const firstStamp = (await statusCard.textContent()).match(/Viimane kinnitus ([\d.: ]+)/)?.[1];
+  await page.getByTestId('confirm-marks').locator('button').click();
+  await page.waitForFunction(() => document.body.textContent.includes('juba samal kujul'), null, { timeout: 20_000 });
+  check(
+    'confirming the same answer again adds nothing and says so',
+    (await statusCard.textContent()).includes(`Viimane kinnitus ${firstStamp}`),
+  );
 
   /* rank 2 answers with its own sign-in code, not through act-as [L-08] */
   const partnerContext = await page.context().browser().newContext();

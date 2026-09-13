@@ -109,6 +109,7 @@ export function ActionForm<T>({
         type="submit"
         className={variantClass}
         disabled={pending || disabled}
+        aria-busy={pending || undefined}
         title={submitTitle}
       >
         {pending ? 'Töötleb…' : submitLabel}

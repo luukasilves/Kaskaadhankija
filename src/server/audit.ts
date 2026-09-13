@@ -27,6 +27,7 @@ export type AuditEventType =
   // partner answers [K]
   | 'marks.draft_saved'
   | 'marks.confirmed'
+  | 'marks.confirm_repeated'
   | 'marks.declined_all'
   // buyer review [T]
   | 'adjustment.applied'

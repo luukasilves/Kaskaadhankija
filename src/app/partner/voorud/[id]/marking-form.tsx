@@ -335,41 +335,6 @@ export function MarkingForm({
             </div>
           )}
 
-          <div className="mt-4 flex flex-wrap items-start gap-3">
-            <ActionForm
-              action={confirmMarksAction}
-              submitLabel={selected.size === 0 ? 'Kinnita — loobun kõigist' : `Kinnita valik (${selected.size})`}
-              variant="primary"
-              confirm={
-                selected.size === 0
-                  ? 'Ühtegi koolitust ei ole märgitud. Kinnitada loobumine kõigist vooru koolitustest?'
-                  : undefined
-              }
-              hidden={{ roundId, cap, capKind }}
-              testId="confirm-marks"
-            >
-              {hiddenMarks}
-            </ActionForm>
-
-            <ActionForm
-              action={saveDraftAction}
-              submitLabel="Salvesta mustand"
-              hidden={{ roundId, cap, capKind }}
-              testId="save-draft"
-            >
-              {hiddenMarks}
-            </ActionForm>
-
-            <ActionForm
-              action={declineAllAction}
-              submitLabel="Loobun kõigist"
-              variant="danger"
-              confirm="Loobuda kõigist selle vooru koolitustest? Otsust saab tähtajani muuta."
-              hidden={{ roundId }}
-              testId="decline-all"
-            />
-          </div>
-
           {confirmedAt && (
             <p className="mt-3 text-[13px]" style={{ color: 'var(--color-success)' }}>
               Viimane kinnitus {confirmedAt}:{' '}
@@ -380,6 +345,50 @@ export function MarkingForm({
             </p>
           )}
         </section>
+      )}
+
+      {/* The action bar sticks to the bottom on a phone, where the table is
+          long and the buttons used to scroll out of sight; on wider screens it
+          sits where it always did. Each form carries its own hidden fields, so
+          the bar does not need to wrap the table. */}
+      {editable && (
+        <div
+          data-testid="action-bar"
+          className="sticky bottom-0 z-10 -mx-4 flex flex-wrap items-start gap-3 border-t border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3 sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:p-0"
+        >
+          <ActionForm
+            action={confirmMarksAction}
+            submitLabel={selected.size === 0 ? 'Kinnita — loobun kõigist' : `Kinnita valik (${selected.size})`}
+            variant="primary"
+            confirm={
+              selected.size === 0
+                ? 'Ühtegi koolitust ei ole märgitud. Kinnitada loobumine kõigist vooru koolitustest?'
+                : undefined
+            }
+            hidden={{ roundId, cap, capKind }}
+            testId="confirm-marks"
+          >
+            {hiddenMarks}
+          </ActionForm>
+
+          <ActionForm
+            action={saveDraftAction}
+            submitLabel="Salvesta mustand"
+            hidden={{ roundId, cap, capKind }}
+            testId="save-draft"
+          >
+            {hiddenMarks}
+          </ActionForm>
+
+          <ActionForm
+            action={declineAllAction}
+            submitLabel="Loobun kõigist"
+            variant="danger"
+            confirm="Loobuda kõigist selle vooru koolitustest? Otsust saab tähtajani muuta."
+            hidden={{ roundId }}
+            testId="decline-all"
+          />
+        </div>
       )}
     </div>
   );
