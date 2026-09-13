@@ -36,6 +36,7 @@ import {
   trainings,
   type AllocationSnapshot,
 } from '@/db/schema';
+import { TARGET_GROUPS } from '@/domain/round-statuses';
 import { WORKSHOP_TYPE_LABELS, orderDisplayNumber } from '@/domain/statuses';
 import {
   CAP_OPTIONS_LABELS,
@@ -177,6 +178,7 @@ export function buildRoundProtocol(
       locationText: trainings.locationText,
       participantCount: trainings.participantCount,
       language: trainings.language,
+      targetGroup: trainings.targetGroup,
       withdrawnAt: roundTrainings.withdrawnAt,
       withdrawnReason: roundTrainings.withdrawnReason,
       withdrawnBy: roundTrainings.withdrawnBy,
@@ -198,6 +200,7 @@ export function buildRoundProtocol(
     locationText: row.locationText,
     participantCount: row.participantCount,
     language: row.language,
+    targetGroup: TARGET_GROUPS[row.targetGroup],
     withdrawnAt: row.withdrawnAt,
     withdrawnReason: row.withdrawnReason,
     withdrawnBy: row.withdrawnBy ?? '',

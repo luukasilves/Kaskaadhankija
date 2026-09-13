@@ -29,7 +29,15 @@ export interface ReviewRow {
   cap: number | null;
   capKind: 'trainings' | 'participants';
   proposedCount: number;
-  finalTrainings: Array<{ code: string; eventDate: string }>;
+  finalTrainings: Array<{
+    code: string;
+    title: string;
+    eventDate: string;
+    workshopType: string;
+    place: string;
+    targetGroup: string;
+    participantCount: number;
+  }>;
   finalCount: number;
   valueText: string;
   workload: number;
@@ -239,6 +247,52 @@ export function ReviewPanel({
               </Link>
             </p>
           )}
+        </section>
+      )}
+
+      {/* The list the decision is prepared from: who does which training, where,
+          for whom — the buyer asked for exactly this off the protocol. */}
+      {rows.some((row) => row.finalTrainings.length > 0) && (
+        <section className="kh-card" data-testid="allocation-by-partner">
+          <div className="border-b border-[var(--color-border)] px-4 py-3">
+            <h2>{confirmed ? 'Lõplik jaotus täitjate kaupa' : 'Jaotus täitjate kaupa (eelvaade)'}</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr>
+                  <th className="kh-th">Täitja</th>
+                  <th className="kh-th">Kood</th>
+                  <th className="kh-th">Koolitus</th>
+                  <th className="kh-th">Kuupäev</th>
+                  <th className="kh-th">Formaat</th>
+                  <th className="kh-th">Maakond, asukoht</th>
+                  <th className="kh-th">Sihtrühm</th>
+                  <th className="kh-th">Osalejaid</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows
+                  .filter((row) => row.finalTrainings.length > 0)
+                  .flatMap((row) =>
+                    row.finalTrainings.map((t, index) => (
+                      <tr key={`${row.lotPartnerId}-${t.code}`}>
+                        <td className="kh-td whitespace-nowrap font-semibold">
+                          {index === 0 ? `koht ${row.rank} · ${row.partnerName}` : ''}
+                        </td>
+                        <td className="kh-td whitespace-nowrap font-semibold">{t.code}</td>
+                        <td className="kh-td">{t.title}</td>
+                        <td className="kh-td whitespace-nowrap tabular-nums">{t.eventDate}</td>
+                        <td className="kh-td whitespace-nowrap">{t.workshopType}</td>
+                        <td className="kh-td text-[13px]">{t.place}</td>
+                        <td className="kh-td text-[13px]">{t.targetGroup}</td>
+                        <td className="kh-td tabular-nums">{t.participantCount}</td>
+                      </tr>
+                    )),
+                  )}
+              </tbody>
+            </table>
+          </div>
         </section>
       )}
 

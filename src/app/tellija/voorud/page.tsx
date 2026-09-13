@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { desc, eq } from 'drizzle-orm';
 import { getDb } from '@/db';
-import { lots, roundTrainings, rounds } from '@/db/schema';
+import { lots, roundTrainings, rounds, roundProtocols } from '@/db/schema';
 import { formatDateTimeShort } from '@/domain/format';
 import { ROUND_STATUS_LABELS, ROUND_STATUS_TONES } from '@/domain/round-statuses';
 import { Countdown } from '@/components/countdown';
@@ -37,6 +37,12 @@ export default async function RoundsList() {
     .innerJoin(lots, eq(lots.id, rounds.lotId))
     .orderBy(desc(rounds.createdAt))
     .all();
+
+  // [L-22] Which rounds already have their signable record — one lookup, so
+  // the list can say so without a query per row.
+  const withProtocol = new Set(
+    db.select({ roundId: roundProtocols.roundId }).from(roundProtocols).all().map((r) => r.roundId),
+  );
 
   const trainingCounts = new Map<string, number>();
   for (const link of db.select({ roundId: roundTrainings.roundId }).from(roundTrainings).all()) {
@@ -73,6 +79,7 @@ export default async function RoundsList() {
                 <th className="kh-th">Avaldatud</th>
                 <th className="kh-th">Tähtaeg</th>
                 <th className="kh-th">Nähtavus</th>
+                <th className="kh-th">Protokoll</th>
               </tr>
             </thead>
             <tbody>
@@ -120,6 +127,15 @@ export default async function RoundsList() {
                   </td>
                   <td className="kh-td text-[13px] whitespace-nowrap">
                     {round.visibilityMode === 'dynamic' ? 'Dünaamiline' : 'Suletud'}
+                  </td>
+                  <td className="kh-td text-[13px] whitespace-nowrap">
+                    {withProtocol.has(round.id) ? (
+                      <Link href={`/tellija/voorud/${round.id}/protokoll`} className="text-[var(--color-brand)]">
+                        Protokoll
+                      </Link>
+                    ) : (
+                      '—'
+                    )}
                   </td>
                 </tr>
               ))}

@@ -17,8 +17,7 @@ import {
   fingerprintLine,
   protocolHeadline,
   respondingPartnerCount,
-  type RoundProtocolData,
-} from './round-protocol';
+  type RoundProtocolData, allocationByPartner } from './round-protocol';
 
 const sha = (text: string) => createHash('sha256').update(text, 'utf8').digest('hex');
 
@@ -119,25 +118,73 @@ function fixture(over: Partial<RoundProtocolData> = {}): RoundProtocolData {
 }
 
 describe('protocolHeadline', () => {
-  it('counts orders and leftovers for a confirmed round', () => {
+  const training = (code: string) => ({
+    code,
+    title: `Koolitus ${code}`,
+    workshopType: 'Töötuba 1',
+    eventDate: '2026-10-01',
+    eventEnd: null,
+    county: 'Harju maakond',
+    locationText: '',
+    participantCount: 20,
+    language: 'et',
+    withdrawnAt: null,
+    withdrawnReason: '',
+    withdrawnBy: '',
+  });
+  const participant = (rank: number, name: string) => ({
+    lotPartnerId: `lp${rank}`,
+    rank,
+    partnerName: name,
+    partnerRegCode: `1000000${rank}`,
+    contactName: name,
+    contactEmail: `${rank}@x.ee`,
+    unitPriceEur: 0,
+    excludedAt: null,
+    excludedReason: '',
+    outcomeAtClose: 'confirmed',
+  });
+
+  it('counts allocated trainings, partners and leftovers for a confirmed round', () => {
     const data = fixture({
-      orders: [
-        {
-          number: 'KH-2026-0001',
-          partnerName: 'A',
-          partnerRegCode: '10000001',
-          trainingCodes: [],
-          totalEur: 0,
-          unitPriceEur: 0,
-          partnerConfirmedAt: null,
-          buyerConfirmedAt: 0,
-          buyerConfirmedBy: '',
-          status: 'active',
-        },
-      ],
-      allocation: { proposal: null, final: null, byTraining: [], trace: [], leftover: ['KK-1'] },
+      trainings: [training('KK-1'), training('KK-2'), training('KK-3')],
+      participants: [participant(1, 'A'), participant(2, 'B')],
+      allocation: {
+        proposal: null,
+        final: null,
+        byTraining: [
+          { trainingCode: 'KK-1', proposed: 'A', final: 'A', changed: false },
+          { trainingCode: 'KK-2', proposed: 'B', final: 'B', changed: false },
+          { trainingCode: 'KK-3', proposed: null, final: null, changed: false },
+        ],
+        trace: [],
+        leftover: ['KK-3'],
+      },
     });
-    expect(protocolHeadline(data)).toBe('Voor VOOR-2026-001: 1 tellimust, jääk 1 koolitust.');
+    expect(protocolHeadline(data)).toBe('Voor VOOR-2026-001: 2 koolitust 2 täitjale, jääk 1 koolitust.');
+  });
+
+  it('[L-22] groups the final allocation by partner in rank order, with the training rows', () => {
+    const data = fixture({
+      trainings: [training('KK-1'), training('KK-2'), training('KK-3')],
+      participants: [participant(1, 'A'), participant(2, 'B'), participant(3, 'C')],
+      allocation: {
+        proposal: null,
+        final: null,
+        byTraining: [
+          { trainingCode: 'KK-3', proposed: 'B', final: 'B', changed: false },
+          { trainingCode: 'KK-1', proposed: 'A', final: 'A', changed: false },
+          { trainingCode: 'KK-2', proposed: 'B', final: 'B', changed: false },
+        ],
+        trace: [],
+        leftover: [],
+      },
+    });
+    const groups = allocationByPartner(data);
+    expect(groups.map((g) => g.partnerName)).toEqual(['A', 'B']);
+    expect(groups[1]!.trainings.map((t) => t.code)).toEqual(['KK-2', 'KK-3']);
+    // A stored schema-1 protocol has no target group; the field simply stays undefined.
+    expect(groups[0]!.trainings[0]!.targetGroup).toBeUndefined();
   });
 
   it('says plainly that a cancelled round allocated nothing', () => {

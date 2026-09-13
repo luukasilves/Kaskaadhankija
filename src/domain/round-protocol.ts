@@ -28,7 +28,12 @@ import type { CapKind } from './allocate';
 import type { FrameworkIdentity } from './framework';
 import type { AllocationSnapshot } from '@/db/schema';
 
-export const PROTOCOL_SCHEMA_VERSION = 1;
+/**
+ * 2 (v2.6): trainings carry the target group; the renderers add a per-partner
+ * section derived from the allocation. Stored v1 protocols are never rewritten,
+ * so every reader treats the new field as optional.
+ */
+export const PROTOCOL_SCHEMA_VERSION = 2;
 
 /** Why a protocol exists: the round was confirmed, or cancelled while open. */
 export type ProtocolKind = 'confirmed' | 'cancelled';
@@ -86,6 +91,8 @@ export interface ProtocolTraining {
   locationText: string;
   participantCount: number;
   language: string;
+  /** the label from `TARGET_GROUPS`; absent in protocols stored before schema 2 */
+  targetGroup?: string;
   /** [V-04] withdrawn from the round; kept for the record */
   withdrawnAt: number | null;
   withdrawnReason: string;
@@ -316,12 +323,50 @@ export function capText(cap: number | null, capKind: CapKind): string {
 
 /** The one-line summary under the protocol's title. */
 export function protocolHeadline(data: RoundProtocolData): string {
-  const orders = data.orders.length;
   const leftover = data.allocation.leftover.length;
   if (data.kind === 'cancelled') {
     return `Voor ${data.round.code} tühistati; ükski koolitus ei jaotatud.`;
   }
-  return `Voor ${data.round.code}: ${orders} tellimust, jääk ${leftover} koolitust.`;
+  const byPartner = allocationByPartner(data);
+  const allocated = byPartner.reduce((sum, row) => sum + row.trainings.length, 0);
+  return `Voor ${data.round.code}: ${allocated} koolitust ${byPartner.length} täitjale, jääk ${leftover} koolitust.`;
+}
+
+export interface ProtocolPartnerAllocation {
+  rank: number;
+  partnerName: string;
+  partnerRegCode: string;
+  trainings: ProtocolTraining[];
+}
+
+/**
+ * The final allocation grouped by partner, in rank order — „kes teeb mitu
+ * koolitust tervishoiutöötajatele, kus“, which is the list the buyer reads off
+ * the protocol when preparing the decision. A derivation over stored facts
+ * (`allocation.byTraining` joined to `trainings` and `participants`), never a
+ * recomputation, so it serves protocols of every schema version.
+ */
+export function allocationByPartner(data: RoundProtocolData): ProtocolPartnerAllocation[] {
+  const trainingByCode = new Map(data.trainings.map((t) => [t.code, t] as const));
+  const groups = new Map<string, ProtocolTraining[]>();
+  for (const row of data.allocation.byTraining) {
+    if (row.final === null) continue;
+    const training = trainingByCode.get(row.trainingCode);
+    if (!training) continue;
+    const list = groups.get(row.final) ?? [];
+    list.push(training);
+    groups.set(row.final, list);
+  }
+  return data.participants
+    .filter((p) => groups.has(p.partnerName))
+    .map((p) => ({
+      rank: p.rank,
+      partnerName: p.partnerName,
+      partnerRegCode: p.partnerRegCode,
+      trainings: [...(groups.get(p.partnerName) ?? [])].sort(
+        (a, b) => a.eventDate.localeCompare(b.eventDate) || a.code.localeCompare(b.code),
+      ),
+    }));
 }
 
 /**

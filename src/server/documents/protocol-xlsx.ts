@@ -23,6 +23,7 @@ import {
   capText,
   protocolHeadline,
   type RoundProtocolData,
+  allocationByPartner,
 } from '@/domain/round-protocol';
 import { NOTIFICATION_TYPE_LABELS } from '@/domain/round-statuses';
 import { frameworkTitleLine } from '@/domain/framework';
@@ -66,6 +67,7 @@ export async function buildProtocolXlsx(
   hash: string,
 ): Promise<Buffer> {
   const sheets: WorkbookSheet[] = [];
+  const trainingByCode = new Map(data.trainings.map((t) => [t.code, t] as const));
 
   sheets.push(
     keyValueSheet('Tingimused', [
@@ -134,6 +136,7 @@ export async function buildProtocolXlsx(
         'formaat',
         'maakond',
         'asukoht',
+        'sihtruhm',
         'osalejaid',
         'keel',
         'tagasi_voetud',
@@ -148,6 +151,7 @@ export async function buildProtocolXlsx(
         formaat: t.workshopType,
         maakond: t.county,
         asukoht: t.locationText,
+        sihtruhm: t.targetGroup ?? '',
         osalejaid: String(t.participantCount),
         keel: t.language,
         tagasi_voetud: shortInstant(t.withdrawnAt),
@@ -232,13 +236,43 @@ export async function buildProtocolXlsx(
     ),
     sheet(
       'Jaotus',
-      ['koolitus', 'jaotusettepanek', 'loplik_jaotus', 'muutus'],
-      data.allocation.byTraining.map((row) => ({
-        koolitus: row.trainingCode,
-        jaotusettepanek: row.proposed ?? 'jääk',
-        loplik_jaotus: row.final ?? 'jääk',
-        muutus: row.changed ? 'jah' : '',
-      })),
+      ['koolitus', 'nimetus', 'kuupaev', 'formaat', 'maakond', 'asukoht', 'sihtruhm', 'osalejaid', 'jaotusettepanek', 'loplik_jaotus', 'muutus'],
+      data.allocation.byTraining.map((row) => {
+        const t = trainingByCode.get(row.trainingCode);
+        return {
+          koolitus: row.trainingCode,
+          nimetus: t?.title ?? '',
+          kuupaev: t ? formatIsoDay(t.eventDate) : '',
+          formaat: t?.workshopType ?? '',
+          maakond: t?.county ?? '',
+          asukoht: t?.locationText ?? '',
+          sihtruhm: t?.targetGroup ?? '',
+          osalejaid: t ? String(t.participantCount) : '',
+          jaotusettepanek: row.proposed ?? 'jääk',
+          loplik_jaotus: row.final ?? 'jääk',
+          muutus: row.changed ? 'jah' : '',
+        };
+      }),
+    ),
+    sheet(
+      'Täitjate kaupa',
+      ['koht', 'partner', 'registrikood', 'kood', 'nimetus', 'kuupaev', 'formaat', 'maakond', 'asukoht', 'sihtruhm', 'osalejaid', 'keel'],
+      allocationByPartner(data).flatMap((group) =>
+        group.trainings.map((t) => ({
+          koht: String(group.rank),
+          partner: group.partnerName,
+          registrikood: group.partnerRegCode,
+          kood: t.code,
+          nimetus: t.title,
+          kuupaev: formatIsoDay(t.eventDate),
+          formaat: t.workshopType,
+          maakond: t.county,
+          asukoht: t.locationText,
+          sihtruhm: t.targetGroup ?? '',
+          osalejaid: String(t.participantCount),
+          keel: t.language,
+        })),
+      ),
     ),
     sheet(
       'Kaskaadi käik',

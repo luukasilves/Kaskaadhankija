@@ -16,8 +16,9 @@ import { getDb } from '@/db';
 import { buyerCanWrite } from '@/server/auth/actor';
 import { ReadOnlyNote } from '@/components/read-only-note';
 import { lots, orders, rounds, trainings } from '@/db/schema';
+import { WORKSHOP_TYPE_LABELS } from '@/domain/statuses';
 import { formatDateTimeShort, formatEur, formatIsoDay } from '@/domain/format';
-import { PARTICIPANT_OUTCOME_LABELS, ROUND_STATUS_LABELS, ROUND_STATUS_TONES } from '@/domain/round-statuses';
+import { PARTICIPANT_OUTCOME_LABELS, ROUND_STATUS_LABELS, ROUND_STATUS_TONES, TARGET_GROUPS } from '@/domain/round-statuses';
 import { RankChip, StatusBadge } from '@/components/status-badge';
 import { effectiveAdjustmentRows } from '@/server/rounds/allocation-input';
 import { previewFinalAllocation } from '@/server/rounds/engine';
@@ -108,10 +109,19 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
       cap: latest?.cap ?? null,
       capKind: latest?.capKind ?? ('trainings' as const),
       proposedCount: proposed.length,
-      finalTrainings: final.map((trainingId) => ({
-        code: trainingById.get(trainingId)?.code ?? '',
-        eventDate: formatIsoDay(trainingById.get(trainingId)?.eventDate ?? ''),
-      })),
+      finalTrainings: final
+        .map((trainingId) => trainingById.get(trainingId))
+        .filter((t): t is NonNullable<typeof t> => Boolean(t))
+        .sort((a, b) => a.eventDate.localeCompare(b.eventDate) || a.code.localeCompare(b.code))
+        .map((t) => ({
+          code: t.code,
+          title: t.title,
+          eventDate: formatIsoDay(t.eventDate),
+          workshopType: WORKSHOP_TYPE_LABELS[t.workshopType],
+          place: `${t.county}${t.locationText ? `, ${t.locationText}` : ''}`,
+          targetGroup: TARGET_GROUPS[t.targetGroup],
+          participantCount: t.participantCount,
+        })),
       finalCount: final.length,
       valueText: formatEur(value),
       workload,

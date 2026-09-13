@@ -31,6 +31,7 @@ import {
   protocolHeadline,
   respondingPartnerCount,
   type RoundProtocolData,
+  allocationByPartner,
 } from '@/domain/round-protocol';
 import { NOTIFICATION_TYPE_LABELS } from '@/domain/round-statuses';
 import { frameworkTitleLine } from '@/domain/framework';
@@ -320,18 +321,20 @@ function buildDefinition(data: RoundProtocolData, hash: string): TDocumentDefini
 
   /* 2. trainings */
   const live = data.trainings.filter((t) => t.withdrawnAt === null);
+  const trainingByCode = new Map(data.trainings.map((t) => [t.code, t] as const));
   const withdrawn = data.trainings.filter((t) => t.withdrawnAt !== null);
   content.push(
     heading(`2. Vooru koolitused (${live.length})`),
     table(
-      ['Kood', 'Nimetus', 'Kuupäev', 'Formaat', 'Maakond', 'Osalejaid', 'Keel'],
-      [11, 33, 11, 11, 18, 10, 6],
+      ['Kood', 'Nimetus', 'Kuupäev', 'Formaat', 'Maakond', 'Sihtrühm', 'Osalejaid', 'Keel'],
+      [11, 27, 10, 10, 17, 13, 7, 5],
       live.map((t) => [
         t.code,
         t.title,
         formatIsoDay(t.eventDate),
         t.workshopType,
         `${t.county}${t.locationText ? `, ${t.locationText}` : ''}`,
+        t.targetGroup ?? DASH,
         String(t.participantCount),
         t.language,
       ]),
@@ -443,14 +446,20 @@ function buildDefinition(data: RoundProtocolData, hash: string): TDocumentDefini
           : `Lõplik jaotus erineb jaotusettepanekust ${changedCount} koolituse osas; erinevused on allpool tähistatud.`,
       ),
       table(
-        ['Koolitus', 'Jaotusettepanek', 'Lõplik jaotus', 'Muutus'],
-        [16, 35, 35, 9],
-        data.allocation.byTraining.map((row) => [
-          row.trainingCode,
-          row.proposed ?? 'jääk',
-          row.final ?? 'jääk',
-          row.changed ? 'jah' : '',
-        ]),
+        ['Koolitus', 'Nimetus', 'Kuupäev', 'Formaat', 'Jaotusettepanek', 'Lõplik jaotus', 'Muutus'],
+        [11, 25, 10, 10, 18, 18, 8],
+        data.allocation.byTraining.map((row) => {
+          const training = trainingByCode.get(row.trainingCode);
+          return [
+            row.trainingCode,
+            training?.title ?? DASH,
+            training ? formatIsoDay(training.eventDate) : DASH,
+            training?.workshopType ?? DASH,
+            row.proposed ?? 'jääk',
+            row.final ?? 'jääk',
+            row.changed ? 'jah' : '',
+          ];
+        }),
       ),
       { text: 'Kaskaadi käik', style: 'h3', margin: [0, 6, 0, 4] },
       table(
@@ -483,6 +492,38 @@ function buildDefinition(data: RoundProtocolData, hash: string): TDocumentDefini
           : `Jääk (${data.allocation.leftover.length}): ${data.allocation.leftover.join(', ')}. Jääk ootab tellija otsust — uus voor või tühistamine.`,
       ),
     );
+  }
+
+  /* 6a. the final allocation by partner — the list the decision is prepared from */
+  if (!cancelled) {
+    const byPartner = allocationByPartner(data);
+    content.push({ text: 'Lõplik jaotus täitjate kaupa', style: 'h3', margin: [0, 6, 0, 4] });
+    if (byPartner.length === 0) {
+      content.push(paragraph('Ühelegi partnerile ei määratud selles voorus koolitusi.'));
+    }
+    for (const group of byPartner) {
+      content.push(
+        {
+          text: `Koht ${group.rank} — ${group.partnerName} (reg. kood ${group.partnerRegCode}) · ${group.trainings.length} koolitust`,
+          style: 'td',
+          bold: true,
+          margin: [0, 4, 0, 2],
+        },
+        table(
+          ['Kood', 'Nimetus', 'Kuupäev', 'Formaat', 'Maakond, asukoht', 'Sihtrühm', 'Osalejaid'],
+          [10, 27, 10, 10, 20, 15, 8],
+          group.trainings.map((t) => [
+            t.code,
+            t.title,
+            formatIsoDay(t.eventDate),
+            t.workshopType,
+            `${t.county}${t.locationText ? `, ${t.locationText}` : ''}`,
+            t.targetGroup ?? DASH,
+            String(t.participantCount),
+          ]),
+        ),
+      );
+    }
   }
 
   /* 7. orders */

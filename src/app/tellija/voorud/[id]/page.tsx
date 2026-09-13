@@ -177,6 +177,35 @@ export default async function RoundDetail({ params }: { params: Promise<{ id: st
         </p>
       </div>
 
+      {/* [L-22] The signable record, where the buyer looks for it: the round
+          page, from the moment the round has ended. The team could not find it
+          during the play-through, so it is a card, not a link in a row. */}
+      {hasProtocol && (
+        <section
+          className="rounded-[10px] border p-4"
+          style={{ borderColor: 'var(--color-brand)', background: 'var(--color-brand-soft)' }}
+          data-testid="protocol-card"
+        >
+          <div className="flex flex-wrap items-center gap-3">
+            <h2 style={{ color: 'var(--color-brand)' }}>Vooru protokoll</h2>
+            <span className="text-[13px] text-[var(--color-muted)]">
+              otsuse alusdokument — jaotus täitjate kaupa, kinnitused, kohandused, sõrmejälg
+            </span>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <a href={`/tellija/voorud/${id}/protokoll/pdf`} className="kh-btn kh-btn-primary">
+              Laadi alla PDF
+            </a>
+            <a href={`/tellija/voorud/${id}/protokoll/xlsx`} className="kh-btn">
+              Lisa (.xlsx)
+            </a>
+            <Link href={`/tellija/voorud/${id}/protokoll`} className="kh-btn">
+              Protokolli leht ja sõrmejälg
+            </Link>
+          </div>
+        </section>
+      )}
+
       {round.status === 'draft' && (round.plannedPublishAt || round.plannedDeadlineAt) && (
         <p className="text-[13px] text-[var(--color-muted)]" data-testid="planned-window">
           Skeemifailis kavandatud:{' '}

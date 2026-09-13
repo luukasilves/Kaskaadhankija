@@ -597,6 +597,7 @@ describe('the .xlsx annex', () => {
       'Kinnitused',
       'Kohandused',
       'Jaotus',
+      'Täitjate kaupa',
       'Kaskaadi käik',
       'Jääk',
       'Tellimused',
@@ -644,5 +645,31 @@ describe('confirmations table untouched', () => {
     harness.write((ctx) => generateProtocolForEndedRound(ctx, roundId));
     const after = harness.read((db) => db.select().from(confirmations).all().length);
     expect(after).toBe(before);
+  });
+});
+
+describe('[L-22] the final allocation by partner', () => {
+  it('prints each partner’s trainings with title, date, format and target group in the PDF', async () => {
+    const roundId = fullRound();
+    const protocol = stored(roundId);
+    const text = pdfText(await buildProtocolPdf(protocol.data, protocol.contentHash));
+    expect(text).toContain('Lõplik jaotus täitjate kaupa');
+    expect(text).toContain(`Koht 1 — ${partnerName(0)}`);
+    expect(text).toContain('KOV ametnikud');
+    expect(protocol.data.trainings[0]!.targetGroup).toBe('KOV ametnikud');
+    expect(protocol.data.schemaVersion).toBe(2);
+  });
+
+  it('has one annex row per allocated training on the „Täitjate kaupa“ sheet', async () => {
+    const roundId = fullRound();
+    const protocol = stored(roundId);
+    const sheets = await parseXlsxSheets(await buildProtocolXlsx(protocol.data, protocol.contentHash));
+    const byPartner = sheets.get('Täitjate kaupa')!;
+    const allocated = protocol.data.allocation.byTraining.filter((row) => row.final !== null);
+    expect(byPartner.rows).toHaveLength(allocated.length);
+    expect(byPartner.headers).toEqual(
+      expect.arrayContaining(['koht', 'partner', 'kood', 'nimetus', 'kuupaev', 'formaat', 'sihtruhm', 'osalejaid']),
+    );
+    expect(byPartner.rows[0]!.partner).toBe(partnerName(0));
   });
 });
