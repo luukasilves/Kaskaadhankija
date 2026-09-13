@@ -55,6 +55,8 @@ export interface MarkingTraining {
   stateTone: StatusTone | null;
   /** the [N-03] state itself, for „Märgi kõik saadaval“ */
   stateKey: TrainingViewState | null;
+  /** codes of this company's other commitments on the same day [N-02] */
+  sameDay: string[];
 }
 
 export function MarkingForm({
@@ -279,6 +281,16 @@ export function MarkingForm({
                     <td className="kh-td whitespace-nowrap tabular-nums">
                       {training.eventDate}
                       {training.eventEnd && ` – ${training.eventEnd}`}
+                      {training.sameDay.length > 0 && (
+                        <div
+                          className="text-[11.5px] font-normal"
+                          style={{ color: 'var(--color-warning)' }}
+                          title="Teil on sel päeval juba koolitus — määratud või teises voorus kinnitatud"
+                          data-testid="same-day"
+                        >
+                          Samal päeval: {training.sameDay.join(', ')}
+                        </div>
+                      )}
                     </td>
                     <td className="kh-td text-[13px]">
                       {training.county}

@@ -366,6 +366,13 @@ async function walkFullCascade(page, server) {
   check('rank 2 sees what it is provisionally given', resultHtml.includes('ette nähtud'));
   check('the result page names no other partner', !resultHtml.includes(OSA1[0].name) && !resultHtml.includes(OSA1[2].name), leakDetail(resultHtml, [OSA1[0].name, OSA1[2].name]));
   await page.screenshot({ path: join(SHOTS, '08-partner-result.png'), fullPage: true });
+
+  /* [N-02] the partner's own calendar holds what the confirmed round gave it */
+  await page.goto(`${base}/partner/kalender`);
+  await page.waitForSelector('[data-testid="partner-calendar"]', { timeout: 20_000 });
+  const calendarHtml = await appHtml(page);
+  check('rank 2’s calendar lists the trainings it was allocated', calendarHtml.includes('Määratud teile'));
+  check('and names no other partner', !calendarHtml.includes(OSA1[0].name) && !calendarHtml.includes(OSA1[2].name), leakDetail(calendarHtml, [OSA1[0].name, OSA1[2].name]));
 }
 
 /* ------------------------------------------------------------------ *

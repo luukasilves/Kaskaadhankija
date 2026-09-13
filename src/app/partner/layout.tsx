@@ -29,6 +29,7 @@ export default async function PartnerLayout({ children }: { children: React.Reac
         actor={actor.contactName}
         items={[
           { href: '/partner/voorud', label: 'Voorud' },
+          { href: '/partner/kalender', label: 'Kalender' },
           ...(hasOrders ? [{ href: '/partner/tellimused', label: 'Tellimused' }] : []),
           { href: '/partner/teavitused', label: 'Teavitused' },
           // Public, and outside this shell — but a partner who has signed in

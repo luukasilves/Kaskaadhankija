@@ -20,6 +20,7 @@ import {
 import type { ResponseState } from '@/domain/round-statuses';
 import type { CapKind, AllocationTraining, ConfirmationSnapshot } from '@/domain/allocate';
 import type { Db, Tx } from '../context';
+import type { WorkshopType } from '@/domain/statuses';
 
 type Reader = Tx | Db;
 
@@ -214,6 +215,121 @@ export function roundsForPartner(tx: Reader, partnerId: string) {
     .where(and(inArray(rounds.lotId, lotIds), inArray(rounds.status, ['open', 'closed', 'confirmed'])))
     .all()
     .sort((a, b) => (b.publishedAt ?? 0) - (a.publishedAt ?? 0));
+}
+
+/** One line of a partner's calendar [N-02]. */
+export interface CalendarEntry {
+  trainingId: string;
+  code: string;
+  title: string;
+  eventDate: string;
+  eventEnd: string | null;
+  workshopType: WorkshopType;
+  county: string;
+  locationText: string;
+  participantCount: number;
+  lotCode: string;
+  /**
+   * `allocated` — the buyer confirmed the round and this training is theirs;
+   * `completed` — held and marked done; `confirmed` — their binding confirmation
+   * in a round still open or awaiting the buyer's decision. A confirmed mark is
+   * not an order [L-25]; the calendar says so.
+   */
+  kind: 'allocated' | 'completed' | 'confirmed';
+  roundId: string | null;
+  roundCode: string | null;
+}
+
+/**
+ * Everything a company has on its calendar: the trainings allocated to it, and
+ * the trainings it has confirmed in rounds not yet decided [N-02].
+ *
+ * The same two reads the round page and `workloadFor` make, put side by side,
+ * because a partner confirming an online round had no way of seeing that the
+ * physical round the week after was already theirs. Once a round is confirmed
+ * its allocation is the truth and its confirmations are history, so a
+ * confirmed round contributes allocated trainings only.
+ */
+export function partnerCalendar(tx: Reader, partnerId: string): CalendarEntry[] {
+  const memberships = tx
+    .select({ id: lotPartners.id })
+    .from(lotPartners)
+    .where(eq(lotPartners.partnerId, partnerId))
+    .all()
+    .map((m) => m.id);
+  if (memberships.length === 0) return [];
+
+  const base = {
+    trainingId: trainings.id,
+    code: trainings.code,
+    title: trainings.title,
+    eventDate: trainings.eventDate,
+    eventEnd: trainings.eventEnd,
+    workshopType: trainings.workshopType,
+    county: trainings.county,
+    locationText: trainings.locationText,
+    participantCount: trainings.participantCount,
+    lotCode: lots.code,
+  };
+
+  const held: CalendarEntry[] = tx
+    .select({ ...base, status: trainings.status })
+    .from(trainings)
+    .innerJoin(lots, eq(lots.id, trainings.lotId))
+    .where(
+      and(inArray(trainings.allocatedLotPartnerId, memberships), inArray(trainings.status, ['allocated', 'completed'])),
+    )
+    .all()
+    .map(({ status, ...row }) => ({
+      ...row,
+      kind: status === 'completed' ? 'completed' : 'allocated',
+      roundId: null,
+      roundCode: null,
+    }));
+
+  const pending: CalendarEntry[] = [];
+  for (const round of roundsForPartner(tx, partnerId)) {
+    if (round.status !== 'open' && round.status !== 'closed') continue;
+    const participant = participantForPartner(tx, round.id, partnerId);
+    if (!participant || participant.excludedAt !== null) continue;
+    const latest = latestConfirmation(tx, round.id, participant.lotPartnerId);
+    if (!latest || latest.kind !== 'confirm' || latest.marks.length === 0) continue;
+    const inRound = new Set(roundTrainingList(tx, round.id).map((t) => t.id));
+    const marked = latest.marks.filter((id) => inRound.has(id));
+    if (marked.length === 0) continue;
+    const rows = tx
+      .select(base)
+      .from(trainings)
+      .innerJoin(lots, eq(lots.id, trainings.lotId))
+      .where(inArray(trainings.id, marked))
+      .all();
+    for (const row of rows) {
+      pending.push({ ...row, kind: 'confirmed', roundId: round.id, roundCode: round.code });
+    }
+  }
+
+  return [...held, ...pending].sort(
+    (a, b) => a.eventDate.localeCompare(b.eventDate) || a.code.localeCompare(b.code),
+  );
+}
+
+/**
+ * The calendar by day — what the marking table shows beside a training on a
+ * date the partner already has something [N-02]. Pass `exceptRoundId` so a
+ * round's own trainings do not warn about each other.
+ */
+export function commitmentsByDay(
+  entries: readonly CalendarEntry[],
+  exceptRoundId: string | null = null,
+): Map<string, string[]> {
+  const byDay = new Map<string, string[]>();
+  for (const entry of entries) {
+    if (exceptRoundId !== null && entry.roundId === exceptRoundId) continue;
+    const list = byDay.get(entry.eventDate) ?? [];
+    if (!list.includes(entry.code)) list.push(entry.code);
+    byDay.set(entry.eventDate, list);
+  }
+  return byDay;
 }
 
 /**

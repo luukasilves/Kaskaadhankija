@@ -107,6 +107,7 @@ const MARKING_FORM = 'src/app/partner/voorud/[id]/marking-form.tsx';
 const VOORUD = 'src/app/partner/voorud/page.tsx';
 const SISENE = 'src/components/sign-in.tsx';
 const PARTNER_TEAVITUSED = 'src/app/partner/teavitused/page.tsx';
+const PARTNER_KALENDER = 'src/app/partner/kalender/page.tsx';
 
 export const QUOTED: readonly { tekst: string; fail: string }[] = [
   { tekst: 'Saada kood', fail: SISENE },
@@ -135,6 +136,9 @@ export const QUOTED: readonly { tekst: string; fail: string }[] = [
   { tekst: 'Märgi kõik', fail: MARKING_FORM },
   { tekst: 'Tühjenda', fail: MARKING_FORM },
   { tekst: 'Teavituste seaded', fail: PARTNER_TEAVITUSED },
+  { tekst: 'Minu kalender', fail: PARTNER_KALENDER },
+  { tekst: 'Kinnitatud, otsus ootel', fail: PARTNER_KALENDER },
+  { tekst: 'Samal päeval', fail: MARKING_FORM },
 ] as const;
 
 /* ------------------------------------------------------------------ *
@@ -404,7 +408,7 @@ export const SECTIONS: readonly Section[] = [
   {
     id: 'markimine',
     title: 'Koolituste märkimine',
-    rules: ['K-01', 'N-03', 'N-04', 'N-05', 'T-08', 'E-10'],
+    rules: ['K-01', 'N-02', 'N-03', 'N-04', 'N-05', 'T-08', 'E-10'],
     blocks: [
       {
         kind: 'para',
@@ -419,6 +423,11 @@ export const SECTIONS: readonly Section[] = [
         kind: 'para',
         text:
           '**Märkida saab iga koolitust, sõltumata sellest, mida veerg „Olek“ ütleb.** Olek on teave, mitte piirang: märge ilma prognoosita on varuvariant, mis hakkab kehtima, kui eesõigusega partner loobub või oma valikut muudab.',
+      },
+      {
+        kind: 'para',
+        text:
+          'Kui teil on koolituse päeval juba mõni koolitus — teile määratud või teises voorus kinnitatud —, seisab kuupäeva all **„Samal päeval: …“** koos selle koodiga. Kogu oma aja näete menüüs **Kalender** („Minu kalender“): määratud koolitused ja kinnitatud märked kuude kaupa; kinnitatud märke juures seisab **„Kinnitatud, otsus ootel“**, sest see ei ole veel tellimus.',
       },
       {
         kind: 'para',

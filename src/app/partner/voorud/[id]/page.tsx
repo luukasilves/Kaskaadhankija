@@ -40,8 +40,10 @@ import { projectionInput } from '@/server/rounds/allocation-input';
 import { runDueJobs } from '@/server/rounds/jobs';
 import {
   allConfirmations,
+  commitmentsByDay,
   latestConfirmation,
   participantForPartner,
+  partnerCalendar,
   responseStateFor,
   workloadFor,
 } from '@/server/rounds/views';
@@ -123,6 +125,8 @@ export default async function PartnerRoundPage({
   );
 
   const isOpen = round.status === 'open' && participant.excludedAt === null;
+  // What the company already has on each day, from every other round [N-02].
+  const busyDays = commitmentsByDay(partnerCalendar(db, actor.partnerId), round.id);
   /** dynamic visibility [N-06]: sealed rounds show a partner only their own marks */
   const showsStates = round.visibilityMode === 'dynamic';
 
@@ -394,6 +398,7 @@ export default async function PartnerRoundPage({
         finalMine={round.status === 'confirmed' ? [...mine] : null}
         trainings={trainingRows.map((row) => {
           const view = stateByTraining.get(row.id);
+          const sameDay = isOpen ? busyDays.get(row.eventDate) ?? [] : [];
           const parts = view ? viewStateParts(view.state, view.reason) : null;
           return {
             id: row.id,
@@ -413,6 +418,7 @@ export default async function PartnerRoundPage({
             stateReason: parts?.reason ?? null,
             stateTone: view ? VIEW_STATE_TONES[view.state] : null,
             stateKey: view?.state ?? null,
+            sameDay,
           };
         })}
       />

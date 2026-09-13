@@ -61,6 +61,20 @@ export function formatTime(instant: Date | number): string {
   return `${get('hour')}:${get('minute')}`;
 }
 
+const MONTH_FMT = new Intl.DateTimeFormat('et-EE', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+
+/** An ISO 'YYYY-MM-DD' event date as its month, 'oktoober 2026' — a calendar heading. */
+export function formatMonthLabel(iso: string): string {
+  const [year, month] = iso.split('-').map(Number);
+  if (!year || !month) return iso;
+  return MONTH_FMT.format(Date.UTC(year, month - 1, 15));
+}
+
+/** 'YYYY-MM' of an ISO day, the key a calendar groups by. */
+export function monthKey(iso: string): string {
+  return iso.slice(0, 7);
+}
+
 /** An ISO 'YYYY-MM-DD' event date as '03.09.2026', without timezone drift. */
 export function formatIsoDay(iso: string): string {
   const [year, month, day] = iso.split('-');
