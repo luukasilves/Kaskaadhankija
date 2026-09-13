@@ -10,6 +10,7 @@
  */
 
 import ExcelJS from 'exceljs';
+import JSZip from 'jszip';
 
 export interface XlsxParseResult {
   headers: string[];
@@ -38,13 +39,68 @@ function cellToText(value: ExcelJS.CellValue): string {
   return String(value).trim();
 }
 
+// exceljs's bundled typings predate the generic Buffer<ArrayBufferLike>, and
+// it accepts an ArrayBuffer at runtime either way, so bridge the declaration.
+type LoadArg = Parameters<ExcelJS.Workbook['xlsx']['load']>[0];
+
+const SPREADSHEETML_NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+
+/**
+ * Rewrite a workbook whose SpreadsheetML parts carry a namespace prefix —
+ * `<x:workbook>`, `<x:sheets>`, `<x:sst>` — so that namespace is the default
+ * one. Both spellings are the same XML; exceljs's SAX parsers match element
+ * names literally, so on the prefixed form they find no sheets and throw. A
+ * tester's workbook re-saved by another spreadsheet program arrived exactly
+ * like that, and „faili ei õnnestu lugeda“ was all the upload could say.
+ *
+ * Returns null when no part needed rewriting, so the caller can tell a file
+ * this repairs from a file that is broken in some other way.
+ */
+export async function withDefaultSpreadsheetNamespace(buffer: ArrayBuffer | Buffer): Promise<Buffer | null> {
+  const zip = await JSZip.loadAsync(buffer);
+  let touched = false;
+  for (const name of Object.keys(zip.files)) {
+    if (!/^xl\/.*\.xml$/i.test(name)) continue;
+    const file = zip.file(name);
+    if (!file) continue;
+    const xml = await file.async('string');
+    if (xml.includes(`xmlns="${SPREADSHEETML_NS}"`)) continue;
+    const declared = xml.match(new RegExp(`xmlns:([A-Za-z_][\\w.-]*)="${SPREADSHEETML_NS}"`));
+    if (!declared) continue;
+    const prefix = declared[1]!;
+    const rewritten = xml
+      .replace(declared[0], `xmlns="${SPREADSHEETML_NS}"`)
+      .replace(new RegExp(`<(/?)${prefix}:`, 'g'), '<$1');
+    zip.file(name, rewritten);
+    touched = true;
+  }
+  if (!touched) return null;
+  return Buffer.from(await zip.generateAsync({ type: 'nodebuffer' }));
+}
+
+/**
+ * Load a workbook; when exceljs finds nothing in it, try once more with the
+ * SpreadsheetML namespace made the default. Anything else still fails the way
+ * it always did, and the caller's Estonian message stays the same.
+ */
 async function loadWorkbook(buffer: ArrayBuffer | Buffer): Promise<ExcelJS.Workbook> {
   const workbook = new ExcelJS.Workbook();
-  // exceljs's bundled typings predate the generic Buffer<ArrayBufferLike>, and
-  // it accepts an ArrayBuffer at runtime either way, so bridge the declaration.
-  type LoadArg = Parameters<typeof workbook.xlsx.load>[0];
-  await workbook.xlsx.load(buffer as unknown as LoadArg);
-  return workbook;
+  let failure: unknown = null;
+  try {
+    await workbook.xlsx.load(buffer as unknown as LoadArg);
+    if (workbook.worksheets.length > 0) return workbook;
+  } catch (error) {
+    failure = error;
+  }
+
+  const normalised = await withDefaultSpreadsheetNamespace(buffer).catch(() => null);
+  if (!normalised) {
+    if (failure) throw failure;
+    return workbook;
+  }
+  const retry = new ExcelJS.Workbook();
+  await retry.xlsx.load(normalised as unknown as LoadArg);
+  return retry;
 }
 
 export interface ParsedWorkbook {

@@ -23,8 +23,9 @@
  */
 
 import ExcelJS from 'exceljs';
+import JSZip from 'jszip';
 import { chromium } from 'playwright';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import {
@@ -65,6 +66,30 @@ function seed() {
     console.error(run.stdout, run.stderr);
     throw new Error('seed failed');
   }
+}
+
+/**
+ * Re-save a workbook the way another spreadsheet program did on a tester's
+ * machine: every SpreadsheetML element carrying a namespace prefix. The same
+ * XML — and the file the upload used to refuse [L-21].
+ */
+async function savedWithPrefix(path, out) {
+  const MAIN_NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+  const zip = await JSZip.loadAsync(readFileSync(path));
+  for (const name of Object.keys(zip.files)) {
+    if (!/^xl\/.*\.xml$/.test(name)) continue;
+    const xml = await zip.file(name).async('string');
+    if (!xml.includes(`xmlns="${MAIN_NS}"`)) continue;
+    zip.file(
+      name,
+      xml
+        .replace(`xmlns="${MAIN_NS}"`, `xmlns:x="${MAIN_NS}"`)
+        .replace(/<(\/?)([A-Za-z][\w]*)(?=[\s>/])/g, (match, slash, tag) =>
+          tag.includes(':') || tag === 'xml' ? match : `<${slash}x:${tag}`,
+        ),
+    );
+  }
+  writeFileSync(out, await zip.generateAsync({ type: 'nodebuffer' }));
 }
 
 /** The whole „Muudatuste logi“ as text, so a check can look for its own row. */
@@ -197,6 +222,22 @@ async function main() {
       `${codesPrintedFor(server, edited) - printedBefore} uut koodi aadressile ${edited}`,
     );
     await oldContext.close();
+
+    /* the same file as another program saves it — prefixed namespaces — is read too */
+    const prefixedFile = join(ROOT, 'data', `admin-raamhange-eesliitega-${Date.now()}.xlsx`);
+    await savedWithPrefix(changedFile, prefixedFile);
+    SCRATCH.push(prefixedFile);
+    await page.goto(`${base}/tellija/raamhange/import`);
+    await page.waitForSelector('[data-testid="framework-upload"]', { timeout: 20_000 });
+    await page.setInputFiles('input[type="file"]', prefixedFile);
+    await page.waitForURL(/\/raamhange\/import\?batch=/, { timeout: 30_000 });
+    check(
+      'a workbook re-saved with namespace prefixes is read like the original',
+      (await page.getByTestId('framework-import-blocked').count()) === 0 &&
+        (await page.locator('main').textContent()).includes(MOVED_CONTACT),
+    );
+    await page.locator('button', { hasText: 'Jäta kõrvale' }).click();
+    await page.waitForURL((url) => url.pathname === '/tellija/raamhange', { timeout: 20_000 });
 
     /* ---------------- 2. the same edits by hand, each logged ---------------- */
     note('Raamhange — käsitsi, iga muudatus logitud [D-08]');
