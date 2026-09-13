@@ -72,7 +72,7 @@ export default async function RoundImportPage({
             definition || payload.round.errors.length > 0
               ? {
                   lotCode: definition?.lotCode ?? '',
-                  lotName: payload.round.lotName,
+                  lotName: definition?.lotCode ? payload.round.lotName : '',
                   visibility: definition ? VISIBILITY_MODE_LABELS[definition.visibilityMode] : '',
                   capOptions: definition
                     ? `${CAP_OPTIONS_LABELS[definition.capOptions ?? lotDefault ?? 'trainings']}${definition.capOptions ? '' : ' (hankeosa vaikimisi)'}`
@@ -84,6 +84,7 @@ export default async function RoundImportPage({
               : null
           }
           fileErrors={payload.fileErrors}
+          groups={payload.groups ?? []}
           rows={payload.rows.map((row) => ({
             rowNumber: row.rowNumber,
             code: row.value?.code ?? '',
@@ -111,10 +112,11 @@ export default async function RoundImportPage({
         </Link>
         <h1 className="mt-1">Laadi vooru skeem üles</h1>
         <p className="mt-1 max-w-[80ch] text-[var(--color-muted)]">
-          Üks töövihik kirjeldab ühe kaskaadivooru: leht „Voor“ annab hankeosa ja seaded, leht
-          „Koolitused“ loetleb koolitused samade veergudega nagu koolituskalendri import. Tulemus on
-          <strong> mustand</strong> — avaldamine, tähtaeg ja järjestuse külmutamine toimuvad
-          rakenduses.
+          Üks töövihik kirjeldab ühe kaskaadivooru — või mitut: kui lehel „Voor“ on hankeosa
+          tühi, luuakse iga lehel „Koolitused“ esineva hankeosa kohta oma voor. Leht „Voor“ annab
+          seaded, leht „Koolitused“ loetleb koolitused samade veergudega nagu koolituskalendri
+          import. Tulemus on <strong>mustand</strong> — avaldamine, tähtaeg ja järjestuse
+          külmutamine toimuvad rakenduses.
         </p>
       </div>
 

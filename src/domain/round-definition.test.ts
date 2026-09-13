@@ -30,6 +30,7 @@ describe('parseRoundDefinition', () => {
       note: 'Sügisvoor',
       plannedPublishAt: null,
       plannedDeadlineAt: null,
+      deadlineText: '',
     });
   });
 
@@ -45,6 +46,7 @@ describe('parseRoundDefinition', () => {
       note: '',
       plannedPublishAt: null,
       plannedDeadlineAt: null,
+      deadlineText: '',
     });
   });
 
@@ -58,6 +60,13 @@ describe('parseRoundDefinition', () => {
     ] as const) {
       expect(parseRoundDefinition(kv([['hankeosa', 'OSA-1'], ['piirmaara_valikud', word]]), { knownLotCodes: LOTS }).value?.capOptions).toBe(expected);
     }
+  });
+
+  it('takes an empty lot as „one draft per lot“ and keeps the deadline as typed [L-20]', () => {
+    const result = parseRoundDefinition(kv([['hankeosa', ''], ['vastamistahtaeg', '09.10.2026']]), { knownLotCodes: LOTS });
+    expect(result.errors).toEqual([]);
+    expect(result.value).toMatchObject({ lotCode: null, deadlineText: '09.10.2026' });
+    expect(result.value?.plannedDeadlineAt).not.toBeNull();
   });
 
   it('refuses an unknown lot, an unknown word, and out-of-range extra days', () => {

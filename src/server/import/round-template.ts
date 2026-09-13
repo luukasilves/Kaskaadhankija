@@ -49,8 +49,10 @@ function columnLetter(index: number): string {
 
 export interface RoundTemplateInput {
   lotCodes: readonly string[];
+  /** empty for a file that creates one draft per lot [L-20] */
   lotCode: string;
-  defaultCapOptions: CapOptions;
+  /** null leaves the cell empty — each draft then takes its lot's default */
+  defaultCapOptions: CapOptions | null;
   /** prefilled trainings, keyed by the headers above */
   trainingRows: ReadonlyArray<Record<string, string>>;
 }
@@ -62,7 +64,7 @@ export async function buildRoundTemplate(input: RoundTemplateInput): Promise<Buf
     rows: [
       { väli: 'hankeosa', väärtus: input.lotCode },
       { väli: 'nahtavus', väärtus: VISIBILITY_SHEET_WORDS.dynamic },
-      { väli: 'piirmaara_valikud', väärtus: CAP_OPTIONS_SHEET_WORDS[input.defaultCapOptions] },
+      { väli: 'piirmaara_valikud', väärtus: input.defaultCapOptions ? CAP_OPTIONS_SHEET_WORDS[input.defaultCapOptions] : '' },
       { väli: 'lisatoopaevad', väärtus: '0' },
       { väli: 'avaldamine', väärtus: '' },
       { väli: 'vastamistahtaeg', väärtus: '' },
@@ -95,7 +97,7 @@ export async function buildRoundTemplate(input: RoundTemplateInput): Promise<Buf
     headers: ['Leht / veerg', 'Tähendus'],
     rows: [
       { 'Leht / veerg': 'Voor', Tähendus: 'Ühe kaskaadivooru parameetrid. Fail loob rakenduses MUSTANDI; avaldamine, tähtaeg ja partnerite järjestuse külmutamine toimuvad rakenduses.' },
-      { 'Leht / veerg': 'Voor · hankeosa', Tähendus: `Kohustuslik. Üks hankeosa: ${input.lotCodes.join(', ')}. Kõik lehe „Koolitused“ read peavad olema samas hankeosas.` },
+      { 'Leht / veerg': 'Voor · hankeosa', Tähendus: `Üks hankeosa (${input.lotCodes.join(', ')}) — siis peavad kõik lehe „Koolitused“ read olema selles hankeosas — VÕI tühi: siis luuakse iga lehel esineva hankeosa kohta oma mustand ühe impordiga. Voor ise on alati ühe hankeosa oma.` },
       { 'Leht / veerg': 'Voor · nahtavus', Tähendus: 'dünaamiline (vaikimisi) või suletud — kas partner näeb eesõigusega märgete mõju.' },
       { 'Leht / veerg': 'Voor · piirmaara_valikud', Tähendus: 'puudub, koolitused, osalejad või mõlemad — millise liigi ülempiiri partnerid võivad seada. Tühi = hankeosa vaikeväärtus.' },
       { 'Leht / veerg': 'Voor · lisatoopaevad', Tähendus: 'Täisarv 0–20: mitu tööpäeva lisaks hankeosa vaikimisi vastamisajale antakse avaldamisel. Pakutakse avaldamisvormil ette.' },
@@ -110,7 +112,7 @@ export async function buildRoundTemplate(input: RoundTemplateInput): Promise<Buf
       { 'Leht / veerg': 'Koolitused · formaat', Tähendus: Object.values(WORKSHOP_TYPE_LABELS).join(', ') },
       { 'Leht / veerg': 'Koolitused · sihtruhm', Tähendus: Object.values(TARGET_GROUPS).join(', ') },
       { 'Leht / veerg': 'Koolitused · keel', Tähendus: Object.keys(LANGUAGE_LABELS).join(', ') },
-      { 'Leht / veerg': 'Reegel', Tähendus: 'Import on kõik-või-midagi: ühegi veaga rea, teise hankeosa koolituse või juba voorus oleva koolituse puhul vooru ei looda, kuni fail on parandatud.' },
+      { 'Leht / veerg': 'Reegel', Tähendus: 'Import on kõik-või-midagi terve faili kohta: ühegi veaga rea, nimetatud hankeosast erineva koolituse või juba voorus oleva koolituse puhul ei looda ühtki mustandit, kuni fail on parandatud.' },
     ],
   };
 

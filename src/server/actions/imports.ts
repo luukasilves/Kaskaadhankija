@@ -223,17 +223,18 @@ export async function previewRoundAction(form: FormData): Promise<ActionOutcome>
 
 export async function confirmRoundImportAction(form: FormData): Promise<ActionOutcome> {
   const batchId = fieldText(form, 'batchId');
-  let roundId: string;
+  let roundIds: string[];
   try {
-    roundId = await buyerWrite((ctx) => applyRoundImport(ctx, batchId), [
+    roundIds = await buyerWrite((ctx) => applyRoundImport(ctx, batchId), [
       '/tellija/voorud',
       '/tellija',
       '/tellija/koolitused',
-    ]).then((r) => r.roundId);
+    ]).then((r) => r.roundIds);
   } catch (error) {
     return fail(describeError(error));
   }
-  redirect(`/tellija/voorud/${roundId}`);
+  // One draft opens itself; several are best seen side by side in the list [L-20].
+  redirect(roundIds.length === 1 ? `/tellija/voorud/${roundIds[0]}` : '/tellija/voorud');
 }
 
 export async function discardRoundImportAction(form: FormData): Promise<ActionOutcome> {

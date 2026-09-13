@@ -54,6 +54,34 @@ describe('round import', () => {
     expect(harness.read((db) => db.select().from(trainings).all()).every((t) => t.status === 'in_round')).toBe(true);
   });
 
+  it('creates one draft per lot when the Voor sheet names none [L-20]', () => {
+    const result = preview(voor({ hankeosa: '', lisatoopaevad: '', vastamistahtaeg: '09.10.2026' }), [
+      rawTrainingRow({ kood: 'KK-2026-701', kuupaev: '12.10.2026' }),
+      rawTrainingRow({ kood: 'KK-2026-702', kuupaev: '14.10.2026', hankeosa: 'OSA-2' }),
+      rawTrainingRow({ kood: 'KK-2026-703', kuupaev: '15.10.2026', hankeosa: 'OSA-2' }),
+    ]);
+    expect(result.canApply).toBe(true);
+    expect(result.round.value?.lotCode).toBeNull();
+    expect(result.groups).toEqual([
+      { lotCode: 'OSA-1', lotName: 'Hankeosa OSA-1', count: 1 },
+      { lotCode: 'OSA-2', lotName: 'Hankeosa OSA-2', count: 2 },
+    ]);
+
+    const { roundIds } = harness.write((ctx) => applyRoundImport(ctx, result.batchId));
+    expect(roundIds).toHaveLength(2);
+    const created = harness.read((db) => db.select().from(rounds).all()).sort((a, b) => a.code.localeCompare(b.code));
+    expect(created.map((r) => [r.lotId, r.status])).toEqual([
+      [lotIds['OSA-1'], 'draft'],
+      [lotIds['OSA-2'], 'draft'],
+    ]);
+    const inRound = (roundId: string) =>
+      harness.read((db) => db.select().from(roundTrainings).where(eq(roundTrainings.roundId, roundId)).all()).length;
+    expect(created.map((r) => inRound(r.id))).toEqual([1, 2]);
+    // The bare-date deadline took each lot's own hour (both 17:00 here) and the
+    // same settings went to both drafts.
+    expect(created.every((r) => r.plannedDeadlineAt !== null && r.visibilityMode === 'dynamic')).toBe(true);
+  });
+
   it('updates an existing unassigned training and takes it into the round', () => {
     harness.write((ctx) =>
       importTrainingsFromRows(ctx, { fileName: 'k.csv', fileSize: 1, source: 'upload', rawRows: [rawTrainingRow({ kood: 'KK-2026-701', nimetus: 'Vana nimi' })] }),

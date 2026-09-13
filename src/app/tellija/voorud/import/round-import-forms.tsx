@@ -31,7 +31,8 @@ export function RoundImportUploadForm() {
       </label>
       <p className="text-[12px] text-[var(--color-muted)]">
         Töövihikus on leht „Voor“ (vooru parameetrid) ja leht „Koolitused“ (koolituskalendri
-        veerud). Eelvaade näitab, mis luuakse; midagi ei salvestata enne kinnitamist, ja vooru ei
+        veerud). Kui lehel „Voor“ on hankeosa tühi, luuakse iga hankeosa koolitustest oma mustand.
+        Eelvaade näitab, mis luuakse; midagi ei salvestata enne kinnitamist, ja ühtki mustandit ei
         looda enne, kui iga rida on korras.
       </p>
     </ActionForm>
@@ -59,6 +60,7 @@ export function RoundImportPreview({
   round,
   fileErrors,
   rows,
+  groups,
 }: {
   batchId: string;
   alreadyImported: boolean;
@@ -75,17 +77,30 @@ export function RoundImportPreview({
   } | null;
   fileErrors: Array<{ field?: string; message: string }>;
   rows: RoundPreviewTrainingRow[];
+  /** the drafts the file creates — several when the sheet names no lot [L-20] */
+  groups: Array<{ lotCode: string; lotName: string; count: number }>;
 }) {
   return (
     <div className="space-y-4">
       <section className="kh-card p-4" data-testid="round-import-summary">
-        <h2>Voor</h2>
+        <h2>{groups.length > 1 ? `Voorud (${groups.length} mustandit)` : 'Voor'}</h2>
         {round ? (
           <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[13px]">
             <dt className="text-[var(--color-muted)]">Hankeosa</dt>
             <dd className="font-semibold">
-              {round.lotCode}
-              {round.lotName ? ` — ${round.lotName}` : ''}
+              {round.lotCode ? (
+                <>
+                  {round.lotCode}
+                  {round.lotName ? ` — ${round.lotName}` : ''}
+                </>
+              ) : (
+                <span data-testid="round-import-groups">
+                  iga hankeosa kohta oma mustand:{' '}
+                  {groups.length === 0
+                    ? '—'
+                    : groups.map((g) => `${g.lotCode} (${g.count} koolitust)`).join(' · ')}
+                </span>
+              )}
             </dd>
             <dt className="text-[var(--color-muted)]">Nähtavus</dt>
             <dd>{round.visibility}</dd>

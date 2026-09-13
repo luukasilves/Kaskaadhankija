@@ -1,20 +1,22 @@
 /**
- * Build the cascade-round workbooks to hand to the buyer team, and prove they
- * import.
+ * Build the cascade-round workbook to hand to the buyer team, and prove it
+ * imports.
  *
  * A one-off generator rather than a fixture: it uses the application's own
- * template builder, so the files that leave here have the same sheets, the same
+ * template builder, so the file that leaves here has the same sheets, the same
  * drop-downs and the same Selgitus page as the one the Voorud screen offers —
- * and each is then run through the real parser and preview against a seeded
+ * and it is then run through the real parser and preview against a seeded
  * database, so what is handed over has been *seen* to import rather than
  * merely looking right.
  *
- * **One file per lot, because a round is one lot.** A round's ranking, its
- * response deadline and its cascade order all come from the lot [J-04], so
- * `previewRoundImport` refuses a training row whose `hankeosa` differs from the
- * round's and the import is all-or-nothing. Four rounds commissioned together
- * is what running the cascade in parallel means — so this writes four
- * workbooks, each ready to upload on the „uus voor“ screen.
+ * **One file, one draft per lot.** A round is one lot's — its ranking, its
+ * response deadline and its cascade order all come from the lot [J-04] — but
+ * since v2.7 the file need not be: with `hankeosa` left empty on the Voor
+ * sheet, `previewRoundImport` groups the trainings by lot and the import
+ * creates one draft per lot in one go [L-20]. Four rounds commissioned
+ * together is what running the cascade in parallel means, and the buyer asked
+ * twice to do it from one workbook — so this writes one, ready to upload on
+ * the „uus voor“ screen.
  *
  * `npx tsx scripts/make-round-file.ts [output-directory]`
  */
@@ -32,16 +34,18 @@ import { parseXlsxSheets } from '@/server/import/xlsx';
 type TrainingRow = Record<(typeof ROUND_TRAINING_HEADERS)[number], string>;
 
 interface RoundDraft {
-  /** file name stem under the output directory */
-  slug: string;
   lotCode: string;
-  /** the buyer's internal note, written into `Voor · markus` */
-  note: string;
   trainings: TrainingRow[];
 }
 
+/** File name stem under the output directory. */
+const SLUG = 'voor-detsember-2026';
+
+/** The buyer's internal note, written into `Voor · markus` of every draft. */
+const NOTE = 'Detsembri voorud: üks fail, iga hankeosa kohta oma mustand.';
+
 /**
- * December 2026, one round per lot.
+ * December 2026, one draft per lot.
  *
  * The codes are in the 5xx block, sub-blocked per lot (505–, 521–, 541–, 561–).
  * The seed uses 1xx–4xx, one block per lot, and 501–504 went out in the first
@@ -57,7 +61,6 @@ interface RoundDraft {
  */
 const ROUNDS: RoundDraft[] = [
   {
-    slug: 'voor-osa1-detsember-jatk',
     lotCode: 'OSA-1',
     note:
       'Ettevalmistamisel — ootab avaldamist. Detsembri töötubade teine voor: jätkab faili ' +
@@ -74,7 +77,6 @@ const ROUNDS: RoundDraft[] = [
     ]),
   },
   {
-    slug: 'voor-osa2-detsember',
     lotCode: 'OSA-2',
     note:
       'Ettevalmistamisel — ootab avaldamist. Detsembri töötoad OSA-2 koolitustele: ruumi pakub ' +
@@ -90,7 +92,6 @@ const ROUNDS: RoundDraft[] = [
     ]),
   },
   {
-    slug: 'voor-osa3-detsember',
     lotCode: 'OSA-3',
     note:
       'Ettevalmistamisel — ootab avaldamist. Detsembri veebikoolitused OSA-3 koolitustele. ' +
@@ -106,7 +107,6 @@ const ROUNDS: RoundDraft[] = [
     ]),
   },
   {
-    slug: 'voor-osa4-detsember',
     lotCode: 'OSA-4',
     note:
       'Ettevalmistamisel — ootab avaldamist. Detsembri suursündmused OSA-4 koolitustele: ' +
@@ -158,39 +158,38 @@ async function main(): Promise<void> {
     .all()
     .sort((a, b) => a.code.localeCompare(b.code));
   const lotCodes = lotRows.map((row) => row.code);
-
-  let failed = false;
   for (const draft of ROUNDS) {
-    const lot = lotRows.find((row) => row.code === draft.lotCode);
-    if (!lot) throw new Error(`Hankeosa ${draft.lotCode} puudub — käivita esmalt \`pnpm db:seed\`.`);
-    const out = join(outDir, `${draft.slug}.xlsx`);
-
-    // The template writes the lot's own defaults into the Voor sheet, so the
-    // file says what the round would do rather than what this script prefers.
-    const buffer = await buildRoundTemplate({
-      lotCodes,
-      lotCode: lot.code,
-      defaultCapOptions: lot.defaultCapOptions,
-      trainingRows: draft.trainings.map((row) => ({ ...row, hankeosa: lot.code })),
-    });
-
-    // The template leaves `markus` empty; fill it in the built workbook so the
-    // draft arrives with the note a hand-made round would have carried.
-    const withNote = await withVoorField(buffer, 'markus', draft.note);
-    writeFileSync(out, withNote);
-
-    /* --- and now read it back the way the upload does --- */
-    if (!(await report(db, out, withNote, lot.code))) failed = true;
+    if (!lotRows.some((row) => row.code === draft.lotCode)) {
+      throw new Error(`Hankeosa ${draft.lotCode} puudub — käivita esmalt \`pnpm db:seed\`.`);
+    }
   }
-  if (failed) process.exitCode = 1;
+  const out = join(outDir, `${SLUG}.xlsx`);
+
+  // No lot on the Voor sheet and no cap default: each draft takes its own
+  // lot's settings, and every row names its lot [L-20].
+  const buffer = await buildRoundTemplate({
+    lotCodes,
+    lotCode: '',
+    defaultCapOptions: null,
+    trainingRows: ROUNDS.flatMap((draft) => draft.trainings.map((row) => ({ ...row, hankeosa: draft.lotCode }))),
+  });
+
+  // The template leaves `markus` empty; fill it in the built workbook so the
+  // drafts arrive with the note a hand-made round would have carried.
+  const withNote = await withVoorField(buffer, 'markus', NOTE);
+  writeFileSync(out, withNote);
+
+  /* --- and now read it back the way the upload does --- */
+  const expected = ROUNDS.map((draft) => ({ lotCode: draft.lotCode, count: draft.trainings.length }));
+  if (!(await report(db, out, withNote, expected))) process.exitCode = 1;
 }
 
-/** Parse and preview one built workbook exactly as the upload screen would. */
+/** Parse and preview the built workbook exactly as the upload screen would. */
 async function report(
   db: ReturnType<typeof getDb>,
   out: string,
   buffer: Buffer,
-  expectedLot: string,
+  expected: ReadonlyArray<{ lotCode: string; count: number }>,
 ): Promise<boolean> {
   const fileName = out.split('/').pop() ?? 'voor.xlsx';
   const sheets = await parseXlsxSheets(buffer);
@@ -218,8 +217,9 @@ async function report(
   );
 
   console.log(`\n${fileName} — ${buffer.length} baiti, lehed: ${[...sheets.keys()].join(', ')}`);
+  const groups = preview.groups ?? [];
   console.log(
-    `  Eelvaade: hankeosa ${preview.round.value?.lotCode ?? '—'} (${preview.round.lotName}), ` +
+    `  Eelvaade: ${groups.length} mustandit (${groups.map((g) => `${g.lotCode}: ${g.count}`).join(', ') || '—'}), ` +
       `${preview.summary.total} koolitust (${preview.summary.created} uut, ${preview.summary.updated} uuendatakse), ` +
       `vigu ${preview.summary.withErrors}, saab importida: ${preview.canApply ? 'jah' : 'ei'}`,
   );
@@ -235,8 +235,14 @@ async function report(
     for (const error of row.errors) console.log(`  rida ${row.rowNumber}: ${error.field ?? ''} ${error.message}`);
     for (const warning of row.warnings) console.log(`  rida ${row.rowNumber} hoiatus: ${warning.message}`);
   }
-  if (preview.round.value?.lotCode !== expectedLot) {
-    console.log(`  KONTROLL: oodati hankeosa ${expectedLot}`);
+  if (preview.round.value?.lotCode !== null) {
+    console.log('  KONTROLL: lehel „Voor“ pidi hankeosa olema tühi — üks mustand iga hankeosa kohta');
+    return false;
+  }
+  const actual = groups.map((g) => `${g.lotCode}:${g.count}`).join(',');
+  const wanted = expected.map((g) => `${g.lotCode}:${g.count}`).join(',');
+  if (actual !== wanted) {
+    console.log(`  KONTROLL: oodati mustandeid ${wanted}, eelvaade andis ${actual || '—'}`);
     return false;
   }
   // Every row must be new: a code the environment already knows would make the

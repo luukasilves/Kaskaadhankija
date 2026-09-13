@@ -1,22 +1,28 @@
 /**
- * One cascade round from an uploaded workbook [L-20].
+ * Cascade rounds from an uploaded workbook [L-20].
  *
  * The workbook carries a "Voor" sheet with the round's parameters and a
- * "Koolitused" sheet in the calendar-import layout. The upload yields a
- * **draft**: the trainings are created or updated through the same code as the
- * calendar import, the round is created over them, and publication stays a
+ * "Koolitused" sheet in the calendar-import layout. The upload yields
+ * **drafts**: the trainings are created or updated through the same code as
+ * the calendar import, a round is created over them, and publication stays a
  * separate, audited act in the application — the instant, the deadline and the
  * frozen ranking are never in a file.
  *
- * All or nothing: a round that "mostly" matches its scheme is worse than none,
- * so a single broken row, a training from another lot, or a training already
- * committed elsewhere stops the import until the sheet is fixed.
+ * A round is one lot's [J-04]; a file need not be. With `hankeosa` left empty
+ * on the Voor sheet the trainings are grouped by lot and each group becomes
+ * its own draft, all in one import — which is what commissioning the four lots
+ * together looks like to the buyer. With a lot named, every row must be in it.
+ *
+ * All or nothing, per file: a round that "mostly" matches its scheme is worse
+ * than none, so a single broken row, a training from a lot the sheet did not
+ * name, or a training already committed elsewhere stops the import until the
+ * sheet is fixed.
  */
 
 import { eq, inArray } from 'drizzle-orm';
 import { importBatches, lots, trainings, type ImportSummary } from '@/db/schema';
 import { countRows, parseTrainingRows, type RowDiagnostic } from '@/domain/import-rows';
-import { parseRoundDefinition, type RoundDefinition } from '@/domain/round-definition';
+import { parseEstonianInstant, parseRoundDefinition, type RoundDefinition } from '@/domain/round-definition';
 import { isTrainingImportable } from '@/domain/round-statuses';
 import { tallinnIsoDay } from '@/domain/format';
 import { logAudit } from '../audit';
@@ -25,10 +31,19 @@ import { createRound } from '../rounds/engine';
 import { rounds } from '@/db/schema';
 import { applyTrainingRows, type StoredRow } from './trainings-import';
 
+/** One draft the file would create: a lot and how many of the rows are its. */
+export interface RoundImportGroup {
+  lotCode: string;
+  lotName: string;
+  count: number;
+}
+
 export interface RoundImportPayload {
   round: { value: RoundDefinition | null; errors: RowDiagnostic[]; lotName: string };
   rows: StoredRow[];
   fileErrors: RowDiagnostic[];
+  /** the drafts the file would create; absent from batches previewed before v2.7 */
+  groups?: RoundImportGroup[];
 }
 
 export interface RoundPreviewResult extends RoundImportPayload {
@@ -70,7 +85,7 @@ function checkRows(ctx: Ctx, definition: RoundDefinition | null, rows: StoredRow
   );
   for (const row of rows) {
     if (!row.value) continue;
-    if (definition && row.value.lotCode !== definition.lotCode) {
+    if (definition && definition.lotCode !== null && row.value.lotCode !== definition.lotCode) {
       row.errors.push({
         field: 'hankeosa',
         message: `koolitus kuulub hankeosasse ${row.value.lotCode}, voor on hankeosas ${definition.lotCode}`,
@@ -118,6 +133,30 @@ function canApply(payload: RoundImportPayload): boolean {
   );
 }
 
+/**
+ * The drafts a file would create: one for the named lot, or one per lot the
+ * valid rows span, in lot-code order.
+ */
+function groupsOf(
+  definition: RoundDefinition | null,
+  rows: readonly StoredRow[],
+  lotList: ReadonlyArray<{ code: string; name: string }>,
+): RoundImportGroup[] {
+  if (!definition) return [];
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    if (!row.value) continue;
+    if (definition.lotCode !== null && row.value.lotCode !== definition.lotCode) continue;
+    counts.set(row.value.lotCode, (counts.get(row.value.lotCode) ?? 0) + 1);
+  }
+  const codes = definition.lotCode !== null ? [definition.lotCode] : [...counts.keys()].sort();
+  return codes.map((lotCode) => ({
+    lotCode,
+    lotName: lotList.find((l) => l.code === lotCode)?.name ?? '',
+    count: counts.get(lotCode) ?? 0,
+  }));
+}
+
 export function previewRoundImport(
   ctx: Ctx,
   input: {
@@ -149,6 +188,7 @@ export function previewRoundImport(
   }
   checkRows(ctx, definition.value, rows);
 
+  const groups = groupsOf(definition.value, rows, lotList);
   const payload: RoundImportPayload = {
     round: {
       value: definition.value,
@@ -157,6 +197,7 @@ export function previewRoundImport(
     },
     rows,
     fileErrors,
+    groups,
   };
   const summary = summarize(ctx, rows);
 
@@ -181,7 +222,13 @@ export function previewRoundImport(
 
   logAudit(ctx, {
     eventType: 'import.previewed',
-    summary: `Vooru skeemi import eelvaadatud: ${input.fileName} — ${summary.valid}/${summary.total} koolitust korras${definition.value ? `, hankeosa ${definition.value.lotCode}` : ', vooru andmed vigased'}`,
+    summary: `Vooru skeemi import eelvaadatud: ${input.fileName} — ${summary.valid}/${summary.total} koolitust korras${
+      definition.value
+        ? definition.value.lotCode !== null
+          ? `, hankeosa ${definition.value.lotCode}`
+          : `, ${groups.length} mustandit (${groups.map((g) => g.lotCode).join(', ') || '—'})`
+        : ', vooru andmed vigased'
+    }`,
     after: { batchId, fileName: input.fileName, summary, roundErrors: definition.errors },
   });
 
@@ -189,10 +236,14 @@ export function previewRoundImport(
 }
 
 /**
- * Create the draft the previewed workbook describes. Refuses if anything is
- * wrong — the preview said what, and a partial round is not a round.
+ * Create the draft — or, with no lot named, one draft per lot — the previewed
+ * workbook describes. Refuses if anything is wrong — the preview said what, and
+ * a partial round is not a round.
  */
-export function applyRoundImport(ctx: Ctx, batchId: string): { roundId: string; summary: ImportSummary } {
+export function applyRoundImport(
+  ctx: Ctx,
+  batchId: string,
+): { roundId: string; roundIds: string[]; summary: ImportSummary } {
   const batch = ctx.tx.select().from(importBatches).where(eq(importBatches.id, batchId)).get();
   if (!batch) throw new Error('Importi ei leitud.');
   if (batch.kind !== 'round') throw new Error('Vale impordi tüüp.');
@@ -207,43 +258,73 @@ export function applyRoundImport(ctx: Ctx, batchId: string): { roundId: string; 
     throw new Error('Vooru faili ei saa importida: paranda eelvaates näidatud vead ja laadi fail uuesti.');
   }
   const definition = payload.round.value!;
-  const lot = lotRows(ctx).find((l) => l.code === definition.lotCode);
-  if (!lot) throw new Error(`Hankeosa ${definition.lotCode} ei ole enam olemas.`);
+  const lotList = lotRows(ctx);
+  const groups = groupsOf(definition, payload.rows, lotList);
+  for (const group of groups) {
+    if (!lotList.some((l) => l.code === group.lotCode)) throw new Error(`Hankeosa ${group.lotCode} ei ole enam olemas.`);
+  }
 
   const summary = applyTrainingRows(ctx, payload.rows, batchId);
   const codes = payload.rows.map((r) => r.value!.code);
-  const trainingIds = ctx.tx
-    .select({ id: trainings.id, code: trainings.code })
-    .from(trainings)
-    .where(inArray(trainings.code, codes))
-    .all()
-    .sort((a, b) => codes.indexOf(a.code) - codes.indexOf(b.code))
-    .map((t) => t.id);
-
-  const roundId = createRound(ctx, {
-    lotId: lot.id,
-    trainingIds,
-    note: definition.note,
-    visibilityMode: definition.visibilityMode,
-    capOptions: definition.capOptions ?? lot.defaultCapOptions,
-  });
-  // The window the scheme asked for: a plan the publish form offers, not the
-  // fact. Publication fixes the real instants and still enforces the lot's
-  // floor from the moment somebody presses it [L-20].
-  if (
-    definition.extraWorkingDays > 0 ||
-    definition.plannedPublishAt !== null ||
-    definition.plannedDeadlineAt !== null
-  ) {
+  const byCode = new Map(
     ctx.tx
-      .update(rounds)
-      .set({
-        plannedExtraWorkingDays: definition.extraWorkingDays,
-        plannedPublishAt: definition.plannedPublishAt,
-        plannedDeadlineAt: definition.plannedDeadlineAt,
-      })
-      .where(eq(rounds.id, roundId))
-      .run();
+      .select({ id: trainings.id, code: trainings.code })
+      .from(trainings)
+      .where(inArray(trainings.code, codes))
+      .all()
+      .map((t) => [t.code, t.id] as const),
+  );
+
+  const roundIds: string[] = [];
+  for (const group of groups) {
+    const lot = lotList.find((l) => l.code === group.lotCode)!;
+    const trainingIds = payload.rows
+      .filter((r) => r.value!.lotCode === group.lotCode)
+      .map((r) => byCode.get(r.value!.code))
+      .filter((id): id is string => Boolean(id));
+
+    const roundId = createRound(ctx, {
+      lotId: lot.id,
+      trainingIds,
+      note: definition.note,
+      visibilityMode: definition.visibilityMode,
+      capOptions: definition.capOptions ?? lot.defaultCapOptions,
+    });
+    roundIds.push(roundId);
+
+    // The window the scheme asked for: a plan the publish form offers, not the
+    // fact. Publication fixes the real instants and still enforces the lot's
+    // floor from the moment somebody presses it [L-20]. A bare-date deadline in
+    // a per-lot file takes each lot's own hour.
+    const plannedDeadlineAt =
+      definition.lotCode === null && definition.deadlineText
+        ? (() => {
+            const parsed = parseEstonianInstant(definition.deadlineText, lot.deadlineLocalTime);
+            return parsed.ok ? parsed.value : definition.plannedDeadlineAt;
+          })()
+        : definition.plannedDeadlineAt;
+    if (definition.extraWorkingDays > 0 || definition.plannedPublishAt !== null || plannedDeadlineAt !== null) {
+      ctx.tx
+        .update(rounds)
+        .set({
+          plannedExtraWorkingDays: definition.extraWorkingDays,
+          plannedPublishAt: definition.plannedPublishAt,
+          plannedDeadlineAt,
+        })
+        .where(eq(rounds.id, roundId))
+        .run();
+    }
+
+    const code = ctx.tx.select({ code: rounds.code }).from(rounds).where(eq(rounds.id, roundId)).get()?.code ?? '';
+    logAudit(ctx, {
+      eventType: 'import.round_imported',
+      summary: `Voor ${code} loodud mustandina failist ${batch.fileName}: ${trainingIds.length} koolitust, hankeosa ${lot.code}${
+        groups.length > 1 ? ` (failist loodi ${groups.length} mustandit)` : ''
+      }`,
+      roundId,
+      lotId: lot.id,
+      after: { batchId, fileName: batch.fileName, summary, definition, lotCode: lot.code, drafts: groups.length },
+    });
   }
 
   ctx.tx
@@ -252,14 +333,5 @@ export function applyRoundImport(ctx: Ctx, batchId: string): { roundId: string; 
     .where(eq(importBatches.id, batchId))
     .run();
 
-  const code = ctx.tx.select({ code: rounds.code }).from(rounds).where(eq(rounds.id, roundId)).get()?.code ?? '';
-  logAudit(ctx, {
-    eventType: 'import.round_imported',
-    summary: `Voor ${code} loodud mustandina failist ${batch.fileName}: ${trainingIds.length} koolitust (${summary.created} uut, ${summary.updated} uuendatud), hankeosa ${lot.code}`,
-    roundId,
-    lotId: lot.id,
-    after: { batchId, fileName: batch.fileName, summary, definition },
-  });
-
-  return { roundId, summary };
+  return { roundId: roundIds[0]!, roundIds, summary };
 }

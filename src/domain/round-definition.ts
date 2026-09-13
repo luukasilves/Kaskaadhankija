@@ -13,7 +13,12 @@ import { fold, foldRow, parseEstonianDate, type RawRow, type RowDiagnostic } fro
 import { tallinnWallToUtc } from './working-days';
 
 export interface RoundDefinition {
-  lotCode: string;
+  /**
+   * The round's lot — or null for „one draft per lot“: the Koolitused sheet is
+   * then grouped by `hankeosa` and each group becomes its own draft [L-20]. A
+   * round is still one lot's [J-04]; only the file may span several.
+   */
+  lotCode: string | null;
   visibilityMode: VisibilityMode;
   /** null means "the lot's default" */
   capOptions: CapOptions | null;
@@ -26,6 +31,11 @@ export interface RoundDefinition {
    */
   plannedPublishAt: number | null;
   plannedDeadlineAt: number | null;
+  /**
+   * The deadline as typed, so a per-lot import can give a bare date each lot's
+   * own hour; empty when not stated.
+   */
+  deadlineText: string;
   note: string;
 }
 
@@ -167,9 +177,10 @@ export function parseRoundDefinition(
 
   const rawLot = (fields.hankeosa ?? '').trim().toUpperCase();
   const knownLots = new Set(context.knownLotCodes.map((c) => fold(c)));
+  // Empty is a choice, not an omission: one draft per lot the trainings span.
   let lotCode: string | null = null;
   if (!rawLot) {
-    errors.push({ field: 'hankeosa', message: 'hankeosa on puudu' });
+    lotCode = null;
   } else if (!knownLots.has(fold(rawLot))) {
     errors.push({
       field: 'hankeosa',
@@ -250,9 +261,18 @@ export function parseRoundDefinition(
   const note = (fields.markus ?? '').trim();
   if (note.length > 400) errors.push({ field: 'markus', message: 'märkus võib olla kuni 400 tähemärki' });
 
-  if (errors.length > 0 || lotCode === null) return { value: null, errors };
+  if (errors.length > 0) return { value: null, errors };
   return {
-    value: { lotCode, visibilityMode, capOptions, extraWorkingDays, plannedPublishAt, plannedDeadlineAt, note },
+    value: {
+      lotCode,
+      visibilityMode,
+      capOptions,
+      extraWorkingDays,
+      plannedPublishAt,
+      plannedDeadlineAt,
+      deadlineText: rawDeadline,
+      note,
+    },
     errors,
   };
 }

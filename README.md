@@ -194,8 +194,8 @@ the two-hour summary — each representative can switch off for themselves on
 
 ### Uploading a whole round
 
-As the buyer: **Voorud → Uus voor → Laadi skeem üles**. One workbook describes
-one round: a *Voor* sheet (lot, visibility, which cap kinds partners may use,
+As the buyer: **Voorud → Uus voor → Laadi skeem üles**. One workbook describes one round — or, with the lot left empty on the *Voor*
+sheet, one draft per lot its trainings span [L-20]: a *Voor* sheet (lot, visibility, which cap kinds partners may use,
 extra working days, the planned window, a note) and a *Koolitused* sheet in the
 calendar-import layout. The template downloads prefilled with the lot's
 unassigned trainings. The upload creates a **draft** — all or nothing — and
