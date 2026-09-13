@@ -5,6 +5,10 @@
  * and who may sign in for it. Shown per company, with the lot contact from the
  * framework membership alongside, since that is the fallback recipient when a
  * company has no active representative.
+ *
+ * A row is active on two independent grounds [L-21] — current lot contact, or
+ * listed by the buyer — and the screen says which: a contact's row cannot be
+ * switched off here (the ranking decides it), a listed person's can.
  */
 
 import Link from 'next/link';
@@ -34,6 +38,10 @@ export default async function RepresentativesPage() {
     .select({ partnerId: lotPartners.partnerId, contactName: lotPartners.contactName, contactEmail: lotPartners.contactEmail, isActive: lotPartners.isActive })
     .from(lotPartners)
     .all();
+  // The first of the two facts, for the companies on this page (all active).
+  const contactKeys = new Set(
+    contacts.filter((c) => c.isActive).map((c) => `${c.partnerId}#${c.contactEmail.trim().toLowerCase()}`),
+  );
 
   return (
     <div className="space-y-4">
@@ -104,15 +112,18 @@ export default async function RepresentativesPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {mine.map((rep) => (
+                      {mine.map((rep) => {
+                        const isContact = contactKeys.has(`${rep.partnerId}#${rep.email}`);
+                        return (
                         <tr key={rep.id} style={rep.isActive ? undefined : { opacity: 0.6 }}>
                           <td className="kh-td font-semibold">{rep.name}</td>
                           <td className="kh-td text-[13px]">{REPRESENTATIVE_ROLE_LABELS[rep.role] ?? rep.role}</td>
                           <td className="kh-td font-mono text-[13px]">
                             {rep.email}
-                            {rep.source === 'framework' && (
+                            {isContact && (
                               <div className="font-sans text-[11.5px] text-[var(--color-muted)]">
                                 raamlepingu kontakt — hallatakse raamhanke andmetes
+                                {rep.isListed ? ' · ka eraldi nimetatud' : ''}
                               </div>
                             )}
                           </td>
@@ -129,12 +140,13 @@ export default async function RepresentativesPage() {
                             )}
                           </td>
                           <td className="kh-td text-right">
-                            {canWrite && rep.source !== 'framework' && (
+                            {canWrite && !isContact && (
                               <RepresentativeActiveToggle id={rep.id} active={rep.isActive} />
                             )}
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 )}

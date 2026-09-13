@@ -121,9 +121,9 @@ async function main(): Promise<void> {
     framework: DEFAULT_FRAMEWORK_IDENTITY,
     lots: LOT_SEED,
     partnerRows: partnerCsv.rows,
-    // Only the deputies: a lot's official contact is on the Partnerid sheet,
-    // and repeating them here would make this sheet own rows the framework
-    // data maintains.
+    // Only the deputies — exactly what a download lists [L-21]: a lot's
+    // contact is on the Partnerid sheet, and naming them here would change
+    // nothing but role and phone.
     representativeRows: representativeCsv.rows.filter((row) => (row.roll ?? '') === 'asendaja'),
   });
   writeFileSync(frameworkPath, frameworkBuffer);

@@ -173,10 +173,16 @@ deadline can still only ever be extended [V-04].
 A partner's lot contact is a representative automatically. Extra people — a
 deputy, a second project manager — come from the framework workbook's
 *Esindajad* sheet or the form on **Raamhange**; *Esindajad* itself is the list.
-Each row carries where it came from (`raamleping` / `üleslaaditud` / `käsitsi`)
-and **whoever last activated a row owns it**, so the two feeders cannot undo
-each other's decisions: a framework contact cannot be switched off from the
-list, and the list's own people are not touched when the ranking is rewritten.
+A row is active on one of **two independent grounds**: the address is a lot's
+*current* contact (derived from the ranking on every change), or the buyer
+*listed* the person in their own right while they were not the contact. So a
+contact change retires the previous contact — notices and sign-in end in the
+same transaction — unless they are the contact of another lot or the buyer
+keeps them (the form's checkbox, the *Esindajad* sheet of the same workbook, or
+„Lisa esindaja“ afterwards). Listing the current contact never makes them a
+separate representative, and a current contact cannot be switched off from the
+list. Each row still records where it came from (`raamleping` / `üleslaaditud`
+/ `käsitsi`), as information only.
 
 Every formal notice a partner receives is e-mailed to all of its active
 representatives, with the lot contact as the fallback, and the *Teavitused* log

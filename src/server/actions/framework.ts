@@ -18,12 +18,14 @@ import {
   previewFrameworkImport,
   type FrameworkSheets,
 } from '../import/framework-import';
+import { isFrameworkWorkbook } from '../import/framework-template';
 import { discardImport } from '../import/trainings-import';
-import { parseXlsxSheets } from '../import/xlsx';
+import { parseXlsxWorkbook } from '../import/xlsx';
 import {
   addLotPartner,
   addRepresentative,
   deactivateLot,
+  describePreviousContact,
   moveLotPartnerRank,
   updateFrameworkIdentity,
   updateLotPartnerContact,
@@ -54,18 +56,23 @@ const PATHS = [
  * ------------------------------------------------------------------ */
 
 /**
- * Read the four sheets out of an uploaded workbook.
+ * Read the four sheets out of an uploaded workbook, and whether it is one this
+ * system wrote — the marker decides the preview's default for „lõpeta
+ * failist puuduvad“ [L-21].
  *
  * Sheet names are matched folded, so „Hankeosad“, „hankeosad“ and „HANKEOSAD“
  * all arrive. Only `Partnerid` is required: the others say "leave this alone".
  */
-async function readWorkbook(file: File): Promise<FrameworkSheets | { error: string }> {
-  let sheets: Awaited<ReturnType<typeof parseXlsxSheets>>;
+async function readWorkbook(
+  file: File,
+): Promise<{ sheets: FrameworkSheets; fullWorkbook: boolean } | { error: string }> {
+  let parsed: Awaited<ReturnType<typeof parseXlsxWorkbook>>;
   try {
-    sheets = await parseXlsxSheets(Buffer.from(await file.arrayBuffer()));
+    parsed = await parseXlsxWorkbook(Buffer.from(await file.arrayBuffer()));
   } catch {
     return { error: 'Faili ei õnnestu lugeda .xlsx töövihikuna.' };
   }
+  const { sheets } = parsed;
   const byName = new Map([...sheets.entries()].map(([name, sheet]) => [fold(name), sheet] as const));
   const partnerid = byName.get('partnerid') ?? byName.get('raamlepingu_partnerid');
   if (!partnerid) {
@@ -74,21 +81,26 @@ async function readWorkbook(file: File): Promise<FrameworkSheets | { error: stri
     };
   }
   return {
-    raamleping: byName.get('raamleping')?.rows,
-    hankeosad: byName.get('hankeosad')?.rows,
-    partnerid: partnerid.rows,
-    esindajad: byName.get('esindajad')?.rows,
+    sheets: {
+      raamleping: byName.get('raamleping')?.rows,
+      hankeosad: byName.get('hankeosad')?.rows,
+      partnerid: partnerid.rows,
+      esindajad: byName.get('esindajad')?.rows,
+    },
+    fullWorkbook: isFrameworkWorkbook(parsed.keywords),
   };
 }
 
 export async function previewFrameworkAction(form: FormData): Promise<ActionOutcome> {
   const file = form.get('file');
   const pasted = fieldText(form, 'pasted');
-  const deactivateMissing = fieldText(form, 'deactivateMissing') === 'on';
 
   let sheets: FrameworkSheets;
   let fileName: string;
   let fileSize: number;
+  // A download of this system's own data is the whole truth; pasted rows and
+  // hand-made files are additions unless the preview says otherwise.
+  let fullWorkbook = false;
 
   if (pasted) {
     // Rows copied straight out of Excel: the CSV reader detects tabs, so a
@@ -112,7 +124,8 @@ export async function previewFrameworkAction(form: FormData): Promise<ActionOutc
     }
     const read = await readWorkbook(file);
     if ('error' in read) return fail(read.error);
-    sheets = read;
+    sheets = read.sheets;
+    fullWorkbook = read.fullWorkbook;
     fileName = file.name;
     fileSize = file.size;
   }
@@ -125,7 +138,7 @@ export async function previewFrameworkAction(form: FormData): Promise<ActionOutc
         fileSize,
         source: 'upload',
         sheets,
-        options: { deactivateMissing },
+        options: { deactivateMissing: fullWorkbook, fullWorkbook },
       }),
     ).then((result) => result.batchId);
   } catch (error) {
@@ -136,8 +149,10 @@ export async function previewFrameworkAction(form: FormData): Promise<ActionOutc
 
 export async function confirmFrameworkImportAction(form: FormData): Promise<ActionOutcome> {
   const batchId = fieldText(form, 'batchId');
+  // Decided here, on the preview that listed its consequences [L-21].
+  const deactivateMissing = fieldText(form, 'deactivateMissing') === 'on';
   try {
-    await adminWrite((ctx) => applyFrameworkImport(ctx, batchId), PATHS);
+    await adminWrite((ctx) => applyFrameworkImport(ctx, batchId, { deactivateMissing }), PATHS);
   } catch (error) {
     return fail(describeError(error));
   }
@@ -199,16 +214,29 @@ export async function addLotPartnerAction(form: FormData): Promise<ActionOutcome
 
 export async function updateLotPartnerContactAction(form: FormData): Promise<ActionOutcome> {
   try {
-    await adminWrite(
+    const result = await adminWrite(
       (ctx) =>
-        updateLotPartnerContact(ctx, fieldText(form, 'lotPartnerId'), {
-          contactName: fieldText(form, 'contactName'),
-          contactEmail: fieldText(form, 'contactEmail'),
-          unitPriceEur: fieldNumber(form, 'unitPriceEur') ?? 0,
-        }),
+        updateLotPartnerContact(
+          ctx,
+          fieldText(form, 'lotPartnerId'),
+          {
+            contactName: fieldText(form, 'contactName'),
+            contactEmail: fieldText(form, 'contactEmail'),
+            unitPriceEur: fieldNumber(form, 'unitPriceEur') ?? 0,
+          },
+          {
+            applyToSameContact: fieldText(form, 'applyToSameContact') === 'on',
+            keepPreviousAsRepresentative: fieldText(form, 'keepPreviousAsRepresentative') === 'on',
+          },
+        ),
       PATHS,
     );
-    return ok('Kontaktandmed salvestatud.');
+    if (!result.changed) return ok('Midagi ei muutunud.');
+    const where = result.lotCodes.length > 1 ? ` hankeosades ${result.lotCodes.join(', ')}` : '';
+    const previous = describePreviousContact(result.previous);
+    return ok(
+      `Kontaktandmed salvestatud${where}.${previous ? ` ${previous.charAt(0).toUpperCase()}${previous.slice(1)}.` : ''}`,
+    );
   } catch (error) {
     return fail(describeError(error));
   }

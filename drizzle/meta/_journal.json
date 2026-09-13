@@ -78,6 +78,13 @@
       "when": 1789044619866,
       "tag": "0010_admin_allowlist",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1789131600000,
+      "tag": "0011_listed_representatives",
+      "breakpoints": true
     }
   ]
 }

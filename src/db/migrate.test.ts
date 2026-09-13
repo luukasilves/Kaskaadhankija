@@ -250,6 +250,69 @@ describe('0010_admin_allowlist on a populated v2.2 database', () => {
   });
 });
 
+describe('0011_listed_representatives on a populated v2.5 database', () => {
+  it('lists every active row that is not a current contact, and leaves contacts to the ranking [L-21]', () => {
+    const raw = databaseThrough('0010_admin_allowlist');
+    raw.prepare("INSERT INTO lots (id, code, name, created_at) VALUES ('l1', 'OSA-1', 'Hankeosa 1', 1000)").run();
+    raw
+      .prepare(
+        "INSERT INTO partners (id, name, reg_code, is_active, created_at) VALUES ('p1', 'Tehisaru', '10000001', 1, 1000), ('p2', 'Endine', '10000002', 0, 1000)",
+      )
+      .run();
+    // The membership stores the address as typed; the row stores it lowercased.
+    raw
+      .prepare(
+        `INSERT INTO lot_partners (id, lot_id, partner_id, rank, contact_name, contact_email, unit_price_eur, is_active, created_at)
+         VALUES ('lp1', 'l1', 'p1', 1, 'Jaan', ' Jaan.Kask@Tehisaru-naidis.ee ', 58, 1, 1000),
+                ('lp2', 'l1', 'p2', 2, 'Kontakt', 'kontakt@endine.ee', 60, 1, 1000)`,
+      )
+      .run();
+    const rep = raw.prepare(
+      `INSERT INTO partner_representatives (id, partner_id, name, email, role, source, phone, is_active, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'esindaja', ?, '', ?, 1000, 1000)`,
+    );
+    rep.run('r-contact', 'p1', 'Jaan Kask', 'jaan.kask@tehisaru-naidis.ee', 'upload', 1);
+    rep.run('r-deputy', 'p1', 'Mari Mets', 'mari.mets@tehisaru-naidis.ee', 'upload', 1);
+    // What the old rule left behind: a replaced contact, still active. It is
+    // indistinguishable from a deputy here, so it is listed — and switchable.
+    rep.run('r-stranded', 'p1', 'Vana Kontakt', 'vana@tehisaru-naidis.ee', 'framework', 1);
+    rep.run('r-retired', 'p1', 'Läinud', 'lainud@tehisaru-naidis.ee', 'upload', 0);
+    // A deactivated company's contact is not a *current* contact, but keeps
+    // signing in [L-19] — so it must be listed to survive the next sync.
+    rep.run('r-endine', 'p2', 'Kontakt', 'kontakt@endine.ee', 'framework', 1);
+
+    migrate(drizzle(raw, { schema }), { migrationsFolder: folder });
+
+    const listed = Object.fromEntries(
+      (raw.prepare('SELECT id, is_listed, is_active FROM partner_representatives').all() as Array<{
+        id: string;
+        is_listed: number;
+        is_active: number;
+      }>).map((row) => [row.id, `${row.is_active}/${row.is_listed}`]),
+    );
+    expect(listed).toEqual({
+      'r-contact': '1/0',
+      'r-deputy': '1/1',
+      'r-stranded': '1/1',
+      'r-retired': '0/0',
+      'r-endine': '1/1',
+    });
+
+    const triggers = raw.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type = 'trigger'").get() as { n: number };
+    expect(triggers.n).toBe(6);
+    expect(raw.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+    raw.close();
+  });
+
+  it('is a no-op on the empty database a fresh volume boots with', () => {
+    const raw = databaseThrough('0010_admin_allowlist');
+    expect(() => migrate(drizzle(raw, { schema }), { migrationsFolder: folder })).not.toThrow();
+    const columns = (raw.prepare('PRAGMA table_info(partner_representatives)').all() as Array<{ name: string }>).map((c) => c.name);
+    expect(columns).toContain('is_listed');
+    raw.close();
+  });
+});
+
 describe('0007_acting_via on a populated v2 database', () => {
   it('adds the two columns without disturbing the append-only trail [L-08]', () => {
     const raw = v2Database();

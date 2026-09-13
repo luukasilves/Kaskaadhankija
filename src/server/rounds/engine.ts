@@ -73,7 +73,7 @@ import { env, isDemoMode } from '@/lib/env';
 import { logAudit } from '../audit';
 import { evidenceLabel } from '../auth/identity';
 import { frameworkTitleLine } from '@/domain/framework';
-import { frameworkIdentity } from '../framework';
+import { frameworkIdentity, syncFrameworkContacts } from '../framework';
 import { failure, type Ctx, type Db, type Tx } from '../context';
 import { notify } from '../notify';
 import { partnerRecipients, teamRecipients } from '../recipients';
@@ -1769,6 +1769,10 @@ export function deactivateLotPartner(ctx: Ctx, lotPartnerId: string, reason: str
       },
     });
   }
+
+  // The membership named a sign-in; without it the contact represents nobody,
+  // unless the buyer listed them or another lot still names them [L-21].
+  syncFrameworkContacts(ctx, { partnerIds: [membership.partnerId] });
 }
 
 export function markTrainingCompleted(ctx: Ctx, trainingId: string): void {

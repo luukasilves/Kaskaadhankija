@@ -12,11 +12,25 @@
  * "quiet" edit.
  *
  * **The official contact is the login.** A lot's `contactEmail` is mirrored
- * into `partner_representatives` as a `framework`-sourced row, which is what
- * `partnerRecipients()` reads for the formal notices [D-10] and what the
- * sign-in looks up [L-08]. Rows carry where they came from, and whoever last
- * activated a row owns it: the sync only ever deactivates its own, so the
- * representatives sheet and the ranking cannot undo each other.
+ * into `partner_representatives`, which is what `partnerRecipients()` reads for
+ * the formal notices [D-10] and what the sign-in looks up [L-08].
+ *
+ * **Two facts decide whether a representative row is active** [L-21]:
+ *
+ *  - `isContact` — derived, never stored: the address is the current contact of
+ *    an active membership of the company (`currentContacts`). The sync below
+ *    materialises it into `isActive` after every change to the ranking.
+ *  - `isListed` — stored: the buyer named the person in their own right (the
+ *    Esindajad sheet, „Lisa esindaja“, switching a row back on) while they
+ *    were **not** the contact. A current contact can never acquire it.
+ *
+ * Invariants every writer keeps: `isActive === (isListed || isContact)`;
+ * `!isActive ⇒ !isListed`; every membership writer ends with a sync; every
+ * writer of `isListed` sets `isActive` itself; retire before create, so an
+ * address moving between companies does not trip the unique active index; the
+ * sync never throws. `source` says who typed the row first and decides nothing
+ * — the v2.3 rule that „whoever last activated a row owns it“ is what let a
+ * replaced contact stay signed in whenever the sheet had once listed them.
  */
 
 import { and, desc, eq, inArray, like, ne, or, sql } from 'drizzle-orm';
@@ -30,10 +44,10 @@ import {
   rounds,
   users,
   type RepresentativeRole,
-  type RepresentativeSource,
 } from '@/db/schema';
 import { DEFAULT_FRAMEWORK_IDENTITY, type FrameworkIdentity } from '@/domain/framework';
 import type { LotRow } from '@/domain/framework-definition';
+import type { FrameworkWorkbookInput } from './import/framework-template';
 import { logAudit } from './audit';
 import type { Ctx, Db, Tx } from './context';
 
@@ -256,6 +270,69 @@ export function representativeCollision(
   return null;
 }
 
+export interface CurrentContact {
+  partnerId: string;
+  partnerName: string;
+  /** lowercased */
+  email: string;
+  /** the name from the company's best-ranked membership naming this address */
+  name: string;
+  /** lot codes whose active membership names this address, best rank first */
+  lotCodes: string[];
+}
+
+/** `partnerId#email` — how a representative row is identified everywhere. */
+export function contactKey(partnerId: string, email: string): string {
+  return `${partnerId}#${email.trim().toLowerCase()}`;
+}
+
+/**
+ * The first of the two facts [L-21]: every (company, address) that is the
+ * contact of an active membership of an active company, keyed like the
+ * representative rows. Derived on every call, never stored.
+ *
+ * Lot membership decides, not lot activity: a partner with live work in a lot
+ * the buyer has since retired must still be able to sign in.
+ */
+export function currentContacts(tx: Reader, partnerIds?: readonly string[]): Map<string, CurrentContact> {
+  const memberships = tx
+    .select({
+      partnerId: lotPartners.partnerId,
+      partnerName: partners.name,
+      rank: lotPartners.rank,
+      contactName: lotPartners.contactName,
+      contactEmail: lotPartners.contactEmail,
+      lotCode: lots.code,
+    })
+    .from(lotPartners)
+    .innerJoin(partners, eq(partners.id, lotPartners.partnerId))
+    .innerJoin(lots, eq(lots.id, lotPartners.lotId))
+    .where(and(eq(lotPartners.isActive, true), eq(partners.isActive, true)))
+    .all()
+    .filter((m) => !partnerIds || partnerIds.includes(m.partnerId))
+    .sort((a, b) => a.rank - b.rank || a.lotCode.localeCompare(b.lotCode));
+
+  const contacts = new Map<string, CurrentContact>();
+  for (const membership of memberships) {
+    const email = membership.contactEmail.trim().toLowerCase();
+    if (!EMAIL_RE.test(email)) continue;
+    const key = contactKey(membership.partnerId, email);
+    const known = contacts.get(key);
+    if (known) {
+      known.lotCodes.push(membership.lotCode);
+      continue;
+    }
+    contacts.set(key, {
+      partnerId: membership.partnerId,
+      partnerName: membership.partnerName,
+      email,
+      name: membership.contactName.trim() || 'kontaktisik',
+      lotCodes: [membership.lotCode],
+    });
+  }
+  return contacts;
+}
+
 export interface FrameworkContactSyncReport {
   created: string[];
   reactivated: string[];
@@ -265,16 +342,13 @@ export interface FrameworkContactSyncReport {
 }
 
 /**
- * Make every active lot contact a sign-in, and retire the ones that no longer
- * are one.
+ * Make every current lot contact a sign-in, and retire every row that is
+ * neither a current contact nor listed by the buyer [L-21].
  *
  * Deliberately never throws: a ranking import must not roll back because one
  * address happens to belong to somebody else. A refused address is reported and
  * the ranking still applies — the preview flagged it beforehand, and the
  * Raamhange screen shows "sisselogimine puudub" against that row afterwards.
- *
- * Lot membership decides, not lot activity: a partner with live orders in a
- * lot the buyer has since retired must still be able to sign in.
  */
 export function syncFrameworkContacts(
   ctx: Ctx,
@@ -288,71 +362,53 @@ export function syncFrameworkContacts(
     skipped: [],
   };
 
-  const memberships = ctx.tx
-    .select({
-      partnerId: lotPartners.partnerId,
-      partnerName: partners.name,
-      rank: lotPartners.rank,
-      contactName: lotPartners.contactName,
-      contactEmail: lotPartners.contactEmail,
-    })
-    .from(lotPartners)
-    .innerJoin(partners, eq(partners.id, lotPartners.partnerId))
-    .where(and(eq(lotPartners.isActive, true), eq(partners.isActive, true)))
-    .all()
-    .filter((m) => !scope.partnerIds || scope.partnerIds.includes(m.partnerId))
-    .sort((a, b) => a.rank - b.rank);
-
-  /** (partner, address) → the name to use, from the partner's best-ranked lot. */
-  const desired = new Map<string, { partnerId: string; partnerName: string; email: string; name: string }>();
-  const keyOf = (partnerId: string, email: string): string => `${partnerId}#${email}`;
-  for (const membership of memberships) {
-    const email = membership.contactEmail.trim().toLowerCase();
-    if (!EMAIL_RE.test(email)) continue;
-    const key = keyOf(membership.partnerId, email);
-    if (!desired.has(key)) {
-      desired.set(key, {
-        partnerId: membership.partnerId,
-        partnerName: membership.partnerName,
-        email,
-        name: membership.contactName.trim() || 'kontaktisik',
-      });
-    }
-  }
+  const desired = currentContacts(ctx.tx, scope.partnerIds);
 
   const existing = ctx.tx
-    .select()
+    .select({
+      id: partnerRepresentatives.id,
+      partnerId: partnerRepresentatives.partnerId,
+      partnerName: partners.name,
+      name: partnerRepresentatives.name,
+      email: partnerRepresentatives.email,
+      source: partnerRepresentatives.source,
+      isActive: partnerRepresentatives.isActive,
+      isListed: partnerRepresentatives.isListed,
+    })
     .from(partnerRepresentatives)
+    .innerJoin(partners, eq(partners.id, partnerRepresentatives.partnerId))
     .all()
     .filter((row) => !scope.partnerIds || scope.partnerIds.includes(row.partnerId));
 
-  /* 1. retire framework rows that are no longer a lot contact — first, so an
-        address moving between companies does not trip the unique index */
+  /* 1. retire — first, so an address moving between companies does not trip
+        the unique active index. A listed row stays whatever the ranking says;
+        an unlisted row that is no longer a contact goes, whoever created it. */
   for (const row of existing) {
-    if (row.source !== 'framework' || !row.isActive) continue;
-    if (desired.has(keyOf(row.partnerId, row.email))) continue;
+    if (!row.isActive || row.isListed) continue;
+    if (desired.has(contactKey(row.partnerId, row.email))) continue;
     ctx.tx
       .update(partnerRepresentatives)
-      .set({ isActive: false, deactivatedAt: ctx.at, updatedAt: ctx.at })
+      .set({ isActive: false, isListed: false, deactivatedAt: ctx.at, updatedAt: ctx.at })
       .where(eq(partnerRepresentatives.id, row.id))
       .run();
     report.deactivated.push(row.email);
     logAudit(ctx, {
       eventType: 'representative.synced_from_framework',
-      summary: `${row.email} ei ole enam raamlepingu kontaktisik — sisselogimine lõpetatud`,
-      before: { email: row.email, isActive: true },
+      summary: `${row.partnerName}: ${row.email} ei ole enam raamlepingu kontaktisik — teated ja sisselogimine lõpetatud`,
+      before: { email: row.email, isActive: true, source: row.source },
       after: { action: 'deactivated', representativeId: row.id, partnerId: row.partnerId },
     });
   }
 
   /* 2. create, reactivate or rename the rows the contacts call for */
-  const byKey = new Map(existing.map((row) => [keyOf(row.partnerId, row.email), row] as const));
+  const byKey = new Map(existing.map((row) => [contactKey(row.partnerId, row.email), row] as const));
   for (const [key, want] of desired) {
     const row = byKey.get(key);
 
     if (row?.isActive) {
-      // Somebody else's row (an uploaded representative) keeps its own name.
-      if (row.source === 'framework' && row.name !== want.name) {
+      // A contact's name follows the ranking; a listed person's name is the
+      // buyer's own entry and stays.
+      if (!row.isListed && row.name !== want.name) {
         ctx.tx
           .update(partnerRepresentatives)
           .set({ name: want.name, updatedAt: ctx.at })
@@ -376,13 +432,15 @@ export function syncFrameworkContacts(
     }
 
     if (row) {
+      // Back as a contact: active by that fact alone. `source` keeps saying
+      // who created the row; it decides nothing.
       ctx.tx
         .update(partnerRepresentatives)
         .set({
           name: want.name,
           role: 'esindaja',
-          source: 'framework',
           isActive: true,
+          isListed: false,
           deactivatedAt: null,
           updatedAt: ctx.at,
         })
@@ -407,6 +465,7 @@ export function syncFrameworkContacts(
         email: want.email,
         role: 'esindaja',
         source: 'framework',
+        isListed: false,
         phone: '',
         isActive: true,
         createdAt: ctx.at,
@@ -525,12 +584,56 @@ export function addLotPartner(
   return lotPartnerId;
 }
 
-/** Edit one membership's contact and price — the one-cell case. */
+export interface ContactChangeOptions {
+  /** change the same address in the company's other lots too — the person left */
+  applyToSameContact?: boolean;
+  /** list the previous contact in their own right, so they keep notices and sign-in */
+  keepPreviousAsRepresentative?: boolean;
+}
+
+export type PreviousContactOutcome = 'unchanged' | 'retired' | 'kept_listed' | 'kept_contact_in';
+
+export interface ContactChangeResult {
+  changed: boolean;
+  /** lot codes whose contact was changed, the edited row first */
+  lotCodes: string[];
+  previous: {
+    email: string;
+    name: string;
+    outcome: PreviousContactOutcome;
+    /** lots where the previous address is still the contact (`kept_contact_in`) */
+    contactIn: string[];
+  };
+}
+
+/** The one sentence about the previous contact — for the log and the screen. */
+export function describePreviousContact(previous: ContactChangeResult['previous']): string {
+  switch (previous.outcome) {
+    case 'retired':
+      return `endine kontaktisik ${previous.email} ei saa enam sisse logida ega teateid`;
+    case 'kept_listed':
+      return `endine kontaktisik ${previous.email} jääb esindajaks (eraldi nimetatud)`;
+    case 'kept_contact_in':
+      return `endine kontaktisik ${previous.email} jääb kontaktisikuks hankeosades ${previous.contactIn.join(', ')}`;
+    default:
+      return '';
+  }
+}
+
+/**
+ * Edit one membership's contact and price — the one-cell case.
+ *
+ * A changed address ends the previous contact's representation in the same
+ * transaction [L-21], unless they are the contact elsewhere or the buyer asks to
+ * keep them; the outcome is decided here, before the sync, so it can be logged
+ * with the change and shown on the screen.
+ */
 export function updateLotPartnerContact(
   ctx: Ctx,
   lotPartnerId: string,
   input: { contactName: string; contactEmail: string; unitPriceEur: number },
-): void {
+  options: ContactChangeOptions = {},
+): ContactChangeResult {
   const row = ctx.tx
     .select({
       id: lotPartners.id,
@@ -551,12 +654,14 @@ export function updateLotPartnerContact(
 
   const contactName = input.contactName.trim();
   const contactEmail = input.contactEmail.trim().toLowerCase();
+  const previousEmail = row.contactEmail.trim().toLowerCase();
   if (contactName.length < 2) throw new Error('Kontaktisiku nimi on puudu.');
   if (!EMAIL_RE.test(contactEmail)) throw new Error('Kontaktisiku e-posti aadress on vigane.');
   if (!Number.isFinite(input.unitPriceEur) || input.unitPriceEur < 0) {
     throw new Error('Hind osaleja kohta peab olema null või suurem.');
   }
-  if (contactEmail !== row.contactEmail) {
+  const emailChanged = contactEmail !== previousEmail;
+  if (emailChanged) {
     const collision = representativeCollision(ctx.tx, contactEmail, row.partnerId);
     // An address that cannot be a login must not become the official contact:
     // the notices would go somewhere the person cannot answer from.
@@ -569,24 +674,112 @@ export function updateLotPartnerContact(
     unitPriceEur: row.unitPriceEur,
   };
   const after = { contactName, contactEmail, unitPriceEur: input.unitPriceEur };
+  const previous: ContactChangeResult['previous'] = {
+    email: previousEmail,
+    name: row.contactName,
+    outcome: 'unchanged',
+    contactIn: [],
+  };
   if (
     before.contactName === after.contactName &&
     before.contactEmail === after.contactEmail &&
     before.unitPriceEur === after.unitPriceEur
   ) {
-    return;
+    return { changed: false, lotCodes: [], previous };
   }
 
+  /* the membership itself, and — when asked — the company's other lots that
+     name the same person; the price is this lot's alone */
   ctx.tx.update(lotPartners).set(after).where(eq(lotPartners.id, lotPartnerId)).run();
+  const lotCodes = [row.lotCode];
+  const siblings =
+    emailChanged && options.applyToSameContact
+      ? ctx.tx
+          .select({
+            id: lotPartners.id,
+            lotId: lotPartners.lotId,
+            lotCode: lots.code,
+            contactName: lotPartners.contactName,
+            contactEmail: lotPartners.contactEmail,
+          })
+          .from(lotPartners)
+          .innerJoin(lots, eq(lots.id, lotPartners.lotId))
+          .where(
+            and(
+              eq(lotPartners.partnerId, row.partnerId),
+              eq(lotPartners.isActive, true),
+              ne(lotPartners.id, lotPartnerId),
+            ),
+          )
+          .all()
+          .filter((m) => m.contactEmail.trim().toLowerCase() === previousEmail)
+          .sort((a, b) => a.lotCode.localeCompare(b.lotCode))
+      : [];
+  for (const sibling of siblings) {
+    ctx.tx
+      .update(lotPartners)
+      .set({ contactName, contactEmail })
+      .where(eq(lotPartners.id, sibling.id))
+      .run();
+    lotCodes.push(sibling.lotCode);
+  }
+
+  /* what becomes of the previous contact — decided before the sync so the log
+     and the screen can say it; the sync then does exactly this */
+  if (emailChanged) {
+    const stillContact = currentContacts(ctx.tx, [row.partnerId]).get(contactKey(row.partnerId, previousEmail));
+    const previousRow = ctx.tx
+      .select()
+      .from(partnerRepresentatives)
+      .where(
+        and(eq(partnerRepresentatives.partnerId, row.partnerId), eq(partnerRepresentatives.email, previousEmail)),
+      )
+      .get();
+    if (stillContact) {
+      previous.outcome = 'kept_contact_in';
+      previous.contactIn = stillContact.lotCodes;
+    } else if (previousRow?.isActive && (previousRow.isListed || options.keepPreviousAsRepresentative)) {
+      if (!previousRow.isListed) {
+        // Listed now, while they are no longer the contact — the second fact.
+        ctx.tx
+          .update(partnerRepresentatives)
+          .set({ isListed: true, updatedAt: ctx.at })
+          .where(eq(partnerRepresentatives.id, previousRow.id))
+          .run();
+        logAudit(ctx, {
+          eventType: 'representative.activated',
+          summary: `${row.partnerName}: ${previousRow.name} (${previousEmail}) jäetud esindajaks kontaktisiku vahetusel`,
+          after: { representativeId: previousRow.id, partnerId: row.partnerId, isListed: true },
+        });
+      }
+      previous.outcome = 'kept_listed';
+    } else {
+      previous.outcome = 'retired';
+    }
+  }
+
+  const previousLine = describePreviousContact(previous);
   logAudit(ctx, {
     eventType: 'partner.contact_changed',
-    summary: `${row.partnerName} (${row.lotCode}): kontaktisik ${contactName}, ${contactEmail}`,
+    summary: `${row.partnerName} (${lotCodes.join(', ')}): kontaktisik ${contactName}, ${contactEmail}${previousLine ? ` — ${previousLine}` : ''}`,
     lotId: row.lotId,
     lotPartnerId,
     before,
-    after,
+    after: { ...after, previousContact: emailChanged ? previous : undefined, lotCodes },
   });
+  for (const sibling of siblings) {
+    logAudit(ctx, {
+      eventType: 'partner.contact_changed',
+      summary: `${row.partnerName} (${sibling.lotCode}): kontaktisik ${contactName}, ${contactEmail} — sama vahetus kui hankeosas ${row.lotCode}`,
+      lotId: sibling.lotId,
+      lotPartnerId: sibling.id,
+      before: { contactName: sibling.contactName, contactEmail: sibling.contactEmail },
+      after: { contactName, contactEmail },
+    });
+  }
+
   syncFrameworkContacts(ctx, { partnerIds: [row.partnerId] });
+  return { changed: true, lotCodes, previous };
 }
 
 /**
@@ -656,6 +849,11 @@ export function moveLotPartnerRank(ctx: Ctx, lotPartnerId: string, direction: 'u
  * representatives, edited one row at a time
  * ------------------------------------------------------------------ */
 
+/**
+ * Name a person in their own right [L-21] — or, for the current contact, only
+ * update their role and phone: they represent the company by the ranking
+ * already, and a listing would outlive the next contact change.
+ */
 export function addRepresentative(
   ctx: Ctx,
   input: { partnerId: string; name: string; email: string; role: RepresentativeRole; phone: string },
@@ -668,21 +866,44 @@ export function addRepresentative(
   const collision = representativeCollision(ctx.tx, email, input.partnerId);
   if (collision) throw new Error(`Esindajat ei saa lisada — ${collision}.`);
 
-  const existing = ctx.tx
-    .select()
-    .from(partnerRepresentatives)
-    .where(
-      and(eq(partnerRepresentatives.partnerId, input.partnerId), eq(partnerRepresentatives.email, email)),
-    )
-    .get();
+  const find = () =>
+    ctx.tx
+      .select()
+      .from(partnerRepresentatives)
+      .where(
+        and(eq(partnerRepresentatives.partnerId, input.partnerId), eq(partnerRepresentatives.email, email)),
+      )
+      .get();
+  let existing = find();
 
-  const source: RepresentativeSource = existing?.source === 'framework' ? 'framework' : 'manual';
+  const contact = currentContacts(ctx.tx, [input.partnerId]).get(contactKey(input.partnerId, email));
+  if (contact) {
+    if (!existing?.isActive) {
+      // Every membership writer syncs, so this is belt to that brace.
+      syncFrameworkContacts(ctx, { partnerIds: [input.partnerId] });
+      existing = find();
+    }
+    if (!existing) throw new Error('Kontaktisiku sisselogimist ei õnnestu luua.');
+    ctx.tx
+      .update(partnerRepresentatives)
+      .set({ role: input.role, phone: input.phone.trim(), updatedAt: ctx.at })
+      .where(eq(partnerRepresentatives.id, existing.id))
+      .run();
+    logAudit(ctx, {
+      eventType: 'representative.updated',
+      summary: `${partner.name}: ${existing.name} (${email}) on raamlepingu kontaktisik (${contact.lotCodes.join(', ')}) — roll ja telefon uuendatud, esindus tuleb järjestusest`,
+      before: { role: existing.role, phone: existing.phone },
+      after: { representativeId: existing.id, role: input.role, phone: input.phone.trim(), isListed: false },
+    });
+    return existing.id;
+  }
+
   const fields = {
     name,
     role: input.role,
     phone: input.phone.trim(),
-    source,
     isActive: true,
+    isListed: true,
     deactivatedAt: null,
     updatedAt: ctx.at,
   };
@@ -693,14 +914,14 @@ export function addRepresentative(
   } else {
     ctx.tx
       .insert(partnerRepresentatives)
-      .values({ id, partnerId: input.partnerId, email, createdAt: ctx.at, ...fields })
+      .values({ id, partnerId: input.partnerId, email, source: 'manual', createdAt: ctx.at, ...fields })
       .run();
   }
 
   logAudit(ctx, {
     eventType: existing ? 'representative.activated' : 'representative.created',
     summary: `${partner.name}: esindaja ${name} (${email}) saab sisse logida`,
-    after: { representativeId: id, email, role: input.role, source },
+    after: { representativeId: id, email, role: input.role, isListed: true },
   });
   return id;
 }
@@ -759,6 +980,8 @@ export interface FrameworkLotView {
     isActive: boolean;
     /** whether the official contact can actually sign in, and why not */
     signIn: { active: boolean; reason: string };
+    /** the company's other lots whose active membership names the same address */
+    sameContactLots: string[];
   }>;
 }
 
@@ -783,7 +1006,7 @@ export function frameworkLots(tx: Reader): FrameworkLotView[] {
 
   const representatives = tx.select().from(partnerRepresentatives).all();
   const activeByKey = new Set<string>(
-    representatives.filter((r) => r.isActive).map((r) => `${r.partnerId}#${r.email}`),
+    representatives.filter((r) => r.isActive).map((r) => contactKey(r.partnerId, r.email)),
   );
 
   return lotRows.map((lot) => ({
@@ -798,26 +1021,129 @@ export function frameworkLots(tx: Reader): FrameworkLotView[] {
       .sort((a, b) => Number(b.isActive) - Number(a.isActive) || a.rank - b.rank)
       .map((m) => {
         const email = m.contactEmail.trim().toLowerCase();
-        const active = activeByKey.has(`${m.partnerId}#${email}`);
+        const active = activeByKey.has(contactKey(m.partnerId, email));
         return {
           ...m,
           signIn: {
             active,
             reason: active ? '' : representativeCollision(tx, email, m.partnerId) ?? 'sisselogimine puudub',
           },
+          sameContactLots: memberships
+            .filter(
+              (o) =>
+                o.isActive &&
+                o.lotPartnerId !== m.lotPartnerId &&
+                o.partnerId === m.partnerId &&
+                o.contactEmail.trim().toLowerCase() === email,
+            )
+            .map((o) => lotRows.find((lot) => lot.id === o.lotId)?.code ?? '')
+            .filter(Boolean)
+            .sort(),
         };
       }),
   }));
 }
 
-/** Active representatives of one company, for the Raamhange and Esindajad screens. */
+/**
+ * One company's representatives, for the Raamhange and Esindajad screens, each
+ * with the two facts that decide its activity spelled out [L-21].
+ */
 export function representativesOf(tx: Reader, partnerId: string) {
+  const contacts = currentContacts(tx, [partnerId]);
   return tx
     .select()
     .from(partnerRepresentatives)
     .where(eq(partnerRepresentatives.partnerId, partnerId))
     .all()
+    .map((row) => {
+      const contactOf = contacts.get(contactKey(row.partnerId, row.email))?.lotCodes ?? [];
+      return { ...row, isContact: contactOf.length > 0, contactOf };
+    })
     .sort((a, b) => Number(b.isActive) - Number(a.isActive) || a.name.localeCompare(b.name));
+}
+
+/**
+ * The current framework data in the shape the workbook writer takes — the
+ * download half of the round trip, kept out of the route so a test can run
+ * download → upload against a database and expect zero changes.
+ *
+ * The Esindajad sheet lists exactly the people the buyer named in their own
+ * right (`isListed`), including a listed person who is also a contact — else a
+ * full re-upload would clear their listing — and never a contact-only row: the
+ * ranking carries those, and a retired contact is inactive, so cannot return.
+ */
+export function frameworkWorkbookData(tx: Reader): FrameworkWorkbookInput {
+  const lotRows: LotRow[] = tx
+    .select()
+    .from(lots)
+    .where(eq(lots.isActive, true))
+    .all()
+    .sort((a, b) => a.code.localeCompare(b.code))
+    .map((lot) => ({
+      code: lot.code,
+      name: lot.name,
+      description: lot.description,
+      responseDeadlineWorkingDays: lot.responseDeadlineWorkingDays,
+      deadlineLocalTime: lot.deadlineLocalTime,
+      reviewWorkingDays: lot.reviewWorkingDays,
+      workloadThreshold: lot.workloadThreshold,
+      defaultVisibilityMode: lot.defaultVisibilityMode,
+      defaultCapOptions: lot.defaultCapOptions,
+      thresholdNote: lot.thresholdNote,
+    }));
+
+  const memberships = tx
+    .select({
+      partnerName: partners.name,
+      regCode: partners.regCode,
+      lotCode: lots.code,
+      rank: lotPartners.rank,
+      contactName: lotPartners.contactName,
+      contactEmail: lotPartners.contactEmail,
+      unitPriceEur: lotPartners.unitPriceEur,
+    })
+    .from(lotPartners)
+    .innerJoin(partners, eq(partners.id, lotPartners.partnerId))
+    .innerJoin(lots, eq(lots.id, lotPartners.lotId))
+    .where(eq(lotPartners.isActive, true))
+    .all()
+    .sort((a, b) => a.lotCode.localeCompare(b.lotCode) || a.rank - b.rank);
+
+  const listed = tx
+    .select({
+      partnerName: partners.name,
+      regCode: partners.regCode,
+      name: partnerRepresentatives.name,
+      email: partnerRepresentatives.email,
+      role: partnerRepresentatives.role,
+      phone: partnerRepresentatives.phone,
+    })
+    .from(partnerRepresentatives)
+    .innerJoin(partners, eq(partners.id, partnerRepresentatives.partnerId))
+    .where(and(eq(partnerRepresentatives.isActive, true), eq(partnerRepresentatives.isListed, true)))
+    .all()
+    .sort((a, b) => a.partnerName.localeCompare(b.partnerName) || a.name.localeCompare(b.name));
+
+  return {
+    framework: frameworkIdentity(tx),
+    lots: lotRows,
+    partnerRows: memberships.map((m) => ({
+      partner: m.partnerName,
+      registrikood: m.regCode,
+      hankeosa: m.lotCode,
+      koht: String(m.rank),
+      kontaktisik: m.contactName,
+      e_post: m.contactEmail,
+      uhikuhind: String(m.unitPriceEur),
+    })),
+    representativeRows: listed.map((row) => ({
+      registrikood: row.regCode,
+      esindaja: row.name,
+      e_post: row.email,
+      roll: row.role,
+      telefon: row.phone,
+    })),
+  };
 }
 
 /**

@@ -47,12 +47,24 @@ async function loadWorkbook(buffer: ArrayBuffer | Buffer): Promise<ExcelJS.Workb
   return workbook;
 }
 
-/** Every sheet of a workbook, by name, in the same shape as the CSV reader. */
-export async function parseXlsxSheets(buffer: ArrayBuffer | Buffer): Promise<Map<string, XlsxParseResult>> {
+export interface ParsedWorkbook {
+  /** every sheet, by name, in the same shape as the CSV reader */
+  sheets: Map<string, XlsxParseResult>;
+  /** the core-properties keywords — where this system leaves its marker */
+  keywords: string;
+}
+
+/** A whole workbook: its sheets and the properties that say where it came from. */
+export async function parseXlsxWorkbook(buffer: ArrayBuffer | Buffer): Promise<ParsedWorkbook> {
   const workbook = await loadWorkbook(buffer);
   const sheets = new Map<string, XlsxParseResult>();
   for (const sheet of workbook.worksheets) sheets.set(sheet.name, readSheet(sheet));
-  return sheets;
+  return { sheets, keywords: String(workbook.keywords ?? '') };
+}
+
+/** Every sheet of a workbook, by name, in the same shape as the CSV reader. */
+export async function parseXlsxSheets(buffer: ArrayBuffer | Buffer): Promise<Map<string, XlsxParseResult>> {
+  return (await parseXlsxWorkbook(buffer)).sheets;
 }
 
 export async function parseXlsx(buffer: ArrayBuffer | Buffer): Promise<XlsxParseResult> {
@@ -136,10 +148,22 @@ function addSheet(workbook: ExcelJS.Workbook, sheet: WorkbookSheet): void {
   });
 }
 
+export interface WorkbookOptions {
+  /**
+   * Core-properties keywords. Excel and LibreOffice carry them through a save,
+   * which is what lets an upload be recognised as this system's own download.
+   */
+  keywords?: string;
+}
+
 /** Write one or more sheets to an .xlsx buffer — sample-file twins and templates. */
-export async function buildWorkbook(sheets: readonly WorkbookSheet[]): Promise<Buffer> {
+export async function buildWorkbook(
+  sheets: readonly WorkbookSheet[],
+  options: WorkbookOptions = {},
+): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'Kaskaadhankija';
+  if (options.keywords) workbook.keywords = options.keywords;
   for (const sheet of sheets) addSheet(workbook, sheet);
   const out = await workbook.xlsx.writeBuffer();
   return Buffer.from(out);

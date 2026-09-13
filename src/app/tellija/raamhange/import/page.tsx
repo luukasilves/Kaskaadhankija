@@ -14,7 +14,7 @@ import { importBatches } from '@/db/schema';
 import { buyerIsAdmin } from '@/server/auth/actor';
 import { formatDateTimeShort, formatEur, formatIsoDay } from '@/domain/format';
 import { CAP_OPTIONS_SHEET_WORDS, VISIBILITY_SHEET_WORDS } from '@/domain/round-definition';
-import type { FrameworkImportPayload } from '@/server/import/framework-import';
+import type { FrameworkImportOptions, FrameworkImportPayload } from '@/server/import/framework-import';
 import { ReadOnlyNote } from '@/components/read-only-note';
 import { StatusBadge } from '@/components/status-badge';
 import { FrameworkImportActions, FrameworkUploadForm } from '../framework-forms';
@@ -79,6 +79,7 @@ export default async function FrameworkImportPage({
   }
 
   const payload = stored.rowsJson as FrameworkImportPayload;
+  const options = (stored.options ?? {}) as Partial<FrameworkImportOptions>;
   const canApply =
     stored.status === 'previewed' &&
     !(payload.framework.present && !payload.framework.value) &&
@@ -227,27 +228,9 @@ export default async function FrameworkImportPage({
               </table>
             </div>
             <p className="mt-2 text-[12px] text-[var(--color-muted)]">
-              Punkt tähendab tühja lahtrit: see seade jääb muutmata.
+              Punkt tähendab tühja lahtrit: see seade jääb muutmata. Failist puuduvad hankeosad on
+              kirjas otsuse juures allpool.
             </p>
-            {payload.lots.toDeactivate.length > 0 && (
-              <div className="mt-3">
-                <p className="text-[13px] font-semibold">Failist puuduvad hankeosad</p>
-                <ul className="mt-1 space-y-0.5 text-[13px]">
-                  {payload.lots.toDeactivate.map((lot) => (
-                    <li key={lot.code}>
-                      {lot.code} — {lot.name}:{' '}
-                      {lot.blockedBy.length > 0 ? (
-                        <span style={{ color: 'var(--color-warning)' }}>
-                          jääb alles, voorud {lot.blockedBy.join(', ')}
-                        </span>
-                      ) : (
-                        <span style={{ color: 'var(--color-danger)' }}>arvatakse raamhankest välja</span>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
           </>
         )}
       </section>
@@ -309,23 +292,10 @@ export default async function FrameworkImportPage({
           </table>
         </div>
         {payload.partners.wouldDeactivate.length > 0 && (
-          <div className="mt-3">
-            <p className="text-[13px] font-semibold">Failist puuduvad partnerid</p>
-            <ul className="mt-1 space-y-0.5 text-[13px]">
-              {payload.partners.wouldDeactivate.map((member) => (
-                <li key={`${member.lotCode}-${member.partnerName}`}>
-                  {member.lotCode} · {member.partnerName} (koht {member.rank})
-                  {member.inOpenRound && (
-                    <span style={{ color: 'var(--color-warning)' }}> — osaleb avatud voorus</span>
-                  )}
-                </li>
-              ))}
-            </ul>
-            <p className="mt-1 text-[12px] text-[var(--color-muted)]">
-              „Lõpeta puuduvad“ oli valitud: nende osalus lõpetatakse. Avatud voorud kasutavad
-              avaldamisel külmutatud järjestust, seega need ei muutu.
-            </p>
-          </div>
+          <p className="mt-2 text-[12px] text-[var(--color-muted)]">
+            {payload.partners.wouldDeactivate.length} osalust puudub failist — mis nendega saab, on
+            otsuse juures allpool.
+          </p>
         )}
       </section>
 
@@ -363,19 +333,35 @@ export default async function FrameworkImportPage({
                       {row.errors.length > 0 ? (
                         <Diagnostics items={row.errors} />
                       ) : (
-                        <StatusBadge label="salvestatakse" tone="info" />
+                        <StatusBadge label={row.note ? 'kontaktisik' : 'salvestatakse'} tone="info" title={row.note} />
                       )}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            <p className="mt-2 text-[12px] text-[var(--color-muted)]">
+              Raamlepingu kontaktisiku nimetamine siin uuendab ainult rolli ja telefoni — tema
+              esindus tuleb järjestusest ja lõpeb kontaktisiku vahetusega. Kõik teised siin
+              nimetatud jäävad esindajaks ka pärast kontaktisiku vahetust.
+            </p>
           </>
         )}
       </section>
 
       {stored.status === 'previewed' && (
-        <FrameworkImportActions batchId={stored.id} canApply={canApply} />
+        <FrameworkImportActions
+          batchId={stored.id}
+          canApply={canApply}
+          defaultDeactivate={Boolean(options.deactivateMissing)}
+          fullWorkbook={Boolean(options.fullWorkbook)}
+          absences={{
+            lots: payload.lots.toDeactivate,
+            partners: payload.partners.wouldDeactivate,
+            representatives: payload.representatives.wouldUnlist ?? [],
+            contacts: payload.contacts ?? { wouldRetire: [], wouldCreate: [], keptElsewhere: [] },
+          }}
+        />
       )}
     </div>
   );

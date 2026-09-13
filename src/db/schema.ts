@@ -205,13 +205,24 @@ export const partnerRepresentatives = sqliteTable(
     email: text().notNull(),
     role: text().$type<RepresentativeRole>().notNull().default('esindaja'),
     /**
-     * Where this row came from, and therefore who may switch it off [L-21]:
-     * `framework` rows mirror a lot's official contact and are maintained by
-     * the framework data, `upload` rows are extra people the buyer listed,
-     * `manual` rows were added on the screen. Whoever last activated a row
-     * owns it, which is what stops the two paths deactivating each other's.
+     * Where this row came from — information only, never a decision [L-18]:
+     * `framework` rows were created by the contact sync, `upload` rows by the
+     * Esindajad sheet, `manual` rows on the screen. Until v2.6 the sync retired
+     * only its own rows, which left a replaced contact signed in whenever the
+     * sheet had once listed them; activity is now decided by the two facts
+     * below, and this column just says who typed the row first.
      */
     source: text().$type<RepresentativeSource>().notNull().default('upload'),
+    /**
+     * The buyer named this person in their own right — on the Esindajad sheet,
+     * with „Lisa esindaja“ or by switching the row back on — while they were
+     * **not** a lot's current contact [L-21]. A row is active iff it is listed
+     * or its address is the current contact of one of the company's active
+     * memberships (derived, see `currentContacts`); a current contact can
+     * never acquire the listing, so a contact change retires them unless the
+     * buyer lists them afterwards. `!isActive ⇒ !isListed`.
+     */
+    isListed: integer('is_listed', { mode: 'boolean' }).notNull().default(false),
     phone: text().notNull().default(''),
     isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
     deactivatedAt: integer('deactivated_at'),

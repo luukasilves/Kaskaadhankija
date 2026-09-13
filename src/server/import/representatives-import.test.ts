@@ -65,6 +65,9 @@ const sourceOf = (email: string) =>
         .get()?.source,
   );
 
+const rowOf = (email: string) =>
+  harness.read((db) => db.select().from(partnerRepresentatives).where(eq(partnerRepresentatives.email, email)).get());
+
 const activeFor = (regCode: string) =>
   harness.read((db) =>
     db
@@ -80,14 +83,17 @@ describe('representatives import', () => {
   it('creates representatives for known companies', () => {
     const result = importRows([rep(), rep({ esindaja: 'Mari Mets', e_post: 'mari.mets@tehisaru-naidis.ee', roll: 'asendaja' })]);
     // Jaan Kask is already there: he is OSA-1's official contact, which the
-    // ranking import turned into a sign-in [L-21]. Listing him here updates
-    // that row and takes ownership of it; Mari Mets is new.
+    // ranking import turned into a sign-in [L-21]. Listing him here touches
+    // role and phone only — his row stays the ranking's, unlisted, so the next
+    // contact change retires him. Mari Mets is new, and listed.
     expect(result.summary).toMatchObject({ total: 2, valid: 2, created: 1, updated: 1, withErrors: 0 });
     expect(activeFor('10000001')).toEqual([
       { name: 'Jaan Kask', email: 'jaan.kask@tehisaru-naidis.ee', role: 'esindaja' },
       { name: 'Mari Mets', email: 'mari.mets@tehisaru-naidis.ee', role: 'asendaja' },
     ]);
-    expect(sourceOf('jaan.kask@tehisaru-naidis.ee')).toBe('upload');
+    expect(sourceOf('jaan.kask@tehisaru-naidis.ee')).toBe('framework');
+    expect(rowOf('jaan.kask@tehisaru-naidis.ee')?.isListed).toBe(false);
+    expect(rowOf('mari.mets@tehisaru-naidis.ee')).toMatchObject({ isListed: true, source: 'upload' });
   });
 
   it('leaves a lot’s official contact to the framework data [L-21]', () => {
@@ -130,12 +136,24 @@ describe('representatives import', () => {
   });
 
   it('re-importing updates by (company, e-mail) rather than duplicating', () => {
-    importRows([rep()]);
-    const second = importRows([rep({ esindaja: 'Jaan Kask-Tamm', roll: 'asendaja' })]);
+    importRows([rep({ esindaja: 'Mari Mets', e_post: 'mari.mets@tehisaru-naidis.ee' })]);
+    const second = importRows([rep({ esindaja: 'Mari Mets-Tamm', e_post: 'mari.mets@tehisaru-naidis.ee', roll: 'asendaja' })]);
     expect(second.summary).toMatchObject({ created: 0, updated: 1 });
-    expect(activeFor('10000001')).toEqual([
-      { name: 'Jaan Kask-Tamm', email: 'jaan.kask@tehisaru-naidis.ee', role: 'asendaja' },
+    expect(activeFor('10000001').filter((r) => r.email.startsWith('mari'))).toEqual([
+      { name: 'Mari Mets-Tamm', email: 'mari.mets@tehisaru-naidis.ee', role: 'asendaja' },
     ]);
+  });
+
+  it('a contact’s name follows the ranking, not the sheet; the sheet gives role and phone', () => {
+    const second = importRows([rep({ esindaja: 'Jaan Kask-Tamm', roll: 'asendaja', telefon: '555' })]);
+    expect(second.summary).toMatchObject({ created: 0, updated: 1 });
+    expect(rowOf('jaan.kask@tehisaru-naidis.ee')).toMatchObject({
+      name: 'Jaan Kask',
+      role: 'asendaja',
+      phone: '555',
+      isActive: true,
+      isListed: false,
+    });
   });
 
   it('deactivates a listed company’s absent representatives only when asked, and only that company’s', () => {
@@ -201,20 +219,18 @@ describe('representatives import', () => {
     expect(preview.rows[0]?.errors[0]?.message).toMatch(/tellimismeeskonna/);
   });
 
-  it('a representative can be switched off and back on by hand', () => {
-    importRows([rep()]);
-    // By address: the company's rows now include the framework-owned contact,
-    // which is deliberately not switchable here.
-    const id = harness.read((db) =>
-      db
-        .select({ id: partnerRepresentatives.id })
-        .from(partnerRepresentatives)
-        .where(eq(partnerRepresentatives.email, 'jaan.kask@tehisaru-naidis.ee'))
-        .get(),
-    )!.id;
-    harness.write((ctx) => setRepresentativeActive(ctx, id, false));
-    expect(activeFor('10000001')).toHaveLength(0);
-    harness.write((ctx) => setRepresentativeActive(ctx, id, true));
-    expect(activeFor('10000001')).toHaveLength(1);
+  it('a listed representative can be switched off and back on by hand; the contact cannot', () => {
+    importRows([rep(), rep({ esindaja: 'Mari Mets', e_post: 'mari.mets@tehisaru-naidis.ee' })]);
+    const idOf = (email: string) => rowOf(email)!.id;
+    // Jaan is the current contact: his sign-in follows the ranking [L-21].
+    expect(() => harness.write((ctx) => setRepresentativeActive(ctx, idOf('jaan.kask@tehisaru-naidis.ee'), false))).toThrow(
+      /raamhanke andmetes/,
+    );
+    harness.write((ctx) => setRepresentativeActive(ctx, idOf('mari.mets@tehisaru-naidis.ee'), false));
+    expect(activeFor('10000001').map((r) => r.email)).toEqual(['jaan.kask@tehisaru-naidis.ee']);
+    expect(rowOf('mari.mets@tehisaru-naidis.ee')).toMatchObject({ isActive: false, isListed: false });
+    harness.write((ctx) => setRepresentativeActive(ctx, idOf('mari.mets@tehisaru-naidis.ee'), true));
+    expect(activeFor('10000001')).toHaveLength(2);
+    expect(rowOf('mari.mets@tehisaru-naidis.ee')).toMatchObject({ isActive: true, isListed: true });
   });
 });

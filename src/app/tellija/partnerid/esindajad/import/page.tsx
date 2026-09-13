@@ -14,6 +14,7 @@ import { ReadOnlyNote } from '@/components/read-only-note';
 import { importBatches, partnerRepresentatives, partners } from '@/db/schema';
 import { REPRESENTATIVE_COLUMNS, REPRESENTATIVE_OPTIONAL_COLUMNS } from '@/domain/import-rows';
 import { formatDateTimeShort } from '@/domain/format';
+import { contactKey, currentContacts } from '@/server/framework';
 import type { StoredRepresentativeRow } from '@/server/import/representatives-import';
 import {
   RepresentativeImportPreview,
@@ -152,6 +153,11 @@ export default async function RepresentativesImportPage({
 }
 
 /** The active representatives a confirmed import would switch off, from the stored rows. */
+/**
+ * Who the sheet's absences would retire: the named companies' active people
+ * it leaves out — except a lot's current contact, whose sign-in follows the
+ * ranking and not this sheet [L-21].
+ */
 function previewDeactivations(rows: StoredRepresentativeRow[]) {
   const db = getDb();
   const listed = new Map<string, Set<string>>();
@@ -161,8 +167,10 @@ function previewDeactivations(rows: StoredRepresentativeRow[]) {
     set.add(row.value.email);
     listed.set(row.value.regCode, set);
   }
+  const contacts = currentContacts(db);
   return db
     .select({
+      partnerId: partnerRepresentatives.partnerId,
       partnerName: partners.name,
       regCode: partners.regCode,
       name: partnerRepresentatives.name,
@@ -172,6 +180,11 @@ function previewDeactivations(rows: StoredRepresentativeRow[]) {
     .innerJoin(partners, eq(partners.id, partnerRepresentatives.partnerId))
     .where(eq(partnerRepresentatives.isActive, true))
     .all()
-    .filter((r) => listed.has(r.regCode) && !listed.get(r.regCode)!.has(r.email))
+    .filter(
+      (r) =>
+        listed.has(r.regCode) &&
+        !listed.get(r.regCode)!.has(r.email) &&
+        !contacts.has(contactKey(r.partnerId, r.email)),
+    )
     .map(({ partnerName, name, email }) => ({ partnerName, name, email }));
 }

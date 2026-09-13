@@ -238,7 +238,9 @@ export default async function FrameworkPage() {
             <h2>Esindajad</h2>
             <p className="mt-0.5 max-w-[80ch] text-[12.5px] text-[var(--color-muted)]">
               Raamlepingu kontaktisikud on siin automaatselt — neid hallatakse ülal järjestuse
-              ridadel. Siia saab lisada asendajaid ja teisi, kes tohivad ettevõtte eest vastata.
+              ridadel, ja kontaktisiku vahetus lõpetab endise esinduse. Siia saab lisada asendajaid
+              ja teisi, kes tohivad ettevõtte eest vastata; nad jäävad ka pärast kontaktisiku
+              vahetust.
             </p>
           </div>
           <Link href="/tellija/partnerid/esindajad" className="kh-btn">
@@ -277,8 +279,15 @@ export default async function FrameworkPage() {
                             label={person.role === 'esindaja' ? 'Esindaja' : 'Asendaja'}
                             tone="neutral"
                           />
-                          {person.source === 'framework' && (
-                            <StatusBadge label="raamlepingu kontakt" tone="info" />
+                          {person.isContact && (
+                            <StatusBadge
+                              label="raamlepingu kontakt"
+                              tone="info"
+                              title={`Hankeosade ${person.contactOf.join(', ')} kontaktisik — esindus tuleb järjestusest`}
+                            />
+                          )}
+                          {person.isListed && person.isContact && (
+                            <StatusBadge label="eraldi nimetatud" tone="neutral" />
                           )}
                           {!person.isActive && <StatusBadge label="lõpetatud" tone="neutral" />}
                           {canWrite && person.isActive && (
@@ -290,7 +299,7 @@ export default async function FrameworkPage() {
                                 role: person.role,
                                 phone: person.phone,
                                 isActive: person.isActive,
-                                source: person.source,
+                                contactOf: person.contactOf,
                               }}
                             />
                           )}

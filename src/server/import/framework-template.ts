@@ -27,6 +27,18 @@ export interface FrameworkWorkbookInput {
   representativeRows?: ReadonlyArray<Record<string, string>>;
 }
 
+/**
+ * Stamped into the workbook's core properties [L-21]. A file that still carries
+ * it is a download of this system's own data, so „the file is the whole truth“
+ * can be pre-selected when it comes back; a hand-made file gets the safe
+ * default. Losing the marker (an exotic editor) fails safe — additive.
+ */
+export const FRAMEWORK_WORKBOOK_MARKER = 'kaskaadhankija:raamhanke-andmed';
+
+export function isFrameworkWorkbook(keywords: string): boolean {
+  return keywords.split(/[;,\s]+/).includes(FRAMEWORK_WORKBOOK_MARKER);
+}
+
 const KEY_VALUE_HEADERS = ['väli', 'väärtus'] as const;
 
 function frameworkSheet(framework: FrameworkIdentity): WorkbookSheet {
@@ -104,7 +116,13 @@ const EXPLANATION_ROWS: ReadonlyArray<Record<string, string>> = [
     leht: 'Esindajad',
     väli: '(kogu leht)',
     selgitus:
-      'Vabatahtlik. Siia käivad lisainimesed peale raamlepingu kontaktisiku — asendajad ja teised, kes tohivad ettevõtte eest vastata. Kontaktisikut ennast siia lisama ei pea.',
+      'Vabatahtlik. Siia käivad lisainimesed peale raamlepingu kontaktisiku — asendajad ja teised, kes tohivad ettevõtte eest vastata. Kontaktisikut siia lisama ei pea: tema esindus tuleb järjestusest ja lõpeb kontaktisiku vahetusega. Kes peab pärast kontaktisiku vahetust esindajaks jääma, kirjuta siia samas failis. Alla laaditud failis on siin täpselt need, kes on eraldi nimetatud.',
+  },
+  {
+    leht: 'Esindajad',
+    väli: '(puuduv esindaja)',
+    selgitus:
+      'Valik „lõpeta failist puuduvad“ lõpetab ka eraldi nimetatud esindajad, keda sellel lehel ei ole — lehel „Partnerid“ olevate ettevõtete kohta. Raamlepingu kontaktisikuid see ei puuduta.',
   },
 ];
 
@@ -128,5 +146,5 @@ export async function buildFrameworkWorkbook(input: FrameworkWorkbookInput): Pro
     },
     { name: 'Selgitus', headers: EXPLANATION_HEADERS, rows: EXPLANATION_ROWS },
   ];
-  return buildWorkbook(sheets);
+  return buildWorkbook(sheets, { keywords: FRAMEWORK_WORKBOOK_MARKER });
 }

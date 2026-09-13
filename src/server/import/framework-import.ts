@@ -16,11 +16,25 @@
  * Order inside the transaction is deliberate: identity, then lots (so a lot the
  * same file creates can be referenced by the ranking), then the ranking, then
  * the extra representatives, and the contact sync last — after which every
- * official contact is a login again.
+ * official contact is a login again and nobody else is [L-21]. Ranking before
+ * representatives is what lets one file both replace a contact and keep the
+ * previous one listed: by the time the Esindajad sheet is applied, the person
+ * is no longer the contact, so listing them counts.
+ *
+ * „The file is the whole truth“ is the buyer's call, made on the preview: a
+ * workbook this system wrote carries a marker, and dropping it back pre-selects
+ * retiring what it leaves out; the preview lists every consequence either way.
  */
 
-import { eq } from 'drizzle-orm';
-import { importBatches, lots, partners, type ImportSummary } from '@/db/schema';
+import { and, eq } from 'drizzle-orm';
+import {
+  importBatches,
+  lotPartners,
+  lots,
+  partnerRepresentatives,
+  partners,
+  type ImportSummary,
+} from '@/db/schema';
 import type { FrameworkIdentity } from '@/domain/framework';
 import {
   parseFrameworkSheet,
@@ -38,6 +52,8 @@ import { logAudit } from '../audit';
 import type { Ctx } from '../context';
 import {
   applyLotRows,
+  contactKey,
+  currentContacts,
   deactivateLot,
   frameworkIdentity,
   lotDeactivationBlockers,
@@ -62,11 +78,24 @@ import type { ImportSource } from './trainings-import';
 
 export interface FrameworkImportOptions {
   /**
-   * Retire what the file leaves out: lot members absent from the ranking, and
-   * lots absent from the Hankeosad sheet. Off by default — an upload is usually
-   * a correction, and silently retiring a partner changes who gets work.
+   * Retire what the file leaves out: lot members absent from the ranking, lots
+   * absent from the Hankeosad sheet, listed representatives absent from the
+   * Esindajad sheet. Decided on the preview, where its consequences are
+   * listed; pre-set from `fullWorkbook`, and the confirmation may override it.
    */
   deactivateMissing: boolean;
+  /** the file carried this system's own marker — it is a complete download */
+  fullWorkbook?: boolean;
+}
+
+/** What the upload does to who can sign in [L-21] — shown before anything is written. */
+export interface ContactChangePlan {
+  /** active sign-ins the file ends: no longer a contact and not (or no longer) listed */
+  wouldRetire: Array<{ partnerName: string; name: string; email: string; onlyIfDeactivating: boolean }>;
+  /** contact addresses with no active sign-in yet */
+  wouldCreate: Array<{ partnerName: string; name: string; email: string }>;
+  /** a replaced contact who stays the contact of the company's other lots */
+  keptElsewhere: Array<{ partnerName: string; email: string; lotCodes: string[] }>;
 }
 
 export interface StoredLotRow {
@@ -106,7 +135,11 @@ export interface FrameworkImportPayload {
     present: boolean;
     rows: StoredRepresentativeRow[];
     fileErrors: RowDiagnostic[];
+    /** listed people of the covered companies the sheet leaves out */
+    wouldUnlist?: Array<{ partnerName: string; name: string; email: string; staysAsContact: boolean }>;
   };
+  /** absent from batches previewed before v2.6 */
+  contacts?: ContactChangePlan;
 }
 
 export interface FrameworkPreviewResult extends FrameworkImportPayload {
@@ -140,6 +173,166 @@ function decideCanApply(payload: FrameworkImportPayload): boolean {
     if (payload.representatives.rows.some((row) => row.value === null)) return false;
   }
   return true;
+}
+
+/** Listed people of the covered companies that the Esindajad sheet leaves out. */
+function listedAbsentFrom(
+  ctx: Ctx,
+  storedReps: readonly StoredRepresentativeRow[],
+  coveredRegCodes: ReadonlySet<string>,
+): NonNullable<FrameworkImportPayload['representatives']['wouldUnlist']> {
+  const onSheet = new Set(
+    storedReps.filter((row) => row.value).map((row) => `${row.value!.regCode}#${row.value!.email}`),
+  );
+  const contacts = currentContacts(ctx.tx);
+  return ctx.tx
+    .select({
+      partnerId: partnerRepresentatives.partnerId,
+      partnerName: partners.name,
+      regCode: partners.regCode,
+      name: partnerRepresentatives.name,
+      email: partnerRepresentatives.email,
+    })
+    .from(partnerRepresentatives)
+    .innerJoin(partners, eq(partners.id, partnerRepresentatives.partnerId))
+    .where(and(eq(partnerRepresentatives.isActive, true), eq(partnerRepresentatives.isListed, true)))
+    .all()
+    .filter((row) => coveredRegCodes.has(row.regCode) && !onSheet.has(`${row.regCode}#${row.email}`))
+    .map((row) => ({
+      partnerName: row.partnerName,
+      name: row.name,
+      email: row.email,
+      staysAsContact: contacts.has(contactKey(row.partnerId, row.email)),
+    }));
+}
+
+/**
+ * Who could sign in after this file, compared with who can now [L-21].
+ *
+ * Replays the two facts over the file's ranking: a membership the file rewrites
+ * takes the file's contact, one it leaves alone keeps its own, and one it drops
+ * from a lot it covers goes only when the buyer retires the missing. Listing
+ * follows the Esindajad sheet when there is one. Nothing here is written — the
+ * apply recomputes everything through the writers.
+ */
+export function planContactChanges(
+  ctx: Ctx,
+  storedPartners: readonly StoredPartnerRow[],
+  storedReps: readonly StoredRepresentativeRow[] | null,
+): ContactChangePlan {
+  const existing = ctx.tx
+    .select({
+      lotCode: lots.code,
+      regCode: partners.regCode,
+      partnerName: partners.name,
+      contactName: lotPartners.contactName,
+      contactEmail: lotPartners.contactEmail,
+    })
+    .from(lotPartners)
+    .innerJoin(partners, eq(partners.id, lotPartners.partnerId))
+    .innerJoin(lots, eq(lots.id, lotPartners.lotId))
+    .where(and(eq(lotPartners.isActive, true), eq(partners.isActive, true)))
+    .all()
+    .map((m) => ({ ...m, contactEmail: m.contactEmail.trim().toLowerCase() }));
+
+  const fileRows = storedPartners
+    .map((row) => row.value)
+    .filter((value): value is NonNullable<typeof value> => value !== null)
+    .map((value) => ({
+      lotCode: value.lotCode,
+      regCode: value.regCode,
+      partnerName: value.partnerName,
+      contactName: value.contactName,
+      contactEmail: value.contactEmail.trim().toLowerCase(),
+    }));
+  const touchedLots = new Set(fileRows.map((row) => row.lotCode));
+  const inFile = new Set(fileRows.map((row) => `${row.lotCode}#${row.regCode}`));
+  const partnerNames = new Map<string, string>([
+    ...existing.map((m) => [m.regCode, m.partnerName] as const),
+    ...fileRows.map((row) => [row.regCode, row.partnerName] as const),
+  ]);
+
+  type Contact = { name: string; lotCodes: string[] };
+  const futureContacts = (deactivating: boolean): Map<string, Contact> => {
+    const memberships = [
+      ...existing.filter(
+        (m) => !touchedLots.has(m.lotCode) || (!deactivating && !inFile.has(`${m.lotCode}#${m.regCode}`)),
+      ),
+      ...fileRows,
+    ];
+    const map = new Map<string, Contact>();
+    for (const m of memberships) {
+      const key = `${m.regCode}#${m.contactEmail}`;
+      const known = map.get(key);
+      if (known) known.lotCodes.push(m.lotCode);
+      else map.set(key, { name: m.contactName, lotCodes: [m.lotCode] });
+    }
+    return map;
+  };
+  const contactsKeep = futureContacts(false);
+  const contactsRetire = futureContacts(true);
+
+  const onSheet = new Set(
+    (storedReps ?? []).filter((row) => row.value).map((row) => `${row.value!.regCode}#${row.value!.email}`),
+  );
+  const coveredRegCodes = new Set([
+    ...fileRows.map((row) => row.regCode),
+    ...(storedReps ?? []).map((row) => row.value?.regCode).filter((code): code is string => Boolean(code)),
+  ]);
+
+  const activeRows = ctx.tx
+    .select({
+      regCode: partners.regCode,
+      partnerName: partners.name,
+      name: partnerRepresentatives.name,
+      email: partnerRepresentatives.email,
+      isListed: partnerRepresentatives.isListed,
+    })
+    .from(partnerRepresentatives)
+    .innerJoin(partners, eq(partners.id, partnerRepresentatives.partnerId))
+    .where(eq(partnerRepresentatives.isActive, true))
+    .all();
+
+  const activeAfter = (row: (typeof activeRows)[number], deactivating: boolean): boolean => {
+    const key = `${row.regCode}#${row.email}`;
+    const contacts = deactivating ? contactsRetire : contactsKeep;
+    if (contacts.has(key)) return true;
+    if (onSheet.has(key)) return true;
+    if (!row.isListed) return false;
+    // Listed today; with the option on, a covered company's sheet is the whole list.
+    return !(deactivating && storedReps !== null && coveredRegCodes.has(row.regCode));
+  };
+
+  const wouldRetire: ContactChangePlan['wouldRetire'] = [];
+  for (const row of activeRows) {
+    if (!activeAfter(row, false)) {
+      wouldRetire.push({ partnerName: row.partnerName, name: row.name, email: row.email, onlyIfDeactivating: false });
+    } else if (!activeAfter(row, true)) {
+      wouldRetire.push({ partnerName: row.partnerName, name: row.name, email: row.email, onlyIfDeactivating: true });
+    }
+  }
+
+  const activeKeys = new Set(activeRows.map((row) => `${row.regCode}#${row.email}`));
+  const wouldCreate: ContactChangePlan['wouldCreate'] = [];
+  for (const [key, contact] of contactsKeep) {
+    if (activeKeys.has(key)) continue;
+    const [regCode, email] = key.split('#') as [string, string];
+    wouldCreate.push({ partnerName: partnerNames.get(regCode) ?? regCode, name: contact.name, email });
+  }
+
+  const keptElsewhere: ContactChangePlan['keptElsewhere'] = [];
+  const seen = new Set<string>();
+  for (const m of existing) {
+    const replacement = fileRows.find((row) => row.lotCode === m.lotCode && row.regCode === m.regCode);
+    if (!replacement || replacement.contactEmail === m.contactEmail) continue;
+    const key = `${m.regCode}#${m.contactEmail}`;
+    const still = contactsKeep.get(key);
+    if (!still || seen.has(key)) continue;
+    seen.add(key);
+    keptElsewhere.push({ partnerName: m.partnerName, email: m.contactEmail, lotCodes: [...still.lotCodes].sort() });
+  }
+
+  return { wouldRetire, wouldCreate, keptElsewhere };
 }
 
 export function previewFrameworkImport(
@@ -182,8 +375,10 @@ export function previewFrameworkImport(
     row.action = newLotCodes.has(row.value.code) ? 'created' : 'updated';
   }
 
+  // Computed whether or not the option is on: the preview shows what the
+  // toggle would do, and the apply reads the option it was confirmed with.
   const toDeactivate =
-    hasLotSheet && input.options.deactivateMissing
+    hasLotSheet
       ? existingLots
           .filter((lot) => lot.isActive && !fileLotCodes.has(lot.code))
           .map((lot) => ({
@@ -248,6 +443,16 @@ export function previewFrameworkImport(
     warnings: row.warnings,
   }));
 
+  const coveredRegCodes = new Set([
+    ...storedPartners.map((row) => row.value?.regCode).filter((code): code is string => Boolean(code)),
+    ...storedReps.map((row) => row.value?.regCode).filter((code): code is string => Boolean(code)),
+  ]);
+  const wouldUnlist = hasRepresentativeSheet
+    ? listedAbsentFrom(ctx, storedReps, coveredRegCodes)
+    : [];
+
+  const contacts = planContactChanges(ctx, storedPartners, hasRepresentativeSheet ? storedReps : null);
+
   const counts = countRows(storedPartners);
   const summary: ImportSummary = {
     total: counts.total,
@@ -277,7 +482,9 @@ export function previewFrameworkImport(
       present: hasRepresentativeSheet,
       rows: storedReps,
       fileErrors: parsedReps.fileErrors,
+      wouldUnlist,
     },
+    contacts,
   };
 
   const batchId = crypto.randomUUID();
@@ -308,7 +515,11 @@ export function previewFrameworkImport(
   return { batchId, summary, canApply: decideCanApply(payload), ...payload };
 }
 
-export function applyFrameworkImport(ctx: Ctx, batchId: string): FrameworkApplyResult {
+export function applyFrameworkImport(
+  ctx: Ctx,
+  batchId: string,
+  decision: { deactivateMissing?: boolean } = {},
+): FrameworkApplyResult {
   const batch = ctx.tx.select().from(importBatches).where(eq(importBatches.id, batchId)).get();
   if (!batch) throw new Error('Importi ei leitud.');
   if (batch.kind !== 'framework') throw new Error('Vale impordi tüüp.');
@@ -316,7 +527,8 @@ export function applyFrameworkImport(ctx: Ctx, batchId: string): FrameworkApplyR
 
   const payload = batch.rowsJson as FrameworkImportPayload;
   const options = (batch.options ?? {}) as Partial<FrameworkImportOptions>;
-  const deactivateMissing = Boolean(options.deactivateMissing);
+  // The preview pre-set the option; the confirmation is where it is decided.
+  const deactivateMissing = decision.deactivateMissing ?? Boolean(options.deactivateMissing);
 
   // The state may have moved since the preview; re-check rather than trust it.
   checkPartnerContacts(ctx, payload.partners.rows);
@@ -340,7 +552,7 @@ export function applyFrameworkImport(ctx: Ctx, batchId: string): FrameworkApplyR
 
   const deactivated: string[] = [];
   const kept: string[] = [];
-  for (const candidate of payload.lots.toDeactivate) {
+  for (const candidate of deactivateMissing ? payload.lots.toDeactivate : []) {
     const lot = ctx.tx.select().from(lots).where(eq(lots.code, candidate.code)).get();
     if (!lot) continue;
     const blockers = lotDeactivationBlockers(ctx.tx, lot.id);
@@ -357,15 +569,24 @@ export function applyFrameworkImport(ctx: Ctx, batchId: string): FrameworkApplyR
   /* 3. the ranking */
   const partnersWritten = applyPartnerRows(ctx, payload.partners.rows, { deactivateMissing });
 
-  /* 4. the extra representatives */
+  /* 4. the people listed in their own right — the ranking has been applied,
+        so a contact this file replaced can be kept by listing them here */
+  const coveredPartnerIds = ctx.tx
+    .select({ id: partners.id, regCode: partners.regCode })
+    .from(partners)
+    .all()
+    .filter((p) => payload.partners.rows.some((row) => row.value?.regCode === p.regCode))
+    .map((p) => p.id);
   const representatives = payload.representatives.present
     ? applyRepresentativeRows(ctx, payload.representatives.rows, {
         deactivateMissing,
         batchId,
+        coversPartnerIds: coveredPartnerIds,
       })
     : null;
 
-  /* 5. and now every official contact is a login again */
+  /* 5. and now every official contact is a login again — and nobody who is
+        neither a contact nor listed [L-21] */
   const contacts = syncFrameworkContacts(ctx);
 
   const summary: ImportSummary = {
@@ -380,7 +601,13 @@ export function applyFrameworkImport(ctx: Ctx, batchId: string): FrameworkApplyR
 
   ctx.tx
     .update(importBatches)
-    .set({ status: 'imported', importedAt: ctx.at, rowsJson: payload, summary })
+    .set({
+      status: 'imported',
+      importedAt: ctx.at,
+      rowsJson: payload,
+      summary,
+      options: { ...options, deactivateMissing },
+    })
     .where(eq(importBatches.id, batchId))
     .run();
 
@@ -398,7 +625,8 @@ export function applyFrameworkImport(ctx: Ctx, batchId: string): FrameworkApplyR
     summary:
       `Raamhanke andmed imporditud failist ${batch.fileName}: ` +
       `${lotReport.created.length} uut hankeosa, ${summary.created} uut ja ${summary.updated} uuendatud partneri kohta` +
-      `${contacts.created.length > 0 ? `, ${contacts.created.length} uut sisselogimist` : ''}`,
+      `${contacts.created.length > 0 ? `, ${contacts.created.length} uut sisselogimist` : ''}` +
+      `${contacts.deactivated.length > 0 ? `, ${contacts.deactivated.length} sisselogimist lõpetatud` : ''}`,
     after: {
       batchId,
       deactivateMissing,
@@ -436,5 +664,5 @@ export function importFrameworkFromSheets(
     ];
     throw new Error(`Raamhanke andmete faili ei õnnestu lugeda: ${problems.join('; ')}`);
   }
-  return applyFrameworkImport(ctx, preview.batchId);
+  return applyFrameworkImport(ctx, preview.batchId, { deactivateMissing: input.options?.deactivateMissing });
 }

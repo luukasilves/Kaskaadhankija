@@ -22,16 +22,27 @@ import {
 } from '@/db/schema';
 import { lotSheetRow } from '@/domain/framework-definition';
 import { LOT_SEED } from '@/db/lot-seed';
+import { findSubjectByEmail } from './auth/codes';
 import {
+  addRepresentative,
   deactivateLot,
   frameworkIdentity,
+  frameworkWorkbookData,
   moveLotPartnerRank,
+  syncChangedNothing,
   syncFrameworkContacts,
   updateLotPartnerContact,
 } from './framework';
-import { importFrameworkFromSheets, previewFrameworkImport } from './import/framework-import';
+import {
+  applyFrameworkImport,
+  importFrameworkFromSheets,
+  previewFrameworkImport,
+} from './import/framework-import';
+import { buildFrameworkWorkbook } from './import/framework-template';
 import { setRepresentativeActive } from './import/representatives-import';
 import { parseXlsxSheets } from './import/xlsx';
+import { partnerRecipients } from './recipients';
+import { deactivateLotPartner } from './rounds/engine';
 import { createHarness, rawPartnerRow, type TestHarness } from './test-support';
 
 let harness: TestHarness;
@@ -70,11 +81,14 @@ const representatives = () =>
         name: partnerRepresentatives.name,
         source: partnerRepresentatives.source,
         isActive: partnerRepresentatives.isActive,
+        isListed: partnerRepresentatives.isListed,
       })
       .from(partnerRepresentatives)
       .all()
       .sort((a, b) => a.email.localeCompare(b.email)),
   );
+
+const rowOf = (email: string) => representatives().find((r) => r.email === email);
 
 const activeEmails = () => representatives().filter((r) => r.isActive).map((r) => r.email);
 
@@ -129,6 +143,17 @@ describe('[L-21] the committed sample workbook', () => {
     for (const email of contacts) expect(activeEmails()).toContain(email);
     expect(representatives().some((r) => r.source === 'framework')).toBe(true);
     expect(representatives().some((r) => r.source === 'upload')).toBe(true);
+    // The two facts [L-21]: a contact is active by the ranking and never
+    // listed; a deputy is active because the sheet listed them.
+    for (const email of contacts) expect(rowOf(email)).toMatchObject({ isActive: true, isListed: false });
+    expect(representatives().filter((r) => r.isListed).map((r) => r.name).sort()).toEqual([
+      'Helen Hall',
+      'Kai Kuusk',
+      'Margus Mänd',
+      'Mari Mets',
+      'Rein Roos',
+      'Tõnu Tamme',
+    ]);
   });
 });
 
@@ -317,16 +342,18 @@ describe('[L-21] the official contact is the sign-in', () => {
     });
   });
 
-  it('creates one login per contact', () => {
+  it('creates one login per contact, unlisted — the ranking is the ground', () => {
     expect(activeEmails()).toEqual(['jaan.kask@tehisaru-naidis.ee', 'kontakt.10000002@naidis.ee']);
     expect(representatives().every((r) => r.source === 'framework')).toBe(true);
+    expect(representatives().every((r) => r.isListed === false)).toBe(true);
   });
 
-  it('leaves a row that predates the ownership column alone [migration path]', () => {
+  it('source is provenance: a pre-ownership contact row keeps working, follows the ranking’s name, and is retired when the contact changes', () => {
     // A volume carried over from v2.2 has every representative marked
-    // `upload`, because that is what the migration defaults them to. The sync
-    // must then neither duplicate the row nor take it over silently: the
-    // address already works as a sign-in, and that is the fact that matters.
+    // `upload`, because that is what the migration defaults them to. The
+    // column no longer decides anything [L-18]: the row is a current contact,
+    // so it stays one sign-in with the ranking's name — and goes when the
+    // ranking names somebody else.
     harness.raw
       .prepare("UPDATE partner_representatives SET source = 'upload', name = 'Vana Nimi'")
       .run();
@@ -335,12 +362,18 @@ describe('[L-21] the official contact is the sign-in', () => {
 
     expect(report.created).toEqual([]);
     expect(report.reactivated).toEqual([]);
-    expect(report.renamed).toEqual([]);
     expect(report.deactivated).toEqual([]);
-    // One row per address still, and the sign-in still works.
+    expect(report.renamed.sort()).toEqual(['jaan.kask@tehisaru-naidis.ee', 'kontakt.10000002@naidis.ee']);
     expect(activeEmails()).toEqual(['jaan.kask@tehisaru-naidis.ee', 'kontakt.10000002@naidis.ee']);
     expect(representatives().filter((r) => r.email === 'jaan.kask@tehisaru-naidis.ee')).toHaveLength(1);
+    expect(rowOf('jaan.kask@tehisaru-naidis.ee')?.name).toBe('Jaan Kask');
     expect(representatives().every((r) => r.source === 'upload')).toBe(true);
+
+    importSheets({
+      partnerid: [rawPartnerRow({ kontaktisik: 'Uus Kontakt', e_post: 'uus.kontakt@tehisaru-naidis.ee' })],
+    });
+    expect(rowOf('jaan.kask@tehisaru-naidis.ee')).toMatchObject({ isActive: false, isListed: false });
+    expect(activeEmails()).toContain('uus.kontakt@tehisaru-naidis.ee');
   });
 
   it('moves the login when the contact changes, and retires the old one', () => {
@@ -383,43 +416,51 @@ describe('[L-21] the official contact is the sign-in', () => {
     ).toThrow(/juba aktiivne/);
   });
 
-  it('never switches off a row it does not own, and never lets the screen switch off its own', () => {
-    // An uploaded deputy is the representatives sheet's row: a sync leaves it.
-    harness.write((ctx) =>
-      ctx.tx
-        .insert(partnerRepresentatives)
-        .values({
-          id: 'rep-upload',
-          partnerId: harness.read((db) => db.select().from(partners).where(eq(partners.regCode, '10000001')).get())!.id,
-          name: 'Mari Mets',
-          email: 'mari.mets@tehisaru-naidis.ee',
-          role: 'asendaja',
-          source: 'upload',
-          phone: '',
-          isActive: true,
-          createdAt: ctx.at,
-          updatedAt: ctx.at,
-        })
-        .run(),
-    );
-    harness.write((ctx) => syncFrameworkContacts(ctx));
+  it('keeps a listed deputy through every sync, retires an unlisted non-contact, and never lets the screen switch a contact off', () => {
+    const partnerId = harness.read((db) => db.select().from(partners).where(eq(partners.regCode, '10000001')).get())!.id;
+    const insert = (id: string, email: string, isListed: boolean) =>
+      harness.write((ctx) =>
+        ctx.tx
+          .insert(partnerRepresentatives)
+          .values({
+            id,
+            partnerId,
+            name: id,
+            email,
+            role: 'asendaja',
+            source: 'upload',
+            isListed,
+            phone: '',
+            isActive: true,
+            createdAt: ctx.at,
+            updatedAt: ctx.at,
+          })
+          .run(),
+      );
+    // A listed deputy is the buyer's own decision: the sync leaves it whatever
+    // the ranking says. A row nobody listed and no ranking names is a leftover
+    // — exactly what a replaced contact used to be — and goes.
+    insert('rep-listed', 'mari.mets@tehisaru-naidis.ee', true);
+    insert('rep-stranded', 'vana.kontakt@tehisaru-naidis.ee', false);
+    const report = harness.write((ctx) => syncFrameworkContacts(ctx));
+    expect(report.deactivated).toEqual(['vana.kontakt@tehisaru-naidis.ee']);
     expect(activeEmails()).toContain('mari.mets@tehisaru-naidis.ee');
+    expect(rowOf('vana.kontakt@tehisaru-naidis.ee')).toMatchObject({ isActive: false, isListed: false });
 
-    const framework = harness.read((db) =>
+    const contact = rowOf('jaan.kask@tehisaru-naidis.ee')!;
+    const id = harness.read((db) =>
       db
         .select({ id: partnerRepresentatives.id })
         .from(partnerRepresentatives)
-        .where(
-          and(
-            eq(partnerRepresentatives.email, 'jaan.kask@tehisaru-naidis.ee'),
-            eq(partnerRepresentatives.source, 'framework'),
-          ),
-        )
+        .where(and(eq(partnerRepresentatives.email, contact.email), eq(partnerRepresentatives.isActive, true)))
         .get(),
-    )!;
-    expect(() => harness.write((ctx) => setRepresentativeActive(ctx, framework.id, false))).toThrow(
-      /raamhanke andmetes/,
-    );
+    )!.id;
+    expect(() => harness.write((ctx) => setRepresentativeActive(ctx, id, false))).toThrow(/raamhanke andmetes/);
+    // A listed deputy can be switched off — and back on, which lists them again.
+    harness.write((ctx) => setRepresentativeActive(ctx, 'rep-listed', false));
+    expect(rowOf('mari.mets@tehisaru-naidis.ee')).toMatchObject({ isActive: false, isListed: false });
+    harness.write((ctx) => setRepresentativeActive(ctx, 'rep-listed', true));
+    expect(rowOf('mari.mets@tehisaru-naidis.ee')).toMatchObject({ isActive: true, isListed: true });
   });
 
   it('reports an address it had to skip rather than failing the import', () => {
@@ -435,6 +476,243 @@ describe('[L-21] the official contact is the sign-in', () => {
     });
     expect(report.skipped).toHaveLength(1);
     expect(report.skipped[0]?.reason).toMatch(/juba aktiivne/);
+  });
+});
+
+describe('[L-21] a contact change retires the previous contact', () => {
+  const JAAN = 'jaan.kask@tehisaru-naidis.ee';
+  const UUS = 'uus.kontakt@tehisaru-naidis.ee';
+  const MARI = 'mari.mets@tehisaru-naidis.ee';
+  const KONTAKT2 = 'kontakt.10000002@naidis.ee';
+  const TEHISARU = 'Tehisaru Koolitus OÜ';
+
+  /** One person is the contact of three lots — the usual shape. */
+  const tehisaruRows = (email = JAAN, name = 'Jaan Kask') => [
+    rawPartnerRow({ kontaktisik: name, e_post: email }),
+    rawPartnerRow({ hankeosa: 'OSA-2', kontaktisik: name, e_post: email, uhikuhind: '39' }),
+    rawPartnerRow({ hankeosa: 'OSA-3', kontaktisik: name, e_post: email, uhikuhind: '16' }),
+  ];
+  const akadeemiaRow = () => rawPartnerRow({ registrikood: '10000002', partner: 'AI Akadeemia OÜ', koht: '2' });
+  const deputy = { registrikood: '10000001', esindaja: 'Mari Mets', e_post: MARI, roll: 'asendaja', telefon: '' };
+  const listedContact = { registrikood: '10000001', esindaja: 'Jaan Kask', e_post: JAAN, roll: 'esindaja', telefon: '+372 5000 0001' };
+
+  const membershipId = (regCode: string, lotCode: string) =>
+    harness.read((db) =>
+      db
+        .select({ id: lotPartners.id })
+        .from(lotPartners)
+        .innerJoin(partners, eq(partners.id, lotPartners.partnerId))
+        .innerJoin(lots, eq(lots.id, lotPartners.lotId))
+        .where(and(eq(partners.regCode, regCode), eq(lots.code, lotCode)))
+        .get(),
+    )!.id;
+  const recipientsOf = (regCode: string, lotCode: string) =>
+    harness.read((db) => partnerRecipients(db, membershipId(regCode, lotCode))).sort();
+  const subjectOf = (email: string) => harness.read((db) => findSubjectByEmail(db, email));
+  const auditSummaries = () =>
+    harness.raw.prepare('SELECT summary FROM audit_events ORDER BY id').all().map((r) => (r as { summary: string }).summary);
+
+  beforeEach(() => {
+    // The seeded reproduction: the Esindajad sheet lists the contact as well as
+    // a deputy, as `naidis-esindajad.csv` always did.
+    importSheets({
+      hankeosad: LOT_SEED.map(lotSheetRow),
+      partnerid: [...tehisaruRows(), akadeemiaRow()],
+      esindajad: [listedContact, deputy],
+    });
+  });
+
+  it('listing the current contact never lists them — only role and phone', () => {
+    expect(rowOf(JAAN)).toMatchObject({ isActive: true, isListed: false });
+    expect(rowOf(MARI)).toMatchObject({ isActive: true, isListed: true });
+    const partnerId = harness.read((db) => db.select().from(partners).where(eq(partners.regCode, '10000001')).get())!.id;
+    harness.write((ctx) =>
+      addRepresentative(ctx, { partnerId, name: 'Jaan Kask', email: JAAN, role: 'asendaja', phone: '555' }),
+    );
+    expect(rowOf(JAAN)).toMatchObject({ isActive: true, isListed: false });
+    expect(
+      harness.read((db) => db.select().from(partnerRepresentatives).where(eq(partnerRepresentatives.email, JAAN)).get()),
+    ).toMatchObject({ role: 'asendaja', phone: '555' });
+  });
+
+  it('from the workbook: the previous contact loses notices and sign-in in the same transaction', () => {
+    importSheets({ partnerid: [...tehisaruRows(UUS, 'Uus Kontakt'), akadeemiaRow()], esindajad: [deputy] });
+
+    expect(rowOf(JAAN)).toMatchObject({ isActive: false, isListed: false });
+    expect(subjectOf(JAAN)).toBeNull();
+    expect(subjectOf(UUS)).toMatchObject({ kind: 'representative', name: 'Uus Kontakt' });
+    expect(recipientsOf('10000001', 'OSA-1')).toEqual([MARI, UUS]);
+    expect(rowOf(MARI)).toMatchObject({ isActive: true, isListed: true });
+    expect(auditSummaries().some((line) => line.includes(`${JAAN} ei ole enam raamlepingu kontaktisik`))).toBe(true);
+  });
+
+  it('from the form, in every lot the person is the contact of', () => {
+    const result = harness.write((ctx) =>
+      updateLotPartnerContact(
+        ctx,
+        membershipId('10000001', 'OSA-1'),
+        { contactName: 'Uus Kontakt', contactEmail: UUS, unitPriceEur: 58 },
+        { applyToSameContact: true },
+      ),
+    );
+    expect(result.lotCodes).toEqual(['OSA-1', 'OSA-2', 'OSA-3']);
+    expect(result.previous).toMatchObject({ email: JAAN, outcome: 'retired', contactIn: [] });
+    for (const code of ['OSA-1', 'OSA-2', 'OSA-3']) {
+      expect(membershipsOf(code)[0]).toMatchObject({ partnerName: TEHISARU, contactEmail: UUS });
+    }
+    // The price is this lot's alone.
+    expect(harness.read((db) => db.select().from(lotPartners).where(eq(lotPartners.id, membershipId('10000001', 'OSA-2'))).get())?.unitPriceEur).toBe(39);
+    expect(rowOf(JAAN)).toMatchObject({ isActive: false });
+    expect(subjectOf(JAAN)).toBeNull();
+    expect(auditSummaries().filter((line) => line.startsWith(`${TEHISARU} (`) && line.includes('kontaktisik Uus Kontakt'))).toHaveLength(3);
+    expect(auditSummaries().some((line) => line.includes(`endine kontaktisik ${JAAN} ei saa enam sisse logida`))).toBe(true);
+  });
+
+  it('a change in one lot keeps the contact through the others, and says so', () => {
+    const result = harness.write((ctx) =>
+      updateLotPartnerContact(ctx, membershipId('10000001', 'OSA-1'), {
+        contactName: 'Uus Kontakt',
+        contactEmail: UUS,
+        unitPriceEur: 58,
+      }),
+    );
+    expect(result.lotCodes).toEqual(['OSA-1']);
+    expect(result.previous).toMatchObject({ outcome: 'kept_contact_in', contactIn: ['OSA-2', 'OSA-3'] });
+    expect(rowOf(JAAN)).toMatchObject({ isActive: true, isListed: false });
+    expect(subjectOf(JAAN)).not.toBeNull();
+    expect(recipientsOf('10000001', 'OSA-1')).toEqual([JAAN, MARI, UUS]);
+  });
+
+  it('listing the previous contact in the same workbook keeps them', () => {
+    importSheets({ partnerid: [...tehisaruRows(UUS, 'Uus Kontakt'), akadeemiaRow()], esindajad: [listedContact, deputy] });
+    expect(rowOf(JAAN)).toMatchObject({ isActive: true, isListed: true });
+    expect(rowOf(UUS)).toMatchObject({ isActive: true, isListed: false });
+    expect(recipientsOf('10000001', 'OSA-1')).toEqual([JAAN, MARI, UUS]);
+  });
+
+  it('the form can keep them too', () => {
+    const result = harness.write((ctx) =>
+      updateLotPartnerContact(
+        ctx,
+        membershipId('10000001', 'OSA-1'),
+        { contactName: 'Uus Kontakt', contactEmail: UUS, unitPriceEur: 58 },
+        { applyToSameContact: true, keepPreviousAsRepresentative: true },
+      ),
+    );
+    expect(result.previous.outcome).toBe('kept_listed');
+    expect(rowOf(JAAN)).toMatchObject({ isActive: true, isListed: true });
+    expect(auditSummaries().some((line) => line.includes('jäetud esindajaks kontaktisiku vahetusel'))).toBe(true);
+    // Listed now, they survive the next sync like any deputy.
+    harness.write((ctx) => syncFrameworkContacts(ctx));
+    expect(rowOf(JAAN)).toMatchObject({ isActive: true, isListed: true });
+  });
+
+  it('a Partnerid row dropped from the whole-truth file retires the membership and its login, not the deputies', () => {
+    importSheets({ partnerid: tehisaruRows() }, { deactivateMissing: true });
+    expect(membershipsOf('OSA-1').find((m) => m.partnerName === 'AI Akadeemia OÜ')?.isActive).toBe(false);
+    expect(rowOf(KONTAKT2)).toMatchObject({ isActive: false, isListed: false });
+    expect(subjectOf(KONTAKT2)).toBeNull();
+    expect(rowOf(MARI)).toMatchObject({ isActive: true, isListed: true });
+    expect(rowOf(JAAN)).toMatchObject({ isActive: true, isListed: false });
+  });
+
+  it('retiring a membership by hand retires a contact-only login', () => {
+    harness.write((ctx) => deactivateLotPartner(ctx, membershipId('10000002', 'OSA-1'), 'raamleping lõppes'));
+    expect(rowOf(KONTAKT2)).toMatchObject({ isActive: false });
+    expect(subjectOf(KONTAKT2)).toBeNull();
+  });
+
+  it('the preview names who loses and who gains sign-in, and who stays contact elsewhere', () => {
+    const preview = (partnerid: ReturnType<typeof rawPartnerRow>[], esindajad?: typeof deputy[]) =>
+      harness.write((ctx) =>
+        previewFrameworkImport(ctx, {
+          fileName: 'x.xlsx',
+          fileSize: 1,
+          source: 'upload',
+          sheets: { partnerid, esindajad },
+          options: { deactivateMissing: false },
+        }),
+      );
+
+    const everywhere = preview([...tehisaruRows(UUS, 'Uus Kontakt'), akadeemiaRow()], [deputy]);
+    expect(everywhere.contacts).toEqual({
+      wouldRetire: [{ partnerName: TEHISARU, name: 'Jaan Kask', email: JAAN, onlyIfDeactivating: false }],
+      wouldCreate: [{ partnerName: TEHISARU, name: 'Uus Kontakt', email: UUS }],
+      keptElsewhere: [],
+    });
+
+    // One lot only, and the other company left out of that lot: the contact
+    // stays through OSA-2/OSA-3, and the second company goes only if asked.
+    const oneLot = preview([rawPartnerRow({ kontaktisik: 'Uus Kontakt', e_post: UUS })]);
+    expect(oneLot.contacts).toEqual({
+      wouldRetire: [{ partnerName: 'AI Akadeemia OÜ', name: 'Jaan Kask', email: KONTAKT2, onlyIfDeactivating: true }],
+      wouldCreate: [{ partnerName: TEHISARU, name: 'Uus Kontakt', email: UUS }],
+      keptElsewhere: [{ partnerName: TEHISARU, email: JAAN, lotCodes: ['OSA-2', 'OSA-3'] }],
+    });
+  });
+
+  describe('download → upload with zero changes', () => {
+    const roundTrip = async () => {
+      const before = representatives();
+      const buffer = await buildFrameworkWorkbook(harness.read((db) => frameworkWorkbookData(db)));
+      const sheets = await parseXlsxSheets(buffer);
+      const named = (name: string) => sheets.get(name)!.rows;
+      const preview = harness.write((ctx) =>
+        previewFrameworkImport(ctx, {
+          fileName: 'raamhanke-andmed.xlsx',
+          fileSize: buffer.byteLength,
+          source: 'upload',
+          sheets: {
+            raamleping: named('Raamleping'),
+            hankeosad: named('Hankeosad'),
+            partnerid: named('Partnerid'),
+            esindajad: named('Esindajad'),
+          },
+          options: { deactivateMissing: true, fullWorkbook: true },
+        }),
+      );
+      expect(preview.canApply).toBe(true);
+      expect(preview.contacts).toEqual({ wouldRetire: [], wouldCreate: [], keptElsewhere: [] });
+      expect(preview.lots.toDeactivate).toEqual([]);
+      expect(preview.partners.wouldDeactivate).toEqual([]);
+      expect(preview.representatives.wouldUnlist).toEqual([]);
+      const report = harness.write((ctx) => applyFrameworkImport(ctx, preview.batchId, { deactivateMissing: true }));
+      expect(syncChangedNothing(report.contacts)).toBe(true);
+      expect(report.lots.deactivated).toEqual([]);
+      expect(representatives()).toEqual(before);
+    };
+
+    it('as seeded', roundTrip);
+
+    it('after a contact change', async () => {
+      harness.write((ctx) =>
+        updateLotPartnerContact(
+          ctx,
+          membershipId('10000001', 'OSA-1'),
+          { contactName: 'Uus Kontakt', contactEmail: UUS, unitPriceEur: 58 },
+          { applyToSameContact: true },
+        ),
+      );
+      await roundTrip();
+      expect(rowOf(JAAN)).toMatchObject({ isActive: false });
+    });
+
+    it('with a listed person who is also a contact', async () => {
+      // Mari is listed by the sheet; making her OSA-2's contact leaves her
+      // listed too, and the download must carry that — else this very upload
+      // would clear it.
+      harness.write((ctx) =>
+        updateLotPartnerContact(ctx, membershipId('10000001', 'OSA-2'), {
+          contactName: 'Mari Mets',
+          contactEmail: MARI,
+          unitPriceEur: 39,
+        }),
+      );
+      expect(rowOf(MARI)).toMatchObject({ isActive: true, isListed: true });
+      await roundTrip();
+      expect(rowOf(MARI)).toMatchObject({ isActive: true, isListed: true });
+      expect(rowOf(JAAN)).toMatchObject({ isActive: true, isListed: false });
+    });
   });
 });
 

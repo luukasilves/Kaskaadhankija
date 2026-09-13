@@ -29,10 +29,13 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import {
   CHROMIUM,
+  codeFor,
+  codesPrintedFor,
   freePort,
   makeChecker,
   pickActAs,
   removeDatabase,
+  requestCode,
   signInAs,
   signInAsAdmin,
   startServer,
@@ -109,7 +112,8 @@ async function main() {
       download.suggestedFilename(),
     );
 
-    /* change exactly one cell: rank 1 of OSA-1 gets a new contact address */
+    /* the person left: rank 1 of OSA-1 gets a new contact address, and so does
+       every other lot that names the same person — as the buyer would edit it */
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.readFile(downloaded);
     const partnerSheet = workbook.getWorksheet('Partnerid');
@@ -124,10 +128,16 @@ async function main() {
       if (index === 1 || edited) return;
       if (String(row.getCell(lotCol).value) === 'OSA-1' && String(row.getCell(rankCol).value) === '1') {
         edited = String(row.getCell(emailCol).value);
-        row.getCell(emailCol).value = MOVED_CONTACT;
       }
     });
     check('the downloaded file really held the ranking', edited !== null, String(edited));
+    let editedRows = 0;
+    partnerSheet.eachRow((row, index) => {
+      if (index === 1 || String(row.getCell(emailCol).value) !== edited) return;
+      row.getCell(emailCol).value = MOVED_CONTACT;
+      editedRows += 1;
+    });
+    check('the same person was the contact of several lots', editedRows > 1, `${editedRows} rida`);
     const changedFile = join(ROOT, 'data', `admin-raamhange-${Date.now()}.xlsx`);
     await workbook.xlsx.writeFile(changedFile);
     SCRATCH.push(changedFile);
@@ -144,6 +154,14 @@ async function main() {
       previewText.slice(0, 200),
     );
     check('and shows the new address', previewText.includes(MOVED_CONTACT));
+    /* the decision section says what the file does to who can sign in [L-21] */
+    const retireText = (await page.getByTestId('contacts-retire').textContent()).replace(/\s+/g, ' ');
+    check('the preview names the previous contact as losing sign-in', retireText.includes(edited), retireText.slice(0, 200));
+    check('and the new one as gaining it', (await page.getByTestId('contacts-create').textContent()).includes(MOVED_CONTACT));
+    check(
+      'a downloaded workbook comes back as the whole truth',
+      await page.locator('[data-testid="framework-import-decision"] input[name="deactivateMissing"]').isChecked(),
+    );
     await page.screenshot({ path: join(SHOTS, 'admin-01-raamhange-eelvaade.png'), fullPage: true });
 
     await page.getByTestId('confirm-framework-import').locator('button').click();
@@ -166,6 +184,19 @@ async function main() {
     const partnerHome = await partnerPage.locator('main, header').first().textContent();
     check('as the right company', partnerHome.includes('Tehisaru') || (await partnerPage.locator('body').textContent()).includes('Tehisaru'));
     await partnerContext.close();
+
+    /* …and the previous contact is nobody's sign-in any more [L-21] */
+    const oldContext = await browser.newContext();
+    const oldPage = await oldContext.newPage();
+    const printedBefore = codesPrintedFor(server, edited);
+    await requestCode(oldPage, base, edited);
+    await codeFor(server, edited, { expect: false });
+    check(
+      'the previous contact no longer receives a code',
+      codesPrintedFor(server, edited) === printedBefore,
+      `${codesPrintedFor(server, edited) - printedBefore} uut koodi aadressile ${edited}`,
+    );
+    await oldContext.close();
 
     /* ---------------- 2. the same edits by hand, each logged ---------------- */
     note('Raamhange — käsitsi, iga muudatus logitud [D-08]');
