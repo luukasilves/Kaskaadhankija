@@ -225,6 +225,10 @@ async function walkFullCascade(page, server) {
   );
   await markAndConfirm(page, [WALK1_CODES[0], WALK1_CODES[1]]);
   check('rank 1 is projected both of its marks', (await stateOf(page, WALK1_CODES[0])) === 'Prognoosis sinule');
+  check(
+    'the page says which minute’s state it shows [E-10]',
+    /Seis \d{2}:\d{2}/.test(await page.getByTestId('state-as-of').textContent()),
+  );
   /* [E-10] the answer lands at the top of the page, and an identical re-confirmation is a no-op */
   const statusCard = page.getByTestId('confirmation-status');
   check('the result card is shown after confirming', (await statusCard.textContent()).includes('Valik kinnitatud'));

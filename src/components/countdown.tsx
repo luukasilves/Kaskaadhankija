@@ -3,9 +3,10 @@
 /**
  * A live countdown to a response deadline.
  *
- * Ticks from the server-rendered virtual instant rather than the browser's
- * clock, so it stays correct when the test clock has been moved forward. The
- * wording comes from the same formatter the server uses.
+ * Counts from the instant the server rendered plus the time elapsed since in
+ * the browser, so a wrong browser clock cannot move the deadline; the page's
+ * own minute refresh (`AutoRefresh`) resets the base. The wording comes from
+ * the same formatter the server uses.
  */
 
 import { useEffect, useState } from 'react';

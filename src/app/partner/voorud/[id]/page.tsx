@@ -20,7 +20,7 @@ import { eq } from 'drizzle-orm';
 import { getDb } from '@/db';
 import { lots, roundTrainings, rounds, trainings } from '@/db/schema';
 import { partnerView } from '@/domain/allocate';
-import { formatDateTime, formatDateTimeShort, formatEurCents, formatIsoDay } from '@/domain/format';
+import { formatDateTime, formatDateTimeShort, formatEurCents, formatIsoDay, formatTime } from '@/domain/format';
 import { HIND, trainingMaxPriceEur } from '@/domain/pricing';
 import {
   capLabel,
@@ -31,6 +31,7 @@ import {
   VIEW_STATE_TONES,
 } from '@/domain/round-statuses';
 import { LANGUAGE_LABELS, WORKSHOP_TYPE_LABELS } from '@/domain/statuses';
+import { AutoRefresh } from '@/components/auto-refresh';
 import { Countdown } from '@/components/countdown';
 import { RankChip, StatusBadge } from '@/components/status-badge';
 import { requirePartner } from '@/server/auth/actor';
@@ -305,6 +306,7 @@ export default async function PartnerRoundPage({
         </div>
       )}
 
+      {isOpen && <AutoRefresh />}
       {isOpen && (
         <div className="kh-card p-4">
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
@@ -336,6 +338,9 @@ export default async function PartnerRoundPage({
                         kinnitatud seisuga {confirmedView.projectedCount}
                       </span>
                     )}
+                </div>
+                <div className="text-[11.5px] text-[var(--color-muted)]" data-testid="state-as-of">
+                  Seis {formatTime(nowMs)} · värskendub ise umbes kord minutis
                 </div>
               </div>
             )}

@@ -27,6 +27,7 @@
  * `docs/juhend/glossary/locked_decisions.txt`.
  */
 
+import { AUTO_REFRESH_MS } from './live';
 import { HIND } from './pricing';
 import {
   capLabel,
@@ -396,7 +397,7 @@ export const SECTIONS: readonly Section[] = [
   {
     id: 'markimine',
     title: 'Koolituste märkimine',
-    rules: ['K-01', 'N-03', 'N-04', 'N-05', 'T-08'],
+    rules: ['K-01', 'N-03', 'N-04', 'N-05', 'T-08', 'E-10'],
     blocks: [
       {
         kind: 'para',
@@ -427,6 +428,10 @@ export const SECTIONS: readonly Section[] = [
         ],
       },
       { kind: 'figure', id: 'neli-olekut', caption: 'Veerg „Olek“ ütleb iga koolituse kohta, kuidas praegu seis on.' },
+      {
+        kind: 'para',
+        text: `Olekud ja prognoos muutuvad, kui teist eespool olev partner oma valikut kinnitab. Leht laeb seisu ise uuesti umbes iga **${AUTO_REFRESH_MS / 60_000} minuti** järel, kuni voor on avatud ja aken on ekraanil; prognoosi kõrval seisab „Seis HH:MM“ — see on hetk, mille seisu te näete. Teie enda märgitud, aga veel salvestamata valik jääb värskendamisel alles.`,
+      },
       {
         kind: 'note',
         tone: 'info',

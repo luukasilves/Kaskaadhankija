@@ -54,6 +54,13 @@ export function formatDateTimeShort(instant: Date | number): string {
   return `${get('day')}.${get('month')}.${get('year')} ${get('hour')}:${get('minute')}`;
 }
 
+/** '17:00' — the time of day alone, for „Seis 17:00“ beside a live figure. */
+export function formatTime(instant: Date | number): string {
+  const parts = DATE_TIME_FMT.formatToParts(instant);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
+  return `${get('hour')}:${get('minute')}`;
+}
+
 /** An ISO 'YYYY-MM-DD' event date as '03.09.2026', without timezone drift. */
 export function formatIsoDay(iso: string): string {
   const [year, month, day] = iso.split('-');

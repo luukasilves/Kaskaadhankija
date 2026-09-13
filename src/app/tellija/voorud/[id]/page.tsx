@@ -14,7 +14,7 @@ import { eq } from 'drizzle-orm';
 import { getDb } from '@/db';
 import { lots, roundTrainings, rounds, trainings } from '@/db/schema';
 import { allocate } from '@/domain/allocate';
-import { formatDateTimeShort, formatEur, formatIsoDay, tallinnLocalInput } from '@/domain/format';
+import { formatDateTimeShort, formatEur, formatIsoDay, formatTime, tallinnLocalInput } from '@/domain/format';
 import { CAP_OPTIONS_LABELS, capLabel,
   PARTICIPANT_OUTCOME_LABELS,
   RESPONSE_STATE_LABELS,
@@ -23,6 +23,7 @@ import { CAP_OPTIONS_LABELS, capLabel,
   VISIBILITY_MODE_LABELS,
 } from '@/domain/round-statuses';
 import { WORKSHOP_TYPE_LABELS } from '@/domain/statuses';
+import { AutoRefresh } from '@/components/auto-refresh';
 import { Countdown } from '@/components/countdown';
 import { RankChip, StatusBadge } from '@/components/status-badge';
 import { currentTimeMs } from '@/server/clock';
@@ -316,11 +317,18 @@ export default async function RoundDetail({ params }: { params: Promise<{ id: st
       )}
 
       {/* ---------------- partner summary ---------------- */}
+      {isLive && <AutoRefresh />}
       <section className="kh-card">
         <div className="border-b border-[var(--color-border)] px-4 py-3">
           <h2>Partnerid järjestuses</h2>
           <p className="mt-0.5 text-[12.5px] text-[var(--color-muted)]">
             Järjestus külmutati vooru avaldamisel — hilisemad muudatused hankeosas seda ei mõjuta.
+            {isLive && (
+              <span data-testid="state-as-of">
+                {' '}
+                Seis {formatTime(nowMs)} · leht värskendab vastuseid ja prognoosi ise umbes kord minutis.
+              </span>
+            )}
           </p>
         </div>
         <div className="overflow-x-auto">
