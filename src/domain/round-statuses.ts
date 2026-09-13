@@ -184,16 +184,16 @@ export const RESPONSE_STATE_LABELS: Record<ResponseState, string> = {
 export const TRAINING_VIEW_STATE_LABELS: Record<TrainingViewState, string> = {
   available: 'Saadaval',
   marked_by_higher: 'Eesõigusega partner on märkinud',
-  projected_to_you: 'Prognoosis sinule',
+  projected_to_you: 'Prognoosis teile',
   marked_not_projected: 'Märgitud, prognoosis ei ole',
 };
 
 const NOT_PROJECTED_REASON_LABELS: Record<NotProjectedReason, string> = {
   higher_partner: 'eesõigusega partner',
-  over_cap: 'üle sinu piirmäära',
+  over_cap: 'üle teie piirmäära',
 };
 
-/** Full label including the reason suffix, e.g. "Märgitud, prognoosis ei ole (üle sinu piirmäära)". */
+/** Full label including the reason suffix, e.g. "Märgitud, prognoosis ei ole (üle teie piirmäära)". */
 export function viewStateLabel(state: TrainingViewState, reason?: NotProjectedReason): string {
   const base = TRAINING_VIEW_STATE_LABELS[state];
   return reason ? `${base} (${NOT_PROJECTED_REASON_LABELS[reason]})` : base;

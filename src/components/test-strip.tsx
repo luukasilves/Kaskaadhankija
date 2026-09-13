@@ -55,7 +55,7 @@ export async function TestStrip() {
     return (
       <Frame testId="test-strip-readonly">
         <span className="text-[12.5px]">
-          Katsetuskeskkond raamlepingu voorude läbimängimiseks. Andmed on päris kujul, aga
+          Testkeskkond raamlepingu voorude läbimängimiseks. Andmed on päris kujul, aga
           katsetamiseks.
         </span>
       </Frame>

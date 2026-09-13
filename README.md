@@ -20,7 +20,7 @@ specialists edit it directly.
 
 | | |
 |---|---|
-| **[`docs/kaskaadi-ariloogika.md`](docs/kaskaadi-ariloogika.md)** | The business logic: 83 numbered rules, decisions with their alternatives, a traceability appendix, and a worked example (Lisa B). **The source of truth.** |
+| **[`docs/kaskaadi-ariloogika.md`](docs/kaskaadi-ariloogika.md)** | The business logic: 93 numbered rules, decisions with their alternatives, a traceability appendix, and a worked example (Lisa B). **The source of truth.** |
 | **[`PLAN.md`](PLAN.md)** | Why the design is what it is, and what is deliberately structural |
 | **`src/`** | The application: buyer and partner screens, the round engine, the framework and round imports, the protocol |
 | **[`demo/`](demo/)** | The v1 single-file HTML demo of the *sequential* cascade — still useful, no server needed |

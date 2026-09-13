@@ -119,7 +119,7 @@ export const QUOTED: readonly { tekst: string; fail: string }[] = [
   { tekst: 'Te ei ole veel vastanud', fail: PARTNER_VOOR },
   { tekst: 'Vastamistähtaeg on möödunud', fail: PARTNER_VOOR },
   { tekst: 'Teie kinnituste ajalugu', fail: PARTNER_VOOR },
-  { tekst: 'Prognoosis sinule (esialgne)', fail: PARTNER_VOOR },
+  { tekst: 'Prognoosis teile (esialgne)', fail: PARTNER_VOOR },
   { tekst: 'Vooru koolitused', fail: MARKING_FORM },
   { tekst: 'Kinnita oma valik', fail: MARKING_FORM },
   { tekst: 'Kinnitamata muudatused', fail: MARKING_FORM },
@@ -276,15 +276,15 @@ export const SECTIONS: readonly Section[] = [
   },
 
   {
-    id: 'katsekeskkond',
-    title: 'Katsekeskkond',
+    id: 'testkeskkond',
+    title: 'Testkeskkond',
     rules: ['L-19', 'L-23'],
     pilotOnly: true,
     blocks: [
       {
         kind: 'note',
         tone: 'warning',
-        title: 'See on katsekeskkond',
+        title: 'See on testkeskkond',
         text:
           'Ükski märge ega kinnitus, mille te siin teete, **ei ole raamlepingu järgne tellimus** ega loo kohustust koolitust läbi viia. Katsetame keskkonda enne päris kasutust, et vead tuleksid välja siin ja mitte päris voorus.',
       },
@@ -293,7 +293,7 @@ export const SECTIONS: readonly Section[] = [
         text:
           'Keskkond on ära tuntav: lehe ülaosas on märgis **TESTKESKKOND** ja sisselogimislehel sama märge. Andmed on päris kujul (päris hankeosad, päris järjestus), aga koolitused ja voorud on näidised.',
       },
-      { kind: 'figure', id: 'test-riba', caption: 'Riba, mis on katsekeskkonnas iga lehe ülaosas.' },
+      { kind: 'figure', id: 'test-riba', caption: 'Riba, mis on testkeskkonnas iga lehe ülaosas.' },
       {
         kind: 'para',
         text:
@@ -454,7 +454,7 @@ export const SECTIONS: readonly Section[] = [
       {
         kind: 'para',
         text:
-          'Ülal on ka number **„Prognoosis sinule (esialgne)“** — mitu koolitust te praeguse seisuga saaksite. Prognoos on esialgne ja võib muutuda kuni tähtajani, sest eesõigusega partnerid võivad oma valikut veel muuta. Koolitused jaotatakse rangelt raamlepingu järjestuse alusel — vastamise kiirus ei anna eelist.',
+          'Ülal on ka number **„Prognoosis teile (esialgne)“** — mitu koolitust te praeguse seisuga saaksite. Prognoos on esialgne ja võib muutuda kuni tähtajani, sest eesõigusega partnerid võivad oma valikut veel muuta. Koolitused jaotatakse rangelt raamlepingu järjestuse alusel — vastamise kiirus ei anna eelist.',
       },
       { kind: 'diagram', id: 'kaskaad' },
     ],

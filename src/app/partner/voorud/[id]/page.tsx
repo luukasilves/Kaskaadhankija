@@ -325,7 +325,7 @@ export default async function PartnerRoundPage({
             {showsStates && (
               <div>
                 <div className="text-[12px] text-[var(--color-muted)]">
-                  Prognoosis sinule (esialgne)
+                  Prognoosis teile (esialgne)
                 </div>
                 <div className="text-[20px] font-bold tabular-nums">
                   {draftView?.projectedCount ?? 0}

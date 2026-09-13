@@ -77,6 +77,12 @@ const EXPLANATION_ROWS: ReadonlyArray<Record<string, string>> = [
   { leht: 'Hankeosad', väli: 'kood', selgitus: 'Hankeosa kood, nt OSA-1. Selle järgi hankeosa leitakse või luuakse.' },
   {
     leht: 'Hankeosad',
+    väli: 'kirjeldus',
+    selgitus:
+      'Hankeosa kirjeldus, nagu partner seda vooru teates ja lehel näeb. Kontrolli, et see vastab raamlepingu sõnastusele — näidisandmete kirjeldused on näidised, mitte raamlepingu tekst.',
+  },
+  {
+    leht: 'Hankeosad',
     väli: '(tühi lahter)',
     selgitus:
       'Tühi lahter tähendab „jäta muutmata“. Nii ei pea ühe kontakti parandamiseks kõiki seadeid uuesti kirjutama.',
@@ -91,6 +97,12 @@ const EXPLANATION_ROWS: ReadonlyArray<Record<string, string>> = [
     väli: '(puuduv hankeosa)',
     selgitus:
       'Failist puuduvat hankeosa ei kustutata kunagi. Kui valid „lõpeta puuduvad“, arvatakse see raamhankest välja ainult siis, kui tal ei ole ühtki mustandit, avatud ega ootel vooru.',
+  },
+  {
+    leht: 'Partnerid',
+    väli: '(üks rida)',
+    selgitus:
+      'Üks rida on ühe ettevõtte koht ühes hankeosas: kolmes hankeosas olev ettevõte on kolmel real, igal oma koht ja hind osaleja kohta. Kontaktisik võib ridadel olla sama — see on üks inimene, kes esindab ettevõtet kõigis nendes hankeosades.',
   },
   { leht: 'Partnerid', väli: 'hankeosa', selgitus: 'Hankeosa kood. Uue hankeosa puhul lisa see kõigepealt lehele „Hankeosad“.' },
   { leht: 'Partnerid', väli: 'koht', selgitus: 'Koht järjestuses; 1 tähendab eesõigust. Kohad on hankeosa piires unikaalsed.' },
@@ -116,7 +128,7 @@ const EXPLANATION_ROWS: ReadonlyArray<Record<string, string>> = [
     leht: 'Esindajad',
     väli: '(kogu leht)',
     selgitus:
-      'Vabatahtlik. Siia käivad lisainimesed peale raamlepingu kontaktisiku — asendajad ja teised, kes tohivad ettevõtte eest vastata. Kontaktisikut siia lisama ei pea: tema esindus tuleb järjestusest ja lõpeb kontaktisiku vahetusega. Kes peab pärast kontaktisiku vahetust esindajaks jääma, kirjuta siia samas failis. Alla laaditud failis on siin täpselt need, kes on eraldi nimetatud.',
+      'Lisaesindajad — hankeosa kontaktisik on esindaja automaatselt. Vabatahtlik leht: siia käivad lisainimesed peale raamlepingu kontaktisiku — asendajad ja teised, kes tohivad ettevõtte eest vastata. Kontaktisikut siia lisama ei pea: tema esindus tuleb järjestusest ja lõpeb kontaktisiku vahetusega. Kes peab pärast kontaktisiku vahetust esindajaks jääma, kirjuta siia samas failis. Alla laaditud failis on siin täpselt need, kes on eraldi nimetatud.',
   },
   {
     leht: 'Esindajad',

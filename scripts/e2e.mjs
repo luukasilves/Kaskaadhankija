@@ -229,7 +229,7 @@ async function walkFullCascade(page, server) {
     (await page.getByTestId('bulk-mark').locator('button').allTextContents()).join('|') === 'Märgi kõik saadaval|Märgi kõik|Tühjenda',
   );
   await markAndConfirm(page, [WALK1_CODES[0], WALK1_CODES[1]]);
-  check('rank 1 is projected both of its marks', (await stateOf(page, WALK1_CODES[0])) === 'Prognoosis sinule');
+  check('rank 1 is projected both of its marks', (await stateOf(page, WALK1_CODES[0])) === 'Prognoosis teile');
   check(
     'the page says which minute’s state it shows [E-10]',
     /Seis \d{2}:\d{2}/.test(await page.getByTestId('state-as-of').textContent()),
@@ -275,7 +275,7 @@ async function walkFullCascade(page, server) {
   );
   check(
     'the one nobody above marked is projected to rank 2',
-    (await stateOf(partnerPage, WALK1_CODES[2])) === 'Prognoosis sinule',
+    (await stateOf(partnerPage, WALK1_CODES[2])) === 'Prognoosis teile',
   );
   await partnerPage.screenshot({ path: join(SHOTS, '04-partner-own-login.png'), fullPage: true });
   await partnerContext.close();
@@ -402,7 +402,7 @@ async function walkPartnerVisibility(page, server) {
   check('confirming clears the warning', (await page.getByTestId('unconfirmed-banner').count()) === 0);
   check(
     '[Lisa B.2] koht 3 is projected KK-2026-205',
-    (await stateOf(page, 'KK-2026-205')) === 'Prognoosis sinule',
+    (await stateOf(page, 'KK-2026-205')) === 'Prognoosis teile',
     await stateOf(page, 'KK-2026-205'),
   );
   // Koht 3 marked KK-2026-201 itself, and a higher rank holds it — so the row

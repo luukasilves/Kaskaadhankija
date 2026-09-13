@@ -117,7 +117,7 @@ async function testEnvironment(browser) {
     // their first sign-in, when all they hold is a notice and a code.
     await page.goto(`${BASE}/juhend`);
     check('the guide is public — no session needed', (await page.getByTestId('juhend').count()) === 1, page.url());
-    check('and it shows the pilot passages in the test environment', (await page.locator('#katsekeskkond').count()) === 1);
+    check('and it shows the pilot passages in the test environment', (await page.locator('#testkeskkond').count()) === 1);
     await page.goto(`${BASE}/sisene`);
     check('the sign-in page links to it', (await page.getByTestId('sign-in-juhend').count()) === 1);
 
@@ -381,7 +381,7 @@ async function productionPosture(browser) {
     // statement about a live procurement.
     await page.goto(`${BASE}/juhend`);
     check('the guide is public in production as well', (await page.getByTestId('juhend').count()) === 1, page.url());
-    check('and drops the katsekeskkond passages there', (await page.locator('#katsekeskkond').count()) === 0);
+    check('and drops the testkeskkond passages there', (await page.locator('#testkeskkond').count()) === 0);
 
     const landing = await signInAs(page, server, BUYER);
     check('an admin lands in the buyer area, with no act-as screen in the way', landing === '/tellija', landing);

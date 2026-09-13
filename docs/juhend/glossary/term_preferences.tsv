@@ -13,5 +13,5 @@ the confirmation	kinnitus (verb: kinnitama)	nõustumine / aktsept
 the deadline	vastamistähtaeg / tähtaeg	deadline / lõppkuupäev	
 the order	tellimus	leping / hankeleping	The order IS treatable as a procurement contract, but its name is "tellimus". Say the relation, do not rename it.
 the representative	esindaja	kontakt / kasutaja	"kontaktisik" is the framework contact specifically; "esindaja" is the person who signs in.
-the environment	katsekeskkond / testkeskkond	demo	The app's badge says TESTKESKKOND and the strip says "Katsetuskeskkond". Never "demo" — it understates what the data is.
+the environment	testkeskkond	demo	One word everywhere since v2.7: the badge says TESTKESKKOND, the strip and the guide say testkeskkond. Never "demo" — it understates what the data is.
 sign in	sisse logima	autentima / logima sisse konto abil	There are no accounts and no passwords; say so.

@@ -42,6 +42,10 @@ The guide quotes the badge verbatim, because the reader has to recognise it on
 screen, and uses a normal noun in the prose. But one thing should have one name.
 Worth picking one before the pilot rather than after.
 
+**Resolved (v2.7):** the one word is **testkeskkond** — the strip now says
+„Testkeskkond raamlepingu voorude läbimängimiseks“, the guide's section is
+„Testkeskkond“, and the badge stays TESTKESKKOND.
+
 ## 3. The four display-state labels are *sina*, everything around them is *teie*
 
 `TRAINING_VIEW_STATE_LABELS.projected_to_you` is „Prognoosis sinule“ and the
@@ -52,6 +56,10 @@ The guide quotes them verbatim — a repaired quote would send a reader looking
 for words that are not on the screen — so the guide is consistent and the
 **labels** are the anomaly. Changing them means changing [N-03] in the spec
 first, then `round-statuses.ts`. Not the guide's call.
+
+**Resolved (v2.7):** [N-03] was amended first, then the labels — „Prognoosis
+teile“, „üle teie piirmäära“ — and the guide's quotes, the e2e walk and the
+figures followed.
 
 (Two lesser instances of the same slip *were* fixed while writing this guide,
 because the guide quotes those screens: `marking-form.tsx` said „saad märkida“
