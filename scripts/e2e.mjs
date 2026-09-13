@@ -36,6 +36,7 @@ import {
   freePort,
   leakDetail,
   makeChecker,
+  openFinishedRound,
   openOpenRound,
   pickActAs,
   publishWithShortDeadline,
@@ -346,17 +347,16 @@ async function walkFullCascade(page, server) {
   );
   await page.screenshot({ path: join(SHOTS, '07-protocol.png'), fullPage: true });
 
-  /* and each partner sees its own order, and only its own [N-08] */
+  /* [L-25] the decision is made outside: the partner sees a provisional result, no order */
   await switchTo(page, OSA1[1].name);
-  await page.goto(`${base}/partner/tellimused`);
+  await page.goto(`${base}/partner/voorud`);
   await page.waitForSelector('h1');
-  const order = page.locator('a[href^="/partner/tellimused/"]').first();
-  check('rank 2 receives an order', (await order.count()) > 0);
-  await order.click();
-  await page.waitForSelector('article', { timeout: 20_000 });
-  const orderHtml = await appHtml(page);
-  check('the order names no other partner', !orderHtml.includes(OSA1[0].name) && !orderHtml.includes(OSA1[2].name), leakDetail(orderHtml, [OSA1[0].name, OSA1[2].name]));
-  await page.screenshot({ path: join(SHOTS, '08-partner-order.png'), fullPage: true });
+  check('rank 2 has no Tellimused menu — orders are formalised outside the application [L-25]', (await page.locator('nav a[href="/partner/tellimused"]').count()) === 0);
+  check('rank 2 finds the finished OSA-1 round', await openFinishedRound(page, base, 'OSA-1'));
+  const resultHtml = await appHtml(page);
+  check('rank 2 sees what it is provisionally given', resultHtml.includes('ette nähtud'));
+  check('the result page names no other partner', !resultHtml.includes(OSA1[0].name) && !resultHtml.includes(OSA1[2].name), leakDetail(resultHtml, [OSA1[0].name, OSA1[2].name]));
+  await page.screenshot({ path: join(SHOTS, '08-partner-result.png'), fullPage: true });
 }
 
 /* ------------------------------------------------------------------ *

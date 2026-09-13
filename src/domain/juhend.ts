@@ -50,7 +50,6 @@ export const FIGURE_IDS = [
   'kinnitamata',
   'kinnitamine',
   'maarati-teisele',
-  'tellimus',
   'teavitused',
 ] as const;
 
@@ -103,7 +102,6 @@ const PARTNER_VOOR = 'src/app/partner/voorud/[id]/page.tsx';
 const MARKING_FORM = 'src/app/partner/voorud/[id]/marking-form.tsx';
 const VOORUD = 'src/app/partner/voorud/page.tsx';
 const SISENE = 'src/components/sign-in.tsx';
-const TELLIMUS = 'src/app/partner/tellimused/[id]/page.tsx';
 
 export const QUOTED: readonly { tekst: string; fail: string }[] = [
   { tekst: 'Saada kood', fail: SISENE },
@@ -126,8 +124,6 @@ export const QUOTED: readonly { tekst: string; fail: string }[] = [
   { tekst: 'Määrati teisele partnerile', fail: MARKING_FORM },
   { tekst: 'Ülempiir', fail: MARKING_FORM },
   { tekst: 'piirmäära ei ole', fail: MARKING_FORM },
-  { tekst: 'Täitja', fail: TELLIMUS },
-  { tekst: 'kasutage brauseri prindifunktsiooni', fail: TELLIMUS },
 ] as const;
 
 /* ------------------------------------------------------------------ *
@@ -229,10 +225,10 @@ export const KASKAAD: readonly KaskaadRida[] = [
 export const AJATELG: readonly { samm: string; kes: 'tellija' | 'teie' | 'susteem'; tekst: string }[] = [
   { samm: 'Avaldamine', kes: 'tellija', tekst: 'Voor läheb korraga kõigile hankeosa partneritele. Te saate teate.' },
   { samm: 'Vastamisaeg', kes: 'teie', tekst: 'Märgite koolitused, valite soovi korral ülempiiri ja kinnitate. Muuta saab kuni tähtajani.' },
-  { samm: 'Tähtaeg', kes: 'susteem', tekst: 'Voor sulgub ise. Kehtib teie viimane kinnitus enne tähtaega.' },
+  { samm: 'Tähtaeg', kes: 'susteem', tekst: 'Voor sulgub ise. Kehtib teie viimane kinnitus enne tähtaega. Saate kokkuvõtte oma esialgsest tulemusest.' },
   { samm: 'Ülevaatus', kes: 'tellija', tekst: 'Tellija vaatab jaotusettepaneku üle.' },
   { samm: 'Kinnitamine', kes: 'tellija', tekst: 'Jaotus kinnitatakse. Pärast seda voor ei muutu.' },
-  { samm: 'Tellimus', kes: 'teie', tekst: 'Teile määratud koolitused tulevad tellimusena, mille leiate menüüst.' },
+  { samm: 'Tellimus', kes: 'tellija', tekst: 'Tellimuse vormistab tellija väljaspool rakendust ja võtab teiega ühendust.' },
 ];
 
 /* ------------------------------------------------------------------ *
@@ -563,7 +559,7 @@ export const SECTIONS: readonly Section[] = [
   {
     id: 'parast-tahtaega',
     title: 'Pärast vastamistähtaega',
-    rules: ['N-07', 'E-05', 'T-07'],
+    rules: ['N-07', 'E-05', 'T-07', 'D-12'],
     blocks: [
       {
         kind: 'para',
@@ -577,7 +573,7 @@ export const SECTIONS: readonly Section[] = [
       {
         kind: 'para',
         text:
-          'Kinnitamise järel on jaotus lõplik ja voor ei muutu enam. Te saate teate ja näete tulemust vooru lehel.',
+          'Vooru sulgumisel saate e-kirja **„Voor on lõppenud“**: mida kinnitasite ja mitu koolitust teile esialgse jaotuse järgi läheks. See on esialgne tulemus, mitte tellimus. Kinnitamise järel on jaotus lõplik ja voor ei muutu enam; vooru lehel näete, mis on teile ette nähtud.',
       },
     ],
   },
@@ -585,29 +581,24 @@ export const SECTIONS: readonly Section[] = [
   {
     id: 'tellimus',
     title: 'Tellimus',
-    rules: ['T-05', 'L-15'],
+    rules: ['T-05', 'L-25'],
     blocks: [
       {
         kind: 'para',
         text:
-          'Iga partneri kohta, kellele vähemalt üks koolitus määrati, koostab süsteem **tellimuse**. Raamlepingu järgi on tellimus käsitletav hankelepinguna: see on dokument, mille alusel te koolitused läbi viite.',
+          'Rakendus tellimust praegu **ei koosta ega saada**. Pärast jaotuse kinnitamist vormistab tellija otsuse ja tellimuse oma korra järgi ning võtab teiega ühendust — tellimus jõuab teieni väljaspool seda keskkonda.',
       },
       {
         kind: 'para',
         text:
-          'Tellimused on menüüs **Tellimused**. Tellimuse lehel on osa **„Täitja“** teie ettevõtte andmetega, kinnituste ajad, kõik määratud koolitused ühikhinnaga ja kogumaksumus. Sisu on **kinnitamise hetkel külmutatud**: dokument ütleb hiljem sedasama, mida ta kokkuleppimise hetkel ütles, ja tellija näeb täpselt sama paberit.',
-      },
-      { kind: 'figure', id: 'tellimus', caption: 'Tellimus — sama dokument, mida näeb tellija.' },
-      {
-        kind: 'para',
-        text: 'Eraldi failina tellimust ei saadeta. Trükkimiseks või salvestamiseks kasutage brauseri prindifunktsiooni (Ctrl/Cmd + P).',
+          'Siduv on ikkagi see, mida te siin kinnitasite: kinnitatud märge tähendab, et kui koolitus teile määratakse, viite selle raamlepingu tingimustel läbi. Vooru lehel ja kokkuvõttekirjas näete, mis on teile ette nähtud; kinnitatud jaotust ja iga kinnituse aega hoiab rakendus alles tõendina.',
       },
       {
         kind: 'note',
         tone: 'warning',
         title: 'Kui koolitus jääb ära',
         text:
-          'Koolituse ärajäämisest või muust takistusest tuleb tellijale teatada **esimesel võimalusel**. Süsteem seda ise ei registreeri: tellimuses olev koolitus jääb sinna, kuni tellija selle tühistab.',
+          'Koolituse ärajäämisest või muust takistusest tuleb tellijale teatada **esimesel võimalusel**. Süsteem seda ise ei registreeri: teile ette nähtud koolitus jääb kirja, kuni tellija selle tühistab.',
       },
     ],
   },

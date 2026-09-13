@@ -162,7 +162,7 @@ async function main() {
     await figure('maarati-teisele', page.locator('table').first());
 
     /* --- Digioskus, koht 2: the only column with all four states --- */
-    note('Digioskus MTÜ — neli olekut ja tellimus');
+    note('Digioskus MTÜ — neli olekut');
     await page.getByTestId('sign-out').click();
     await page.waitForURL(/\/sisene/, { timeout: 20_000 });
     await signInAs(page, server, DIGIOSKUS);
@@ -170,15 +170,6 @@ async function main() {
     check('the open OSA-2 round is theirs too', await openOpenRound(page, base, 'OSA-2'));
     await assertOnlyFictionalCompanies(page, 'neli olekut');
     await figure('neli-olekut', page.locator('section:has([data-testid="state-cell"])'));
-
-    await page.goto(`${base}/partner/tellimused`);
-    await page.waitForSelector('h1');
-    const order = page.locator('a[href^="/partner/tellimused/"]').first();
-    check('this partner holds an order', (await order.count()) > 0);
-    await order.click();
-    await page.waitForSelector('article', { timeout: 20_000 });
-    await assertOnlyFictionalCompanies(page, 'tellimus');
-    await figure('tellimus', page.locator('article').first());
 
     /* --- Targa Töö, koht 4: has not answered --- */
     note('Targa Töö Koolitus OÜ — vastamata');

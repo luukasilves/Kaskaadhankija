@@ -219,15 +219,9 @@ describe('ülejäänud stsenaariumid', () => {
     expect(finished.filter((r) => r.status === 'draft')).toHaveLength(1);
     expect(finished.filter((r) => r.status === 'open')).toHaveLength(1);
 
-    const orderRows = harness.read((db) =>
-      db.select({ id: orders.id, snapshot: orders.documentSnapshot }).from(orders).all(),
-    );
-    // Scenario 0: one order of five. Scenario B: two orders, of two each.
-    expect(orderRows.map((o) => o.snapshot.trainings.length).sort()).toEqual([2, 2, 5]);
-    for (const order of orderRows) {
-      expect(order.snapshot.totalEur).toBeGreaterThan(0);
-      expect(order.snapshot.partnerConfirmedAt).not.toBeNull();
-    }
+    // [L-25] no orders: the decision is made outside the application, so the
+    // finished rounds hold their allocation in the snapshot and the protocol.
+    expect(harness.read((db) => db.select({ id: orders.id }).from(orders).all())).toEqual([]);
   });
 
   it('[T-06] leaves Scenario B’s unmarked training as jääk', () => {
@@ -276,8 +270,7 @@ describe('ülejäänud stsenaariumid', () => {
       'confirmation_receipt',
       'decline_receipt',
       'projection_changed',
-      'order_issued',
-      'allocated_elsewhere',
+      'round_closed_partner',
     ]) {
       expect(kinds, `teavitus ${expected}`).toContain(expected);
     }

@@ -245,7 +245,35 @@ export function renderParticipantExcluded(
   ].filter(Boolean));
 }
 
-/** [D-07][T-05] The order — the operative call-off contract. */
+/**
+ * [D-12] The round ended: the partner's own answer and the provisional outcome
+ * of the closing allocation. The decision is made outside the application for
+ * now [L-25], so this is the last word the partner gets from here about the
+ * round — and it says plainly that it is not an order.
+ */
+export function renderRoundClosedPartner(
+  input: RoundNoticeBase & { contactName: string; answerText: string; predictedLines: string[] },
+): RenderedNotice {
+  return composeNotice(
+    `Voor ${input.roundCode} on lõppenud — täname vastamast`,
+    [
+      `Lugupeetud ${input.contactName}`,
+      `Vooru ${input.roundCode} (${input.lotLabel}) vastamisaeg lõppes ${input.deadlineText}. ${input.answerText}`,
+      input.predictedLines.length > 0
+        ? `Esialgse jaotuse järgi läheks teile ${input.predictedLines.length} koolitust:`
+        : 'Esialgse jaotuse järgi ei läheks teile sellest voorust ühtegi koolitust.',
+      list(input.predictedLines),
+      `See on esialgne tulemus, mitte tellimus. ${input.framework.buyerName} vaatab jaotuse üle ja võtab tulemuse kinnitamiseks teiega eraldi ühendust.`,
+    ],
+    { url: input.url, label: 'Ava voor' },
+  );
+}
+
+/**
+ * [D-07][T-05] The order — the operative call-off contract.
+ *
+ * **Suspended** [L-25]: nothing sends this for now; see `issueOrders`.
+ */
 export function renderOrderIssued(
   input: Omit<RoundNoticeBase, 'deadlineText'> & {
     contactName: string;
@@ -335,21 +363,23 @@ export function renderBuyerRoundClosed(
 
 export function renderBuyerRoundConfirmed(
   input: Omit<RoundNoticeBase, 'deadlineText'> & {
-    orderLines: string[];
+    /** one line per partner with an allocation: rank, name, count */
+    allocationLines: string[];
     leftoverCount: number;
     /** [L-22] where the signable record of this round is picked up */
     protocolUrl: string;
   },
 ): RenderedNotice {
   return composeNotice(
-    `Voor ${input.roundCode} on kinnitatud`,
+    `Voor ${input.roundCode} on kinnitatud — protokoll on valmis`,
     [
-      `Voor ${input.roundCode} (${input.lotLabel}) on kinnitatud ja tellimused loodud.`,
-      list(input.orderLines),
+      `Vooru protokoll (PDF ja .xlsx lisa) on allalaadimiseks siin: ${input.protocolUrl}`,
+      `Voor ${input.roundCode} (${input.lotLabel}) on kinnitatud. Lõplik jaotus partnerite kaupa:`,
+      list(input.allocationLines),
       input.leftoverCount > 0
         ? `Jääk: ${input.leftoverCount} koolitus(t) ootab otsust.`
         : 'Jääki ei jäänud.',
-      `Vooru protokoll (PDF ja .xlsx lisa) on allalaadimiseks siin: ${input.protocolUrl}`,
+      'Partneritele ei ole kinnitamisest teadet saadetud: otsus ja tellimus vormistatakse väljaspool rakendust. Partnerid said vooru sulgumisel kokkuvõtte oma esialgsest tulemusest.',
     ],
     { url: input.url, label: 'Ava voor' },
   );

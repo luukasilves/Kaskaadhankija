@@ -24,7 +24,6 @@ import neliOlekut from './pildid/neli-olekut.png';
 import siseneViga from './pildid/sisene-viga.png';
 import siseneVorm from './pildid/sisene-vorm.png';
 import teavitused from './pildid/teavitused.png';
-import tellimus from './pildid/tellimus.png';
 import testRiba from './pildid/test-riba.png';
 import vastamata from './pildid/vastamata.png';
 import voorudeLoend from './pildid/voorude-loend.png';
@@ -39,6 +38,5 @@ export const FIGURES: Record<FigureId, StaticImageData> = {
   kinnitamata,
   kinnitamine,
   'maarati-teisele': maaratiTeisele,
-  tellimus,
   teavitused,
 };

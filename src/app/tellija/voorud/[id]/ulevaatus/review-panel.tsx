@@ -249,10 +249,10 @@ export function ReviewPanel({
         >
           <h2 style={{ color: 'var(--color-brand)' }}>Kinnita jaotus</h2>
           <p className="mt-1 max-w-[80ch] text-[13px]">
-            Kinnitamine loob iga täitja kohta tellimuse. Raamlepingu järgi on tellimus käsitletav
-            hankelepinguna, mistõttu kinnitamine on <strong>pöördumatu</strong>. Partnerid saavad
-            teate oma koolitustest; need, kelle märgitud koolitus läks mujale, saavad neutraalse
-            teate ilma teise partneri nime avaldamata.
+            Kinnitamine külmutab lõpliku jaotuse ja koostab vooru protokolli; vooru osas on see{' '}
+            <strong>pöördumatu</strong>. Partneritele kinnitamisest teadet ei saadeta — otsus ja
+            tellimused vormistatakse väljaspool rakendust ning tellija võtab partneritega ise
+            ühendust. Partnerid said vooru sulgumisel kokkuvõtte oma esialgsest tulemusest.
           </p>
           <ul className="mt-2 text-[13px]">
             <li>
@@ -274,9 +274,9 @@ export function ReviewPanel({
           <div className="mt-3">
             <ActionForm
               action={confirmAllocationAction}
-              submitLabel="Kinnita jaotus ja loo tellimused"
+              submitLabel="Kinnita jaotus"
               variant="primary"
-              confirm="Kinnitada jaotus? Tellimused on hankelepingud ja seda ei saa tagasi võtta."
+              confirm="Kinnitada jaotus? Jaotus külmutatakse ja protokoll koostatakse; seda ei saa tagasi võtta."
               hidden={{ roundId }}
               testId="confirm-allocation"
             />

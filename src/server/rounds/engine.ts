@@ -55,6 +55,7 @@ import {
 import {
   renderAllocatedElsewhere,
   renderBuyerRoundClosed,
+  renderRoundClosedPartner,
   renderBuyerRoundConfirmed,
   renderConfirmationReceipt,
   renderDeadlineReminder,
@@ -1139,6 +1140,40 @@ export function closeRound(ctx: Ctx, roundId: string): { closed: boolean; code: 
     }),
   });
 
+  // [D-12] Every participant learns the round has ended and what the closing
+  // allocation would give them. The decision itself is made outside the
+  // application for now [L-25], so this is the last word a partner gets from
+  // here about this round — and it says so, plainly, before anyone reads
+  // "läheks teile" as a contract.
+  for (const participant of participantsOf(ctx.tx, roundId)) {
+    if (participant.excludedAt !== null) continue;
+    const binding = latestConfirmation(ctx.tx, roundId, participant.lotPartnerId);
+    const predicted =
+      result.allocations.find((a) => a.lotPartnerId === participant.lotPartnerId)?.trainingIds ?? [];
+    const answerText = !binding
+      ? 'Te ei kinnitanud selles voorus ühtegi valikut; vastamata jätmine loeti loobumiseks.'
+      : binding.kind === 'decline_all'
+        ? `Loobusite ${formatDateTimeShort(binding.confirmedAt)} kõigist vooru koolitustest.`
+        : `Teie kinnitatud valik (${formatDateTimeShort(binding.confirmedAt)}): ${binding.marks.length} koolitust${capSummary(binding.cap, binding.capKind ?? 'trainings')}.`;
+    notify(ctx, {
+      recipientKind: 'partner',
+      recipientLotPartnerId: participant.lotPartnerId,
+      type: 'round_closed_partner',
+      roundId,
+      emailTo: partnerRecipients(ctx.tx, participant.lotPartnerId),
+      notice: renderRoundClosedPartner({
+        framework: frameworkIdentity(ctx.tx),
+        roundCode: round.code,
+        lotLabel: lotLabel(lot),
+        deadlineText: formatDateTime(round.deadlineAt ?? ctx.at),
+        url: partnerUrl(roundId),
+        contactName: participant.contactName,
+        answerText,
+        predictedLines: trainingLines(ctx, predicted),
+      }),
+    });
+  }
+
   return { closed: true, code: round.code };
 }
 
@@ -1290,12 +1325,20 @@ export function previewFinalAllocation(tx: Tx | Db, roundId: string): Allocation
 }
 
 /**
- * [T-04][T-05] Confirm the allocation: create one order per allocated partner.
+ * [T-04] The buyer's confirmation: the final allocation is computed once more
+ * over the adjustments, frozen, and written into the protocol — all in one
+ * transaction, so a confirmed round without its signable record is not a
+ * reachable state.
  *
- * The order is the operative call-off contract, so it carries a frozen document
- * snapshot and points at the confirmation that binds the partner.
+ * It creates **no orders and tells no partner** [L-25]. The formal decision on
+ * the outcome is made outside the application for now; the partner heard the
+ * provisional result in the closing notice [D-12], and the buyer contacts
+ * them from there. The order machinery is kept, suspended, in `issueOrders`.
  */
-export function confirmAllocation(ctx: Ctx, roundId: string): { orderIds: string[]; leftover: string[] } {
+export function confirmAllocation(
+  ctx: Ctx,
+  roundId: string,
+): { allocatedCount: number; partnerCount: number; leftover: string[] } {
   const round = loadRound(ctx, roundId);
   transition(ctx, round, 'confirmed');
   const lot = loadLot(ctx, round.lotId);
@@ -1314,9 +1357,102 @@ export function confirmAllocation(ctx: Ctx, roundId: string): { orderIds: string
     .where(eq(rounds.id, roundId))
     .run();
 
+  const participants = participantsOf(ctx.tx, roundId);
+  const allocationLines: string[] = [];
+  let allocatedCount = 0;
+  let partnerCount = 0;
+
+  for (const allocation of result.allocations) {
+    if (allocation.trainingIds.length === 0) continue;
+    const participant = participants.find((p) => p.lotPartnerId === allocation.lotPartnerId);
+    if (!participant) continue;
+    partnerCount += 1;
+    allocatedCount += allocation.trainingIds.length;
+
+    for (const trainingId of allocation.trainingIds) {
+      ctx.tx
+        .update(trainings)
+        .set({
+          status: 'allocated',
+          allocatedLotPartnerId: allocation.lotPartnerId,
+          currentRoundId: null,
+          updatedAt: ctx.at,
+        })
+        .where(eq(trainings.id, trainingId))
+        .run();
+    }
+    allocationLines.push(`koht ${participant.rankAtPublication} · ${participant.partnerName} · ${allocation.trainingIds.length} koolitust`);
+  }
+
+  // [J-06][T-06] whatever nobody took waits visibly for a decision.
+  for (const trainingId of result.leftover) {
+    ctx.tx
+      .update(trainings)
+      .set({
+        status: 'leftover',
+        currentRoundId: null,
+        leftoverFromRoundId: roundId,
+        updatedAt: ctx.at,
+      })
+      .where(eq(trainings.id, trainingId))
+      .run();
+  }
+
+  logAudit(ctx, {
+    eventType: 'round.confirmed',
+    summary: `Voor ${round.code} kinnitatud: ${allocatedCount} koolitust ${partnerCount} partnerile, jääk ${result.leftover.length} koolitust`,
+    roundId,
+    lotId: lot.id,
+    after: { allocatedCount, partnerCount, leftoverCount: result.leftover.length },
+  });
+
+  notify(ctx, {
+    recipientKind: 'buyer',
+    type: 'buyer_round_confirmed',
+    roundId,
+    emailTo: teamRecipients(ctx.tx),
+    notice: renderBuyerRoundConfirmed({
+      framework: frameworkIdentity(ctx.tx),
+      roundCode: round.code,
+      lotLabel: lotLabel(lot),
+      url: buyerUrl(roundId),
+      protocolUrl: protocolUrl(roundId),
+      allocationLines,
+      leftoverCount: result.leftover.length,
+    }),
+  });
+
+  // [L-22] The protocol is written last, so it contains every notice this
+  // confirmation produced — and inside the same transaction.
+  storeRoundProtocol(ctx, roundId, 'confirmed');
+
+  return { allocatedCount, partnerCount, leftover: result.leftover };
+}
+
+/**
+ * [T-05][D-07] Issue the orders of a confirmed round — **suspended** [L-25].
+ *
+ * Nothing in the application calls this. The buyer team decided that the
+ * formal decision and the order are made outside the software for the moment,
+ * so `confirmAllocation` stops at the protocol. The machinery stays here,
+ * tested, so that reinstating it is one call from the confirmation rather than
+ * a rewrite: one order per allocated partner, the order document frozen from
+ * the final snapshot, the order notice to the partner and the neutral
+ * "määrati teisele partnerile" note [N-08] to everyone who lost a mark.
+ * Idempotent: a round whose orders exist gets none again.
+ */
+export function issueOrders(ctx: Ctx, roundId: string): { orderIds: string[] } {
+  const round = loadRound(ctx, roundId);
+  if (round.status !== 'confirmed' || !round.finalSnapshot) {
+    throw new Error('Tellimusi saab väljastada ainult kinnitatud vooru puhul.');
+  }
+  const existing = ctx.tx.select({ id: orders.id }).from(orders).where(eq(orders.roundId, roundId)).all();
+  if (existing.length > 0) return { orderIds: [] };
+
+  const lot = loadLot(ctx, round.lotId);
+  const result = round.finalSnapshot.result;
   const year = new Date(ctx.at).getFullYear();
   const orderIds: string[] = [];
-  const orderLines: string[] = [];
 
   const trainingRows = new Map(
     ctx.tx
@@ -1328,6 +1464,7 @@ export function confirmAllocation(ctx: Ctx, roundId: string): { orderIds: string
   );
 
   for (const allocation of result.allocations) {
+    if (allocation.trainingIds.length === 0) continue;
     const participant = participantsOf(ctx.tx, roundId).find(
       (p) => p.lotPartnerId === allocation.lotPartnerId,
     );
@@ -1378,8 +1515,8 @@ export function confirmAllocation(ctx: Ctx, roundId: string): { orderIds: string
       })),
       totalEur: total,
       partnerConfirmedAt: binding?.confirmedAt ?? null,
-      buyerConfirmedAt: ctx.at,
-      buyerConfirmedBy: ctx.actor.label,
+      buyerConfirmedAt: round.confirmedAt ?? ctx.at,
+      buyerConfirmedBy: round.confirmedBy ?? ctx.actor.label,
     };
 
     ctx.tx
@@ -1394,8 +1531,8 @@ export function confirmAllocation(ctx: Ctx, roundId: string): { orderIds: string
         kind: 'allocation',
         partnerConfirmationId: binding?.id ?? null,
         partnerConfirmedAt: binding?.confirmedAt ?? null,
-        buyerConfirmedAt: ctx.at,
-        buyerConfirmedBy: ctx.actor.label,
+        buyerConfirmedAt: round.confirmedAt ?? ctx.at,
+        buyerConfirmedBy: round.confirmedBy ?? ctx.actor.label,
         status: 'active',
         documentSnapshot: document,
         createdAt: ctx.at,
@@ -1412,21 +1549,10 @@ export function confirmAllocation(ctx: Ctx, roundId: string): { orderIds: string
           unitPriceEur: membership.unitPriceEur,
         })
         .run();
-      ctx.tx
-        .update(trainings)
-        .set({
-          status: 'allocated',
-          allocatedLotPartnerId: allocation.lotPartnerId,
-          orderId,
-          currentRoundId: null,
-          updatedAt: ctx.at,
-        })
-        .where(eq(trainings.id, row.id))
-        .run();
+      ctx.tx.update(trainings).set({ orderId, updatedAt: ctx.at }).where(eq(trainings.id, row.id)).run();
     }
 
     orderIds.push(orderId);
-    orderLines.push(`${number} · ${partner.name} · ${rows.length} koolitust · ${formatEur(total)}`);
 
     logAudit(ctx, {
       eventType: 'order.created',
@@ -1454,9 +1580,9 @@ export function confirmAllocation(ctx: Ctx, roundId: string): { orderIds: string
         partnerName: partner.name,
         orderNumber: number,
         trainingLines: trainingLines(ctx, allocation.trainingIds),
-        totalText: `Hinnanguline kogumaksumus: ${formatEur(total)} (ühikhind ${formatEur(membership.unitPriceEur)}).`,
+        totalText: `Hinnanguline kogumaksumus: ${formatEur(total)} (ühikuhind ${formatEur(membership.unitPriceEur)}).`,
         partnerConfirmedAtText: binding ? formatDateTimeShort(binding.confirmedAt) : '—',
-        buyerConfirmedAtText: formatDateTimeShort(ctx.at),
+        buyerConfirmedAtText: formatDateTimeShort(round.confirmedAt ?? ctx.at),
         buyerContact: ctx.actor.label,
       }),
     });
@@ -1494,50 +1620,7 @@ export function confirmAllocation(ctx: Ctx, roundId: string): { orderIds: string
     });
   }
 
-  // [J-06][T-06] whatever nobody took waits visibly for a decision.
-  for (const trainingId of result.leftover) {
-    ctx.tx
-      .update(trainings)
-      .set({
-        status: 'leftover',
-        currentRoundId: null,
-        leftoverFromRoundId: roundId,
-        updatedAt: ctx.at,
-      })
-      .where(eq(trainings.id, trainingId))
-      .run();
-  }
-
-  logAudit(ctx, {
-    eventType: 'round.confirmed',
-    summary: `Voor ${round.code} kinnitatud: ${orderIds.length} tellimust, jääk ${result.leftover.length} koolitust`,
-    roundId,
-    lotId: lot.id,
-    after: { orderCount: orderIds.length, leftoverCount: result.leftover.length },
-  });
-
-  notify(ctx, {
-    recipientKind: 'buyer',
-    type: 'buyer_round_confirmed',
-    roundId,
-    emailTo: teamRecipients(ctx.tx),
-    notice: renderBuyerRoundConfirmed({
-      framework: frameworkIdentity(ctx.tx),
-      roundCode: round.code,
-      lotLabel: lotLabel(lot),
-      url: buyerUrl(roundId),
-      protocolUrl: protocolUrl(roundId),
-      orderLines,
-      leftoverCount: result.leftover.length,
-    }),
-  });
-
-  // [L-22] The protocol is written last, so it contains the orders and every
-  // notice this confirmation produced — and inside the same transaction, so a
-  // confirmed round without its signable record is not a reachable state.
-  storeRoundProtocol(ctx, roundId, 'confirmed');
-
-  return { orderIds, leftover: result.leftover };
+  return { orderIds };
 }
 
 /* ------------------------------------------------------------------ *

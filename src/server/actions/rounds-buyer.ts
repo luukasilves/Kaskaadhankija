@@ -251,9 +251,9 @@ export async function confirmAllocationAction(form: FormData): Promise<ActionOut
       '/tellija/koolitused',
     ]);
     return ok(
-      `Jaotus kinnitatud: ${result.orderIds.length} tellimus(t) loodud${
+      `Jaotus kinnitatud: ${result.allocatedCount} koolitust ${result.partnerCount} partnerile${
         result.leftover.length > 0 ? `, jääk ${result.leftover.length} koolitust` : ''
-      }.`,
+      }. Protokoll on valmis; otsus ja tellimused vormistatakse väljaspool rakendust.`,
     );
   } catch (error) {
     return fail(describeError(error));

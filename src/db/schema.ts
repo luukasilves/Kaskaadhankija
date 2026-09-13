@@ -647,6 +647,7 @@ export type NotificationType =
   | 'round_changed'
   | 'round_cancelled'
   | 'participant_excluded'
+  | 'round_closed_partner'
   | 'order_issued'
   | 'allocated_elsewhere'
   | 'buyer_round_closed'

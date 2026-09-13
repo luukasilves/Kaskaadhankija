@@ -316,6 +316,7 @@ export const NOTIFICATION_TYPE_LABELS: Record<string, string> = {
   round_changed: 'Vooru muudatus',
   round_cancelled: 'Voor tühistatud',
   participant_excluded: 'Partner arvati välja',
+  round_closed_partner: 'Voor lõppes',
   order_issued: 'Tellimus väljastatud',
   allocated_elsewhere: 'Määrati teisele partnerile',
   buyer_round_closed: 'Voor sulgus',

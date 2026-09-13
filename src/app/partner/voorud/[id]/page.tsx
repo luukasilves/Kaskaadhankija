@@ -16,9 +16,9 @@
 
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { getDb } from '@/db';
-import { lots, orders, roundTrainings, rounds, trainings } from '@/db/schema';
+import { lots, roundTrainings, rounds, trainings } from '@/db/schema';
 import { partnerView } from '@/domain/allocate';
 import { formatDateTime, formatDateTimeShort, formatEur, formatIsoDay } from '@/domain/format';
 import {
@@ -153,18 +153,6 @@ export default async function PartnerRoundPage({
     finalResult?.allocations.find((a) => a.lotPartnerId === participant.lotPartnerId)?.trainingIds ??
       [],
   );
-  // Scoped to this participant: a round has one order per partner, and the
-  // others are none of this partner's business [N-04].
-  const myOrder =
-    round.status === 'confirmed'
-      ? db
-          .select({ id: orders.id, year: orders.orderYear, seq: orders.orderSeq })
-          .from(orders)
-          .where(
-            and(eq(orders.roundId, id), eq(orders.lotPartnerId, participant.lotPartnerId)),
-          )
-          .get()
-      : undefined;
 
   const workload = workloadFor(db, participant.lotPartnerId);
   const overThreshold = workload >= round.workloadThresholdSnapshot;
@@ -285,21 +273,14 @@ export default async function PartnerRoundPage({
           style={{ borderColor: 'var(--color-success)', background: 'var(--color-success-soft)' }}
         >
           <h2 style={{ color: 'var(--color-success)' }}>
-            Jaotus on kinnitatud
+            Tellija on jaotuse kinnitanud
             {round.confirmedAt ? ` ${formatDateTimeShort(round.confirmedAt)}` : ''}
           </h2>
           <p className="mt-1 text-[13px]">
             {mine.size > 0
-              ? `Teile määrati ${mine.size} koolitust. Tellimuse leiate menüüst „Tellimused“.`
-              : 'Teile ei määratud sellest voorust koolitusi.'}
+              ? `Teile on ette nähtud ${mine.size} koolitust — need on tabelis märgitud „Määratud teile“. Tellimuse vormistab tellija eraldi ja võtab teiega ühendust.`
+              : 'Teile ei ole sellest voorust koolitusi ette nähtud.'}
           </p>
-          {myOrder && (
-            <p className="mt-2">
-              <Link href={`/partner/tellimused/${myOrder.id}`} className="kh-btn kh-btn-primary">
-                Ava tellimus KH-{myOrder.year}-{String(myOrder.seq).padStart(4, '0')}
-              </Link>
-            </p>
-          )}
         </div>
       )}
 

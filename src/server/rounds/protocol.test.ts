@@ -315,21 +315,12 @@ describe('the protocol only copies stored facts', () => {
     );
   });
 
-  it('lists the orders that were created, with their frozen figures [T-05]', () => {
+  it('[L-25] lists no orders — they are formalised outside the application for now', () => {
     const roundId = fullRound();
     const data = stored(roundId).data;
-    expect(data.orders.length).toBeGreaterThan(0);
-    for (const order of data.orders) {
-      expect(order.number).toMatch(/^KH-2026-\d{4}$/);
-      expect(order.trainingCodes.length).toBeGreaterThan(0);
-      expect(order.totalEur).toBeCloseTo(order.trainingCodes.length * order.unitPriceEur, 5);
-    }
-    const allocated = data.orders.flatMap((o) => o.trainingCodes).sort();
-    const fromAllocation = data.allocation.byTraining
-      .filter((row) => row.final !== null)
-      .map((row) => row.trainingCode)
-      .sort();
-    expect(allocated).toEqual(fromAllocation);
+    expect(data.orders).toEqual([]);
+    // The allocation itself is in the protocol; every allocated training names its final partner.
+    expect(data.allocation.byTraining.some((row) => row.final !== null)).toBe(true);
   });
 
   it('records the participants in frozen rank order with their contacts [V-07][D-09]', () => {
@@ -355,7 +346,8 @@ describe('the protocol only copies stored facts', () => {
     const data = stored(roundId).data;
     expect(data.notices.length).toBeGreaterThan(0);
     expect(data.notices.map((n) => n.type)).toContain('round_published');
-    expect(data.notices.map((n) => n.type)).toContain('order_issued');
+    expect(data.notices.map((n) => n.type)).not.toContain('order_issued');
+    expect(data.notices.map((n) => n.type)).toContain('round_closed_partner');
     // Deliberately no delivery field: the mail leaves after this commit.
     // (Keys come back alphabetical — the stored text is canonical JSON.)
     expect(Object.keys(data.notices[0])).toEqual([
@@ -428,7 +420,9 @@ describe('a round that ended before protocols existed', () => {
     // Written later, but about the same round.
     expect(row.generatedAt).toBe(START + 5 * 86_400_000);
     const data = stored(roundId).data;
-    expect(data.orders.length).toBeGreaterThan(0);
+    // The stored facts: the allocation and the bids — no orders, they are
+    // formalised outside the application [L-25].
+    expect(data.allocation.byTraining.some((row) => row.final !== null)).toBe(true);
     expect(data.bids.length).toBeGreaterThan(0);
   });
 

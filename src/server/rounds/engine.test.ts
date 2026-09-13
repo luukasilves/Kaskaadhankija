@@ -38,6 +38,7 @@ import {
   deactivateLotPartner,
   declineAll,
   extendDeadline,
+  issueOrders,
   markTrainingCompleted,
   previewFinalAllocation,
   publishRound,
@@ -729,7 +730,7 @@ describe('[T-02] buyer adjustments', () => {
   });
 });
 
-describe('[T-04][T-05] confirming the allocation', () => {
+describe('[T-04] confirming the allocation', () => {
   const run = () => {
     const roundId = openRound();
     confirm(roundId, 0, [fx.trainingIds[0], fx.trainingIds[1]], 1);
@@ -741,9 +742,91 @@ describe('[T-04][T-05] confirming the allocation', () => {
     return { roundId, result };
   };
 
-  it('creates one order per allocated partner', () => {
+  it('freezes the final allocation and marks the trainings allocated — without an order', () => {
     const { roundId, result } = run();
-    expect(result.orderIds).toHaveLength(3);
+    expect(result.partnerCount).toBe(3);
+    expect(result.allocatedCount).toBe(4);
+    expect(harness.read((db) => db.select().from(orders).where(eq(orders.roundId, roundId)).all())).toHaveLength(0);
+    expect(trainingRow(fx.trainingIds[0])?.status).toBe('allocated');
+    expect(trainingRow(fx.trainingIds[0])?.allocatedLotPartnerId).toBe(fx.lotPartnerIds[0]);
+    expect(trainingRow(fx.trainingIds[0])?.orderId).toBeNull();
+  });
+
+  it('[L-25] tells no partner — the decision is made outside the application', () => {
+    const { roundId } = run();
+    const types = harness.read((db) =>
+      db.select({ type: notifications.type }).from(notifications).where(eq(notifications.roundId, roundId)).all(),
+    ).map((row) => row.type);
+    expect(types).not.toContain('order_issued');
+    expect(types).not.toContain('allocated_elsewhere');
+    expect(types).toContain('buyer_round_confirmed');
+  });
+
+  it('refuses a second confirmation', () => {
+    const { roundId } = run();
+    expect(() => harness.write((ctx) => confirmAllocation(ctx, roundId))).toThrow(
+      /olekut ei saa muuta/,
+    );
+  });
+
+  it('[J-06] leaves unwanted trainings as jääk', () => {
+    const { result } = run();
+    expect(result.leftover).toHaveLength(2);
+    for (const id of result.leftover) {
+      expect(trainingRow(id)?.status).toBe('leftover');
+      expect(trainingRow(id)?.leftoverFromRoundId).toBeTruthy();
+    }
+  });
+});
+
+describe('[D-12] the closing mail', () => {
+  it('goes to every participant once, with their own provisional outcome and nobody else’s name', () => {
+    const roundId = openRound();
+    confirm(roundId, 0, [fx.trainingIds[0], fx.trainingIds[1]], 1);
+    confirm(roundId, 1, [fx.trainingIds[1], fx.trainingIds[2]]);
+    // partner 3 never answers [K-08]
+    harness.advance(6 * 86_400_000);
+    harness.write((ctx) => closeRound(ctx, roundId));
+
+    const rows = harness.read((db) =>
+      db
+        .select()
+        .from(notifications)
+        .where(and(eq(notifications.roundId, roundId), eq(notifications.type, 'round_closed_partner')))
+        .all(),
+    );
+    expect(rows).toHaveLength(3);
+    const of = (index: number) => rows.find((r) => r.recipientLotPartnerId === fx.lotPartnerIds[index])!;
+    // Partner 1 capped itself at 1 → one of its two marks; partner 2 gets the other plus its own.
+    expect(of(0).body).toContain('läheks teile 1 koolitust');
+    expect(of(1).body).toContain('läheks teile 2 koolitust');
+    expect(of(2).body).toContain('ei kinnitanud');
+    expect(of(2).body).toContain('ühtegi koolitust');
+    for (const row of rows) {
+      expect(row.body).toContain('mitte tellimus');
+      expect(row.body).toContain('eraldi ühendust');
+    }
+    expect(of(0).body).not.toContain('Partner 2');
+    expect(of(1).body).not.toContain('Partner 1');
+  });
+});
+
+describe('[T-05][D-07] issuing orders — suspended machinery [L-25]', () => {
+  const run = () => {
+    const roundId = openRound();
+    confirm(roundId, 0, [fx.trainingIds[0], fx.trainingIds[1]], 1);
+    confirm(roundId, 1, [fx.trainingIds[1], fx.trainingIds[2]]);
+    confirm(roundId, 2, [fx.trainingIds[3]]);
+    harness.advance(6 * 86_400_000);
+    harness.write((ctx) => closeRound(ctx, roundId));
+    harness.write((ctx) => confirmAllocation(ctx, roundId));
+    const issued = harness.write((ctx) => issueOrders(ctx, roundId));
+    return { roundId, issued };
+  };
+
+  it('creates one order per allocated partner', () => {
+    const { roundId, issued } = run();
+    expect(issued.orderIds).toHaveLength(3);
     const rows = harness.read((db) => db.select().from(orders).where(eq(orders.roundId, roundId)).all());
     expect(rows).toHaveLength(3);
     expect(rows.every((o) => o.kind === 'allocation')).toBe(true);
@@ -780,7 +863,7 @@ describe('[T-04][T-05] confirming the allocation', () => {
     expect(binding?.lotPartnerId).toBe(fx.lotPartnerIds[0]);
   });
 
-  it('marks the trainings allocated and links them to the order', () => {
+  it('links the trainings to the order', () => {
     const { roundId } = run();
     const links = harness.read((db) =>
       db
@@ -791,22 +874,18 @@ describe('[T-04][T-05] confirming the allocation', () => {
         .all(),
     );
     expect(links).toHaveLength(4);
-    expect(trainingRow(fx.trainingIds[0])?.status).toBe('allocated');
-    expect(trainingRow(fx.trainingIds[0])?.allocatedLotPartnerId).toBe(fx.lotPartnerIds[0]);
+    expect(trainingRow(fx.trainingIds[0])?.orderId).toBeTruthy();
   });
 
-  it('refuses a second confirmation', () => {
+  it('is a no-op the second time', () => {
     const { roundId } = run();
-    expect(() => harness.write((ctx) => confirmAllocation(ctx, roundId))).toThrow(
-      /olekut ei saa muuta/,
-    );
-    expect(
-      harness.read((db) => db.select().from(orders).where(eq(orders.roundId, roundId)).all()),
-    ).toHaveLength(3);
+    const again = harness.write((ctx) => issueOrders(ctx, roundId));
+    expect(again.orderIds).toHaveLength(0);
+    expect(harness.read((db) => db.select().from(orders).where(eq(orders.roundId, roundId)).all())).toHaveLength(3);
   });
 
   it('[N-08] tells a partner their mark went elsewhere, without naming anyone', () => {
-    const { roundId } = run();
+    run();
     const notice = harness.read((db) =>
       db
         .select()
@@ -823,16 +902,6 @@ describe('[T-04][T-05] confirming the allocation', () => {
     expect(notice).toBeTruthy();
     expect(notice!.body).toContain('määrati teisele partnerile');
     expect(notice!.body).not.toContain('Partner 2');
-    void roundId;
-  });
-
-  it('[J-06] leaves unwanted trainings as jääk', () => {
-    const { result } = run();
-    expect(result.leftover).toHaveLength(2);
-    for (const id of result.leftover) {
-      expect(trainingRow(id)?.status).toBe('leftover');
-      expect(trainingRow(id)?.leftoverFromRoundId).toBeTruthy();
-    }
   });
 });
 
@@ -1050,8 +1119,8 @@ describe('[D-08] the audit trail is evidence', () => {
         'round.published',
         'marks.confirmed',
         'round.closed',
-        'order.created',
         'round.confirmed',
+        'protocol.generated',
       ]),
     );
   });
@@ -1129,7 +1198,10 @@ describe('[E-07] after the order exists', () => {
     confirm(roundId, 0, [fx.trainingIds[0]]);
     harness.advance(6 * 86_400_000);
     harness.write((ctx) => closeRound(ctx, roundId));
-    const { orderIds } = harness.write((ctx) => confirmAllocation(ctx, roundId));
+    const { orderIds } = harness.write((ctx) => {
+      confirmAllocation(ctx, roundId);
+      return issueOrders(ctx, roundId);
+    });
 
     harness.write((ctx) =>
       recordPartnerWithdrawal(ctx, orderIds[0], fx.trainingIds[0], 'koolitaja haigestus'),
