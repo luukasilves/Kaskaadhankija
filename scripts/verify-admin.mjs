@@ -208,6 +208,18 @@ async function main() {
     check('the new contact address signs in as that partner', landing.startsWith('/partner'), landing);
     const partnerHome = await partnerPage.locator('main, header').first().textContent();
     check('as the right company', partnerHome.includes('Tehisaru') || (await partnerPage.locator('body').textContent()).includes('Tehisaru'));
+
+    /* a signed-in representative owns their informational-mail switch [L-27] */
+    await partnerPage.goto(`${base}/partner/teavitused`);
+    await partnerPage.waitForSelector('[data-testid="notice-preferences"]', { timeout: 20_000 });
+    const prefs = partnerPage.getByTestId('notice-preferences');
+    check('the notifications page offers the personal mail switch', (await prefs.textContent()).includes('sisse lülitatud'));
+    await prefs.locator('[data-testid="informational-mail-toggle"] button').click();
+    await partnerPage.waitForSelector('[data-testid="notice-preferences"] [data-testid="action-ok"]', { timeout: 20_000 });
+    check(
+      'switching informational mail off is confirmed and shown',
+      (await partnerPage.getByTestId('notice-preferences').textContent()).includes('välja lülitatud'),
+    );
     await partnerContext.close();
 
     /* …and the previous contact is nobody's sign-in any more [L-21] */

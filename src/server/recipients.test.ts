@@ -75,6 +75,49 @@ describe('[D-10] partnerRecipients', () => {
     // The other company is unaffected.
     expect(harness.read((db) => partnerRecipients(db, fx.lotPartnerIds[1]!))).toEqual(['kontakt2@naidis.ee']);
   });
+
+  it('leaves out a representative who switched informational mail off — for informational notices only [L-27]', () => {
+    harness.write((ctx) => {
+      const base = { partnerId: fx.partnerIds[0]!, createdAt: ctx.at, updatedAt: ctx.at, role: 'esindaja' as const };
+      ctx.tx
+        .insert(partnerRepresentatives)
+        .values([
+          { id: 'r1', ...base, name: 'A', email: 'a@partner.ee' },
+          { id: 'r2', ...base, name: 'B', email: 'b@partner.ee', notifyInformational: false },
+        ])
+        .run();
+    });
+    const to = (type?: Parameters<typeof partnerRecipients>[2]) =>
+      harness.read((db) => partnerRecipients(db, fx.lotPartnerIds[0]!, type)).sort();
+    expect(to('confirmation_receipt')).toEqual(['a@partner.ee']);
+    expect(to('projection_changed')).toEqual(['a@partner.ee']);
+    expect(to('reminder_final')).toEqual(['a@partner.ee']);
+    // Formal notices reach everyone, switch or no switch.
+    expect(to('round_published')).toEqual(['a@partner.ee', 'b@partner.ee']);
+    expect(to('reminder_24h')).toEqual(['a@partner.ee', 'b@partner.ee']);
+    expect(to('round_closed_partner')).toEqual(['a@partner.ee', 'b@partner.ee']);
+    expect(to()).toEqual(['a@partner.ee', 'b@partner.ee']);
+  });
+
+  it('mails nobody when every representative declined the informational notice — no fallback to the lot contact', () => {
+    harness.write((ctx) =>
+      ctx.tx
+        .insert(partnerRepresentatives)
+        .values({
+          id: 'r1',
+          partnerId: fx.partnerIds[0]!,
+          name: 'A',
+          email: 'a@partner.ee',
+          role: 'esindaja',
+          notifyInformational: false,
+          createdAt: ctx.at,
+          updatedAt: ctx.at,
+        })
+        .run(),
+    );
+    expect(harness.read((db) => partnerRecipients(db, fx.lotPartnerIds[0]!, 'confirmation_receipt'))).toEqual([]);
+    expect(harness.read((db) => partnerRecipients(db, fx.lotPartnerIds[0]!, 'round_published'))).toEqual(['a@partner.ee']);
+  });
 });
 
 describe('teamRecipients', () => {

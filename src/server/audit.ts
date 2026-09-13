@@ -66,6 +66,7 @@ export type AuditEventType =
   | 'representative.deactivated'
   | 'representative.activated'
   | 'representative.synced_from_framework'
+  | 'representative.preferences_changed'
   // buyer team [R-01]
   | 'team.member_added'
   | 'team.member_updated'

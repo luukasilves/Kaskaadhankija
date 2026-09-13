@@ -188,7 +188,9 @@ Every formal notice a partner receives is e-mailed to all of its active
 representatives, with the lot contact as the fallback, and the *Teavitused* log
 shows what happened to each copy — sent, failed and retried, suppressed by the
 test environment's allowlist, or never attempted for want of a mail server —
-with a manual re-send.
+with a manual re-send. Informational notices — receipts, projection changes,
+the two-hour summary — each representative can switch off for themselves on
+*Teavitused*; they stay in the log, and the formal ones keep coming [L-27].
 
 ### Uploading a whole round
 

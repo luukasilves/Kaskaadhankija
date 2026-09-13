@@ -223,6 +223,12 @@ export const partnerRepresentatives = sqliteTable(
      * buyer lists them afterwards. `!isActive ⇒ !isListed`.
      */
     isListed: integer('is_listed', { mode: 'boolean' }).notNull().default(false),
+    /**
+     * Whether this person wants the *informational* notices by e-mail — receipts,
+     * projection changes, the final summary [D-10][L-27]. Formal notices go out
+     * regardless; the in-app log always has everything.
+     */
+    notifyInformational: integer('notify_informational', { mode: 'boolean' }).notNull().default(true),
     phone: text().notNull().default(''),
     isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
     deactivatedAt: integer('deactivated_at'),

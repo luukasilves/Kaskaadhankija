@@ -6,6 +6,7 @@
  * means. Mirrors sections M, V and N of `docs/kaskaadi-ariloogika.md`.
  */
 
+import type { NotificationType } from '@/db/schema';
 import type { CapKind, NotProjectedReason, TrainingViewState } from './allocate';
 
 /* ------------------------------------------------------------------ *
@@ -324,6 +325,38 @@ export const NOTIFICATION_TYPE_LABELS: Record<string, string> = {
   buyer_round_confirmed: 'Jaotus kinnitatud',
   late_action_rejected: 'Hilinenud toiming',
 };
+
+export type NoticeCategory = 'formal' | 'informational';
+
+/**
+ * Which notices always go out by e-mail, and which a representative may switch
+ * off for themselves [D-10][L-27]. A `Record` over the whole type union, so a
+ * new notice type does not compile until somebody has decided which it is.
+ *
+ * Formal: the round's existence, its changes, the reminder and its end — a
+ * partner who never opens the application must still learn these. Informational:
+ * what the partner did themselves or can read on the page at any time.
+ */
+export const NOTICE_CATEGORY: Record<NotificationType, NoticeCategory> = {
+  round_published: 'formal',
+  confirmation_receipt: 'informational',
+  decline_receipt: 'informational',
+  projection_changed: 'informational',
+  reminder_24h: 'formal',
+  reminder_final: 'informational',
+  round_changed: 'formal',
+  round_cancelled: 'formal',
+  participant_excluded: 'formal',
+  round_closed_partner: 'formal',
+  order_issued: 'formal',
+  allocated_elsewhere: 'formal',
+  buyer_round_closed: 'formal',
+  buyer_round_confirmed: 'formal',
+  late_action_rejected: 'formal',
+};
+
+/** The informational notices, named for a reader [L-27]. */
+export const INFORMATIONAL_NOTICES_TEXT = 'kinnituste ja loobumiste kviitungid, prognoosi muutused ja lõppkokkuvõte';
 
 /** A partner representative's role [R-02]. */
 export const REPRESENTATIVE_ROLE_LABELS: Record<string, string> = {

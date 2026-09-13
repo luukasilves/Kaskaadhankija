@@ -762,12 +762,14 @@ export function confirmMarks(
           confirmedAtText: formatDateTimeShort(ctx.at),
         });
 
+  const receiptType = kind === 'confirm' ? 'confirmation_receipt' : 'decline_receipt';
   notify(ctx, {
     recipientKind: 'partner',
     recipientLotPartnerId: participant.lotPartnerId,
-    type: kind === 'confirm' ? 'confirmation_receipt' : 'decline_receipt',
+    type: receiptType,
     roundId,
-    emailTo: partnerRecipients(ctx.tx, participant.lotPartnerId),
+    // Informational [L-27]: a representative may have switched these off.
+    emailTo: partnerRecipients(ctx.tx, participant.lotPartnerId, receiptType),
     notice: receipt,
   });
 
@@ -852,7 +854,7 @@ function notifyProjectionChanges(
       recipientLotPartnerId: participant.lotPartnerId,
       type: 'projection_changed',
       roundId,
-      emailTo: partnerRecipients(ctx.tx, participant.lotPartnerId),
+      emailTo: partnerRecipients(ctx.tx, participant.lotPartnerId, 'projection_changed'),
       notice: renderProjectionChanged({
         framework: frameworkIdentity(ctx.tx),
         roundCode: round.code,
@@ -1290,7 +1292,7 @@ export function sendFinalSummary(ctx: Ctx, roundId: string): number {
       recipientLotPartnerId: participant.lotPartnerId,
       type: 'reminder_final',
       roundId,
-      emailTo: partnerRecipients(ctx.tx, participant.lotPartnerId),
+      emailTo: partnerRecipients(ctx.tx, participant.lotPartnerId, 'reminder_final'),
       notice: renderFinalSummary({
         framework: frameworkIdentity(ctx.tx),
         roundCode: round.code,

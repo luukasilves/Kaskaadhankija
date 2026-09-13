@@ -9,18 +9,24 @@
  */
 
 import { and, eq } from 'drizzle-orm';
-import { lotPartners, partnerRepresentatives, users } from '@/db/schema';
+import { lotPartners, partnerRepresentatives, users, type NotificationType } from '@/db/schema';
+import { NOTICE_CATEGORY } from '@/domain/round-statuses';
 import { env } from '@/lib/env';
 import type { Db, Tx } from './context';
 
 type Reader = Tx | Db;
 
 /**
- * The addresses a partner's formal notices go to: every active representative
- * of the company [D-10], else the contact named in the lot membership. Empty
- * keeps the notice in-app only.
+ * The addresses a partner's notices go to: every active representative of the
+ * company [D-10], else the contact named in the lot membership. Empty keeps the
+ * notice in-app only.
+ *
+ * For an *informational* notice [L-27] — pass its `type` — a representative who
+ * switched those off is left out, and if everyone has, nobody is mailed: the
+ * in-app log has the notice, and the lot contact is not a fallback for a mail
+ * the people concerned declined. Formal notices ignore the switch.
  */
-export function partnerRecipients(tx: Reader, lotPartnerId: string): string[] {
+export function partnerRecipients(tx: Reader, lotPartnerId: string, type?: NotificationType): string[] {
   const member = tx
     .select({ partnerId: lotPartners.partnerId, contactEmail: lotPartners.contactEmail })
     .from(lotPartners)
@@ -29,14 +35,16 @@ export function partnerRecipients(tx: Reader, lotPartnerId: string): string[] {
   if (!member) return [];
 
   const representatives = tx
-    .select({ email: partnerRepresentatives.email })
+    .select({ email: partnerRepresentatives.email, notifyInformational: partnerRepresentatives.notifyInformational })
     .from(partnerRepresentatives)
     .where(
       and(eq(partnerRepresentatives.partnerId, member.partnerId), eq(partnerRepresentatives.isActive, true)),
     )
-    .all()
-    .map((r) => r.email);
-  if (representatives.length > 0) return representatives;
+    .all();
+  if (representatives.length > 0) {
+    const informational = type !== undefined && NOTICE_CATEGORY[type] === 'informational';
+    return representatives.filter((r) => !informational || r.notifyInformational).map((r) => r.email);
+  }
 
   return member.contactEmail ? [member.contactEmail] : [];
 }

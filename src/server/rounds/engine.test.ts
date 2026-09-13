@@ -17,10 +17,12 @@ import {
   notifications,
   orderTrainings,
   orders,
+  partnerRepresentatives,
   roundParticipants,
   roundTrainings,
   rounds,
   trainings,
+  type NotificationType,
 } from '@/db/schema';
 import { allocate } from '@/domain/allocate';
 import { tallinnParts } from '@/domain/working-days';
@@ -1103,6 +1105,48 @@ describe('[D-05] the reminder', () => {
         db.select().from(notifications).where(eq(notifications.type, 'reminder_24h')).all(),
       ),
     ).toHaveLength(3);
+  });
+});
+
+describe('[D-10][L-27] informational mail is the representative’s choice', () => {
+  const deliveriesOf = (type: NotificationType) =>
+    harness.read((db) =>
+      db
+        .select({ to: emailDeliveries.to })
+        .from(emailDeliveries)
+        .innerJoin(notifications, eq(notifications.id, emailDeliveries.notificationId))
+        .where(and(eq(notifications.type, type), eq(notifications.recipientLotPartnerId, fx.lotPartnerIds[0]!)))
+        .all()
+        .map((row) => row.to)
+        .sort(),
+    );
+
+  it('keeps the receipt in the log for everyone but mails only those who want it; the publication reaches all', () => {
+    harness.write((ctx) => {
+      const base = { partnerId: fx.partnerIds[0]!, createdAt: ctx.at, updatedAt: ctx.at, role: 'esindaja' as const };
+      ctx.tx
+        .insert(partnerRepresentatives)
+        .values([
+          { id: 'rep-on', ...base, name: 'Tahab', email: 'tahab@partner.ee' },
+          { id: 'rep-off', ...base, name: 'Ei taha', email: 'eitaha@partner.ee', notifyInformational: false },
+        ])
+        .run();
+    });
+    const roundId = openRound();
+    expect(deliveriesOf('round_published')).toEqual(['eitaha@partner.ee', 'tahab@partner.ee']);
+
+    confirm(roundId, 0, [fx.trainingIds[0]]);
+    expect(deliveriesOf('confirmation_receipt')).toEqual(['tahab@partner.ee']);
+    // The notice itself exists once, for the company — the log is complete.
+    expect(
+      harness.read((db) =>
+        db
+          .select()
+          .from(notifications)
+          .where(and(eq(notifications.type, 'confirmation_receipt'), eq(notifications.recipientLotPartnerId, fx.lotPartnerIds[0]!)))
+          .all(),
+      ),
+    ).toHaveLength(1);
   });
 });
 

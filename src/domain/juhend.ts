@@ -106,6 +106,7 @@ const PARTNER_VOOR = 'src/app/partner/voorud/[id]/page.tsx';
 const MARKING_FORM = 'src/app/partner/voorud/[id]/marking-form.tsx';
 const VOORUD = 'src/app/partner/voorud/page.tsx';
 const SISENE = 'src/components/sign-in.tsx';
+const PARTNER_TEAVITUSED = 'src/app/partner/teavitused/page.tsx';
 
 export const QUOTED: readonly { tekst: string; fail: string }[] = [
   { tekst: 'Saada kood', fail: SISENE },
@@ -133,6 +134,7 @@ export const QUOTED: readonly { tekst: string; fail: string }[] = [
   { tekst: 'Märgi kõik saadaval', fail: MARKING_FORM },
   { tekst: 'Märgi kõik', fail: MARKING_FORM },
   { tekst: 'Tühjenda', fail: MARKING_FORM },
+  { tekst: 'Teavituste seaded', fail: PARTNER_TEAVITUSED },
 ] as const;
 
 /* ------------------------------------------------------------------ *
@@ -656,7 +658,7 @@ export const SECTIONS: readonly Section[] = [
   {
     id: 'teavitused',
     title: 'Teated ja kes neid saab',
-    rules: ['D-02', 'D-03', 'D-04', 'D-05', 'D-07', 'D-10', 'D-11'],
+    rules: ['D-02', 'D-03', 'D-04', 'D-05', 'D-07', 'D-10', 'D-11', 'L-27'],
     blocks: [
       {
         kind: 'para',
@@ -675,6 +677,11 @@ export const SECTIONS: readonly Section[] = [
         ],
       },
       { kind: 'figure', id: 'teavitused', caption: 'Teavituste logi. Iga teate juures on ka see, mis e-kirjaga juhtus.' },
+      {
+        kind: 'para',
+        text:
+          'Kui kirju on liiga palju, lülitage lehel **Teavitused** plokis **„Teavituste seaded“** teabekirjad — kviitungid, prognoosi muutused ja lõppkokkuvõte — e-postist välja. Need jäävad ikka logisse. Vooru avaldamine, muudatused, meeldetuletus ja vooru lõppemise teade tulevad e-postiga alati. Seadistus on teie isiklik, mitte ettevõtte oma.',
+      },
       {
         kind: 'para',
         text:

@@ -52,6 +52,8 @@ export interface PartnerActor {
   regCode: string;
   contactName: string;
   contactEmail: string;
+  /** the signed-in representative's row; absent when an admin acts as the company [L-08] */
+  representativeId?: string;
   /** every lot membership this company holds */
   lotPartnerIds: string[];
   memberships: Array<{ lotPartnerId: string; lotId: string; lotCode: string; rank: number }>;
@@ -82,7 +84,7 @@ type Membership = { lotPartnerId: string; lotId: string; lotCode: string; rank: 
 function buildPartner(
   partner: typeof partners.$inferSelect,
   memberships: Membership[],
-  person?: { name: string; email: string },
+  person?: { id?: string; name: string; email: string },
 ): PartnerActor {
   const contact = person ?? {
     name: memberships[0]?.contactName ?? '',
@@ -95,6 +97,7 @@ function buildPartner(
     regCode: partner.regCode,
     contactName: contact.name,
     contactEmail: contact.email,
+    representativeId: person?.id,
     lotPartnerIds: memberships.map((m) => m.lotPartnerId),
     memberships: memberships.map(({ lotPartnerId, lotId, lotCode, rank }) => ({
       lotPartnerId,
@@ -146,6 +149,7 @@ export function actorForSubject(db: Db, kind: SessionSubjectKind, subjectId: str
     .get();
   if (!partner) return null;
   return buildPartner(partner, membershipsOf(db, partner.id), {
+    id: representative.id,
     name: representative.name,
     email: representative.email,
   });

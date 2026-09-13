@@ -345,6 +345,26 @@ describe('0012_final_reminder on a populated v2.6 database', () => {
   });
 });
 
+describe('0013_notice_preferences on a populated v2.6 database', () => {
+  it('switches informational mail on for every existing representative [L-27]', () => {
+    const raw = databaseThrough('0012_final_reminder');
+    raw.prepare("INSERT INTO partners (id, name, reg_code, created_at) VALUES ('p1', 'Tehisaru', '10000001', 1000)").run();
+    raw
+      .prepare(
+        `INSERT INTO partner_representatives (id, partner_id, name, email, role, source, phone, is_active, is_listed, created_at, updated_at)
+         VALUES ('r1', 'p1', 'Jaan Kask', 'jaan.kask@tehisaru-naidis.ee', 'esindaja', 'framework', '', 1, 0, 1000, 1000)`,
+      )
+      .run();
+
+    migrate(drizzle(raw, { schema }), { migrationsFolder: folder });
+
+    expect(raw.prepare('SELECT notify_informational FROM partner_representatives').all()).toEqual([{ notify_informational: 1 }]);
+    const triggers = raw.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type = 'trigger'").get() as { n: number };
+    expect(triggers.n).toBe(6);
+    raw.close();
+  });
+});
+
 describe('0007_acting_via on a populated v2 database', () => {
   it('adds the two columns without disturbing the append-only trail [L-08]', () => {
     const raw = v2Database();
