@@ -128,6 +128,11 @@ export const QUOTED: readonly { tekst: string; fail: string }[] = [
   { tekst: 'Määrati teisele partnerile', fail: MARKING_FORM },
   { tekst: 'Ülempiir', fail: MARKING_FORM },
   { tekst: 'piirmäära ei ole', fail: MARKING_FORM },
+  { tekst: 'Piirmäära ei ole', fail: MARKING_FORM },
+  { tekst: 'Kuni', fail: MARKING_FORM },
+  { tekst: 'Märgi kõik saadaval', fail: MARKING_FORM },
+  { tekst: 'Märgi kõik', fail: MARKING_FORM },
+  { tekst: 'Tühjenda', fail: MARKING_FORM },
 ] as const;
 
 /* ------------------------------------------------------------------ *
@@ -415,6 +420,11 @@ export const SECTIONS: readonly Section[] = [
       },
       {
         kind: 'para',
+        text:
+          'Tabeli kohal on kolm nuppu kiiremaks alguseks: **„Märgi kõik saadaval“** märgib korraga kõik koolitused, mida eesõigusega partner ei ole kinnitanud, **„Märgi kõik“** märgib kõik ja **„Tühjenda“** võtab kõik märked maha. Pärast seda saab linnukesi ükshaaval muuta.',
+      },
+      {
+        kind: 'para',
         text: `Veerg „Olek“ näitab iga koolituse juures üht neljast seisust. Need arvutatakse teist **eespool** olevate partnerite kinnitatud märgete põhjal:`,
       },
       {
@@ -460,7 +470,7 @@ export const SECTIONS: readonly Section[] = [
       },
       {
         kind: 'para',
-        text: `Tellija otsustab iga vooru juures, kas ülempiiri saab märkida ja mille kaupa: **koolituste arvuna** („võtan vastu kuni ${capLabel(3, 'trainings')}“) või **osalejate arvuna kokku** („võtan vastu koolitusi kokku kuni 120 osalejale“). Mõnes voorus saate ise liigi valida, mõnes ülempiiri ei kasutata. Väli „Ülempiir“ näitab, mis selles voorus võimalik on; tühja välja tähendus on „piirmäära ei ole“.`,
+        text: `Tellija otsustab iga vooru juures, kas ülempiiri saab märkida ja mille kaupa: **koolituste arvuna** („võtan vastu kuni ${capLabel(3, 'trainings')}“) või **osalejate arvuna kokku** („võtan vastu koolitusi kokku kuni 120 osalejale“). Mõnes voorus saate ise liigi valida, mõnes ülempiiri ei kasutata. Plokis „Ülempiir“ on kaks valikut: **„Piirmäära ei ole“** (vaikimisi — võtate vastu kõik kinnitatud märked) ja **„Kuni“** koos arvuga; kui arv jääb tühjaks, piirmäära ei ole.`,
       },
       {
         kind: 'list',

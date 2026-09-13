@@ -412,6 +412,7 @@ export default async function PartnerRoundPage({
             stateLabel: parts?.label ?? null,
             stateReason: parts?.reason ?? null,
             stateTone: view ? VIEW_STATE_TONES[view.state] : null,
+            stateKey: view?.state ?? null,
           };
         })}
       />

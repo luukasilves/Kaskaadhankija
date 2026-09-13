@@ -223,6 +223,11 @@ async function walkFullCascade(page, server) {
     'the round offers a choice of cap kind, as the file asked',
     (await page.locator('input[name="capKindChoice"]').count()) === 2,
   );
+  check('the cap is an explicit choice — none or „Kuni N“ [K-06]', (await page.locator('input[name="capChoice"]').count()) === 2);
+  check(
+    'the table offers bulk marking [K-01]',
+    (await page.getByTestId('bulk-mark').locator('button').allTextContents()).join('|') === 'Märgi kõik saadaval|Märgi kõik|Tühjenda',
+  );
   await markAndConfirm(page, [WALK1_CODES[0], WALK1_CODES[1]]);
   check('rank 1 is projected both of its marks', (await stateOf(page, WALK1_CODES[0])) === 'Prognoosis sinule');
   check(

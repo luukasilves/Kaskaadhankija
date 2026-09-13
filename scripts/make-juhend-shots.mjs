@@ -148,7 +148,7 @@ async function main() {
     await assertOnlyFictionalCompanies(page, 'voor');
     // Never confirmed, so this banner names no timestamp — deterministic.
     await figure('kinnitamata', page.getByTestId('unconfirmed-banner'));
-    await figure('kinnitamine', page.locator('section:has([data-testid="confirm-marks"])'));
+    await figure('kinnitamine', page.getByTestId('confirmation-area'));
 
     note('Tehisaru — teavitused ja lõppenud voor');
     await page.goto(`${base}/partner/teavitused`);
@@ -169,7 +169,18 @@ async function main() {
 
     check('the open OSA-2 round is theirs too', await openOpenRound(page, base, 'OSA-2'));
     await assertOnlyFictionalCompanies(page, 'neli olekut');
+    // The table is wider than the card, whose width the layout caps at 1100px,
+    // so the state column — the point of this figure — scrolled out of the
+    // picture. For this one shot, widen the window and lift the cap.
+    await page.setViewportSize({ width: 1900, height: 900 });
+    await page.evaluate(() => {
+      document.querySelector('main').style.maxWidth = 'none';
+    });
     await figure('neli-olekut', page.locator('section:has([data-testid="state-cell"])'));
+    await page.evaluate(() => {
+      document.querySelector('main').style.maxWidth = '';
+    });
+    await page.setViewportSize({ width: 1280, height: 900 });
 
     /* --- Targa Töö, koht 4: has not answered --- */
     note('Targa Töö Koolitus OÜ — vastamata');
