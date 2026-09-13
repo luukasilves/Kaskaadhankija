@@ -69,7 +69,7 @@ describe('trainings import — upload path', () => {
       targetGroup: 'kov',
       participantCount: 20,
       language: 'et',
-      estimatedValueEur: 1450,
+      estimatedValueEur: 1200,
     });
   });
 

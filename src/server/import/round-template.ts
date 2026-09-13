@@ -105,6 +105,8 @@ export async function buildRoundTemplate(input: RoundTemplateInput): Promise<Buf
       { 'Leht / veerg': 'Koolitused', Tähendus: 'Koolituskalendri impordi veerud. Olemasoleva koodiga rida uuendab koolitust (kui see ei ole juba voorus või määratud); uue koodiga rida loob koolituse. Kõik read lähevad loodavasse vooru.' },
       { 'Leht / veerg': 'Koolitused · kood', Tähendus: 'Kujul KK-2026-101. Kood on koolituse püsiv tunnus ka uude vooru andmisel.' },
       { 'Leht / veerg': 'Koolitused · kuupaev', Tähendus: '07.10.2026 või 2026-10-07; lopp_kuupaev mitmepäevase sündmuse puhul.' },
+      { 'Leht / veerg': 'Koolitused · osalejate_arv', Tähendus: 'Maksimaalne osalejate arv. Partner näeb „Max osalejaid“ ja hinda rühma täitumisel = see × tema hind osaleja kohta.' },
+      { 'Leht / veerg': 'Koolitused · hinnanguline_maksumus', Tähendus: 'Vabatahtlik tellija sisemine hinnang eurodes; partneri vaates ega protokollis seda ei ole.' },
       { 'Leht / veerg': 'Koolitused · formaat', Tähendus: Object.values(WORKSHOP_TYPE_LABELS).join(', ') },
       { 'Leht / veerg': 'Koolitused · sihtruhm', Tähendus: Object.values(TARGET_GROUPS).join(', ') },
       { 'Leht / veerg': 'Koolitused · keel', Tähendus: Object.keys(LANGUAGE_LABELS).join(', ') },

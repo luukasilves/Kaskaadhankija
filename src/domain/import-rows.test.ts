@@ -26,7 +26,7 @@ const trainingRow = (over: Partial<RawRow> = {}): RawRow => ({
   sihtruhm: 'KOV ametnikud',
   osalejate_arv: '25',
   keel: 'Eesti keel',
-  hinnanguline_maksumus: '1450',
+  hinnanguline_maksumus: '1200',
   markused: '',
   ...over,
 });
@@ -38,7 +38,7 @@ const partnerRow = (over: Partial<RawRow> = {}): RawRow => ({
   koht: '1',
   kontaktisik: 'Jaan Kask',
   e_post: 'jaan.kask@tehisaru-naidis.ee',
-  uhikhind: '1450',
+  uhikuhind: '58',
   ...over,
 });
 
@@ -140,7 +140,7 @@ describe('parseTrainingRows', () => {
       targetGroup: 'kov',
       participantCount: 25,
       language: 'et',
-      estimatedValueEur: 1450,
+      estimatedValueEur: 1200,
       notes: '',
     });
   });
@@ -269,7 +269,7 @@ describe('parsePartnerRows', () => {
       rank: 1,
       contactName: 'Jaan Kask',
       contactEmail: 'jaan.kask@tehisaru-naidis.ee',
-      unitPriceEur: 1450,
+      unitPriceEur: 58,
     });
   });
 
@@ -382,5 +382,28 @@ describe('countRows', () => {
       '2026-08-27',
     );
     expect(countRows(rows)).toEqual({ total: 3, valid: 2, withErrors: 1, withWarnings: 1 });
+  });
+});
+
+describe('[L-26] the buyer estimate is optional', () => {
+  it('accepts a calendar row with an empty hinnanguline_maksumus and stores 0', () => {
+    const { rows, fileErrors } = parseTrainings([trainingRow({ hinnanguline_maksumus: '' })]);
+    expect(fileErrors).toEqual([]);
+    expect(rows[0]?.errors).toEqual([]);
+    expect(rows[0]?.value?.estimatedValueEur).toBe(0);
+  });
+
+  it('accepts a file without the column at all', () => {
+    const { hinnanguline_maksumus: _dropped, ...withoutEstimate } = trainingRow();
+    void _dropped;
+    const { rows, fileErrors } = parseTrainings([withoutEstimate as RawRow]);
+    expect(fileErrors).toEqual([]);
+    expect(rows[0]?.value?.estimatedValueEur).toBe(0);
+  });
+
+  it('still rejects a garbled estimate, naming it the buyer’s own figure', () => {
+    const { rows } = parseTrainings([trainingRow({ hinnanguline_maksumus: 'palju' })]);
+    expect(rows[0]?.errors[0]?.field).toBe('hinnanguline_maksumus');
+    expect(rows[0]?.errors[0]?.message).toMatch(/tellija hinnang/);
   });
 });

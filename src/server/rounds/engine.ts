@@ -44,6 +44,7 @@ import { CAP_KIND_LABELS, allowedCapKinds, type CapOptions,
   type VisibilityMode,
 } from '@/domain/round-statuses';
 import { orderDisplayNumber, WORKSHOP_TYPE_LABELS } from '@/domain/statuses';
+import { allocationMaxPriceEur, priceLine } from '@/domain/pricing';
 import { addWorkingDays } from '@/domain/working-days';
 import {
   formatDateTime,
@@ -1488,7 +1489,7 @@ export function issueOrders(ctx: Ctx, roundId: string): { orderIds: string[] } {
     const rows = allocation.trainingIds
       .map((id) => trainingRows.get(id))
       .filter((row): row is typeof trainings.$inferSelect => Boolean(row));
-    const total = rows.length * membership.unitPriceEur;
+    const total = allocationMaxPriceEur(rows.map((row) => ({ participantCount: row.participantCount, unitPriceEur: membership.unitPriceEur })));
 
     const document: OrderDocument = {
       // Frozen into the document, so an order still names the agreement it was
@@ -1580,7 +1581,7 @@ export function issueOrders(ctx: Ctx, roundId: string): { orderIds: string[] } {
         partnerName: partner.name,
         orderNumber: number,
         trainingLines: trainingLines(ctx, allocation.trainingIds),
-        totalText: `Hinnanguline kogumaksumus: ${formatEur(total)} (ühikuhind ${formatEur(membership.unitPriceEur)}).`,
+        totalText: priceLine(total, membership.unitPriceEur),
         partnerConfirmedAtText: binding ? formatDateTimeShort(binding.confirmedAt) : '—',
         buyerConfirmedAtText: formatDateTimeShort(round.confirmedAt ?? ctx.at),
         buyerContact: ctx.actor.label,

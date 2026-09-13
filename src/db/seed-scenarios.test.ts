@@ -22,7 +22,7 @@ import { participantsOf } from '@/server/rounds/views';
 import { createHarness, type TestHarness } from '@/server/test-support';
 import { seedBaseData, settleSeedDeliveries } from './seed';
 import { seedScenarios } from './seed-scenarios';
-import { emailDeliveries, lots, notifications, orders, rounds, trainings } from './schema';
+import { emailDeliveries, lotPartners, lots, notifications, orders, rounds, trainings } from './schema';
 
 /** A Wednesday, so "2 working days ago" does not cross a weekend. */
 const NOW = Date.UTC(2026, 8, 30, 9, 0);
@@ -222,6 +222,15 @@ describe('ülejäänud stsenaariumid', () => {
     // [L-25] no orders: the decision is made outside the application, so the
     // finished rounds hold their allocation in the snapshot and the protocol.
     expect(harness.read((db) => db.select({ id: orders.id }).from(orders).all())).toEqual([]);
+  });
+
+  it('[T-08] seeds prices per participant — every framework price is under 100 €', () => {
+    const prices = harness.read((db) => db.select({ price: lotPartners.unitPriceEur }).from(lotPartners).all());
+    expect(prices.length).toBeGreaterThan(0);
+    for (const { price } of prices) {
+      expect(price).toBeGreaterThan(5);
+      expect(price).toBeLessThan(100);
+    }
   });
 
   it('[T-06] leaves Scenario B’s unmarked training as jääk', () => {

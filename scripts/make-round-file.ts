@@ -51,7 +51,9 @@ interface RoundDraft {
  *
  * Each lot's rows stay inside that lot's own register: OSA-1 in the trainer's
  * rooms, OSA-2 in the buyer's, OSA-3 online, OSA-4 the large formats — and the
- * estimated costs follow that lot's unit-price ladder from the framework data.
+ * the buyer's estimate (`hinnanguline_maksumus`) is max participants × the
+ * lot's rank-1 price per participant, rounded up to 50 € — a budget figure,
+ * never a tariff; partners see their own price, not this [T-08][L-26].
  */
 const ROUNDS: RoundDraft[] = [
   {
@@ -61,14 +63,14 @@ const ROUNDS: RoundDraft[] = [
       'Ettevalmistamisel — ootab avaldamist. Detsembri töötubade teine voor: jätkab faili ' +
       'voor-osa1-detsember koolitusi (KK-2026-501…504).',
     trainings: rows([
-      ['KK-2026-505', 'Töötuba 1 Võru maakonna KOV ametnikele', 'Töötuba 1', '02.12.2026', '', 'Võru maakond', 'Koolitaja ruumid', 'KOV ametnikud', '18', 'et', '1450', ''],
-      ['KK-2026-506', 'Töötuba 1 Kuressaare haridusasutuste töötajatele', 'Töötuba 1', '04.12.2026', '', 'Saare maakond', 'Koolitaja ruumid', 'Haridus', '19', 'et', '1600', 'Saartele lisandub logistikakulu'],
-      ['KK-2026-507', 'Töötuba 2 Tartu maakonna riigiasutuste spetsialistidele', 'Töötuba 2', '09.12.2026', '', 'Tartu maakond', 'Koolitaja ruumid', 'Riigiasutused', '23', 'et', '1515', 'Eeldab Töötuba 1 läbimist'],
-      ['KK-2026-508', 'Töötuba 1 Jõhvi tervishoiutöötajatele', 'Töötuba 1', '10.12.2026', '', 'Ida-Viru maakond', 'Koolitaja ruumid Jõhvis', 'Tervishoid', '22', 'ru', '1580', 'Läbiviimine vene keeles'],
-      ['KK-2026-509', 'Töötuba 1 Rapla maakonna väikeettevõtjatele', 'Töötuba 1', '11.12.2026', '', 'Rapla maakond', 'Koolitaja ruumid', 'Väikeettevõtjad', '16', 'et', '1450', ''],
-      ['KK-2026-510', 'Töötuba 2 Pärnu maakonna sotsiaaltöötajatele', 'Töötuba 2', '16.12.2026', '', 'Pärnu maakond', 'Koolitaja ruumid', 'Sotsiaalvaldkond', '21', 'et', '1515', ''],
-      ['KK-2026-511', 'Töötuba 1 Põlva maakonna haridustöötajatele', 'Töötuba 1', '17.12.2026', '', 'Põlva maakond', 'Koolitaja ruumid', 'Haridus', '20', 'et', '1450', ''],
-      ['KK-2026-512', 'Töötuba 2 Kärdla ametnikele ja allasutuste juhtidele', 'Töötuba 2', '22.12.2026', '', 'Hiiu maakond', 'Koolitaja ruumid', 'KOV ametnikud', '14', 'et', '1600', 'Väike grupp'],
+      ['KK-2026-505', 'Töötuba 1 Võru maakonna KOV ametnikele', 'Töötuba 1', '02.12.2026', '', 'Võru maakond', 'Koolitaja ruumid', 'KOV ametnikud', '18', 'et', '1050', ''],
+      ['KK-2026-506', 'Töötuba 1 Kuressaare haridusasutuste töötajatele', 'Töötuba 1', '04.12.2026', '', 'Saare maakond', 'Koolitaja ruumid', 'Haridus', '19', 'et', '1150', 'Saartele lisandub logistikakulu'],
+      ['KK-2026-507', 'Töötuba 2 Tartu maakonna riigiasutuste spetsialistidele', 'Töötuba 2', '09.12.2026', '', 'Tartu maakond', 'Koolitaja ruumid', 'Riigiasutused', '23', 'et', '1350', 'Eeldab Töötuba 1 läbimist'],
+      ['KK-2026-508', 'Töötuba 1 Jõhvi tervishoiutöötajatele', 'Töötuba 1', '10.12.2026', '', 'Ida-Viru maakond', 'Koolitaja ruumid Jõhvis', 'Tervishoid', '22', 'ru', '1300', 'Läbiviimine vene keeles'],
+      ['KK-2026-509', 'Töötuba 1 Rapla maakonna väikeettevõtjatele', 'Töötuba 1', '11.12.2026', '', 'Rapla maakond', 'Koolitaja ruumid', 'Väikeettevõtjad', '16', 'et', '950', ''],
+      ['KK-2026-510', 'Töötuba 2 Pärnu maakonna sotsiaaltöötajatele', 'Töötuba 2', '16.12.2026', '', 'Pärnu maakond', 'Koolitaja ruumid', 'Sotsiaalvaldkond', '21', 'et', '1250', ''],
+      ['KK-2026-511', 'Töötuba 1 Põlva maakonna haridustöötajatele', 'Töötuba 1', '17.12.2026', '', 'Põlva maakond', 'Koolitaja ruumid', 'Haridus', '20', 'et', '1200', ''],
+      ['KK-2026-512', 'Töötuba 2 Kärdla ametnikele ja allasutuste juhtidele', 'Töötuba 2', '22.12.2026', '', 'Hiiu maakond', 'Koolitaja ruumid', 'KOV ametnikud', '14', 'et', '850', 'Väike grupp'],
     ]),
   },
   {
@@ -78,13 +80,13 @@ const ROUNDS: RoundDraft[] = [
       'Ettevalmistamisel — ootab avaldamist. Detsembri töötoad OSA-2 koolitustele: ruumi pakub ' +
       'tellija, koolitaja vastutab sisu ja läbiviimise eest.',
     trainings: rows([
-      ['KK-2026-521', 'Töötuba 1 Kliimaministeeriumi teenistujatele', 'Töötuba 1', '01.12.2026', '', 'Harju maakond', 'Tellija ruumid, Suur-Ameerika 1', 'Riigiasutused', '26', 'et', '980', ''],
-      ['KK-2026-522', 'Töötuba 1 Kultuuriministeeriumi teenistujatele', 'Töötuba 1', '03.12.2026', '', 'Harju maakond', 'Tellija ruumid', 'Riigiasutused', '22', 'et', '980', ''],
-      ['KK-2026-523', 'Töötuba 2 Siseministeeriumi osakonnajuhatajatele', 'Töötuba 2', '08.12.2026', '', 'Harju maakond', 'Tellija ruumid', 'Riigiasutused', '19', 'et', '1040', 'Eeldab Töötuba 1 läbimist'],
-      ['KK-2026-524', 'Töötuba 1 Statistikaameti analüütikutele', 'Töötuba 1', '10.12.2026', '', 'Harju maakond', 'Tellija ruumid, Tatari 51', 'Riigiasutused', '24', 'et', '980', ''],
-      ['KK-2026-525', 'Töötuba 1 Viljandi maakonna KOV ametnikele', 'Töötuba 1', '15.12.2026', '', 'Viljandi maakond', 'Viljandi, tellija ruumid', 'KOV ametnikud', '21', 'et', '980', ''],
-      ['KK-2026-526', 'Töötuba 1 Valga maakonna sotsiaaltöötajatele', 'Töötuba 1', '17.12.2026', '', 'Valga maakond', 'Valga, tellija ruumid', 'Sotsiaalvaldkond', '18', 'et', '980', ''],
-      ['KK-2026-527', 'Töötuba 2 Jõgeva maakonna haridusasutuste juhtidele', 'Töötuba 2', '22.12.2026', '', 'Jõgeva maakond', 'Jõgeva, tellija ruumid', 'Haridus', '20', 'et', '1040', ''],
+      ['KK-2026-521', 'Töötuba 1 Kliimaministeeriumi teenistujatele', 'Töötuba 1', '01.12.2026', '', 'Harju maakond', 'Tellija ruumid, Suur-Ameerika 1', 'Riigiasutused', '26', 'et', '1050', ''],
+      ['KK-2026-522', 'Töötuba 1 Kultuuriministeeriumi teenistujatele', 'Töötuba 1', '03.12.2026', '', 'Harju maakond', 'Tellija ruumid', 'Riigiasutused', '22', 'et', '900', ''],
+      ['KK-2026-523', 'Töötuba 2 Siseministeeriumi osakonnajuhatajatele', 'Töötuba 2', '08.12.2026', '', 'Harju maakond', 'Tellija ruumid', 'Riigiasutused', '19', 'et', '750', 'Eeldab Töötuba 1 läbimist'],
+      ['KK-2026-524', 'Töötuba 1 Statistikaameti analüütikutele', 'Töötuba 1', '10.12.2026', '', 'Harju maakond', 'Tellija ruumid, Tatari 51', 'Riigiasutused', '24', 'et', '950', ''],
+      ['KK-2026-525', 'Töötuba 1 Viljandi maakonna KOV ametnikele', 'Töötuba 1', '15.12.2026', '', 'Viljandi maakond', 'Viljandi, tellija ruumid', 'KOV ametnikud', '21', 'et', '850', ''],
+      ['KK-2026-526', 'Töötuba 1 Valga maakonna sotsiaaltöötajatele', 'Töötuba 1', '17.12.2026', '', 'Valga maakond', 'Valga, tellija ruumid', 'Sotsiaalvaldkond', '18', 'et', '750', ''],
+      ['KK-2026-527', 'Töötuba 2 Jõgeva maakonna haridusasutuste juhtidele', 'Töötuba 2', '22.12.2026', '', 'Jõgeva maakond', 'Jõgeva, tellija ruumid', 'Haridus', '20', 'et', '800', ''],
     ]),
   },
   {
@@ -94,13 +96,13 @@ const ROUNDS: RoundDraft[] = [
       'Ettevalmistamisel — ootab avaldamist. Detsembri veebikoolitused OSA-3 koolitustele. ' +
       'Platvorm on veerus asukoht.',
     trainings: rows([
-      ['KK-2026-541', 'Töötuba 1 veebis Päästeameti spetsialistidele', 'Töötuba 1', '02.12.2026', '', 'Veebipõhine', 'MS Teams', 'Riigiasutused', '48', 'et', '760', ''],
-      ['KK-2026-542', 'Töötuba 1 veebis Transpordiameti teenistujatele', 'Töötuba 1', '04.12.2026', '', 'Veebipõhine', 'MS Teams', 'Riigiasutused', '42', 'et', '760', ''],
-      ['KK-2026-543', 'Töötuba 2 veebis Sotsiaalkindlustusameti juhtidele', 'Töötuba 2', '09.12.2026', '', 'Veebipõhine', 'MS Teams', 'Riigiasutused', '34', 'et', '820', 'Eeldab Töötuba 1 läbimist'],
-      ['KK-2026-544', 'Töötuba 1 veebis lasteaiaõpetajatele', 'Töötuba 1', '11.12.2026', '', 'Veebipõhine', 'MS Teams', 'Haridus', '65', 'et', '790', 'Suurem grupp'],
-      ['KK-2026-545', 'Töötuba 1 veebis vene keeles sotsiaaltöötajatele', 'Töötuba 1', '16.12.2026', '', 'Veebipõhine', 'MS Teams', 'Sotsiaalvaldkond', '38', 'ru', '790', 'Läbiviimine vene keeles'],
-      ['KK-2026-546', 'Töötuba 2 veebis apteekritele ja proviisoritele', 'Töötuba 2', '18.12.2026', '', 'Veebipõhine', 'Zoom', 'Tervishoid', '40', 'et', '820', ''],
-      ['KK-2026-547', 'Töötuba 1 veebis inglise keeles rahvusvahelistele meeskondadele', 'Töötuba 1', '22.12.2026', '', 'Veebipõhine', 'MS Teams', 'Riigiasutused', '30', 'en', '790', 'Läbiviimine inglise keeles'],
+      ['KK-2026-541', 'Töötuba 1 veebis Päästeameti spetsialistidele', 'Töötuba 1', '02.12.2026', '', 'Veebipõhine', 'MS Teams', 'Riigiasutused', '48', 'et', '800', ''],
+      ['KK-2026-542', 'Töötuba 1 veebis Transpordiameti teenistujatele', 'Töötuba 1', '04.12.2026', '', 'Veebipõhine', 'MS Teams', 'Riigiasutused', '42', 'et', '700', ''],
+      ['KK-2026-543', 'Töötuba 2 veebis Sotsiaalkindlustusameti juhtidele', 'Töötuba 2', '09.12.2026', '', 'Veebipõhine', 'MS Teams', 'Riigiasutused', '34', 'et', '550', 'Eeldab Töötuba 1 läbimist'],
+      ['KK-2026-544', 'Töötuba 1 veebis lasteaiaõpetajatele', 'Töötuba 1', '11.12.2026', '', 'Veebipõhine', 'MS Teams', 'Haridus', '65', 'et', '1050', 'Suurem grupp'],
+      ['KK-2026-545', 'Töötuba 1 veebis vene keeles sotsiaaltöötajatele', 'Töötuba 1', '16.12.2026', '', 'Veebipõhine', 'MS Teams', 'Sotsiaalvaldkond', '38', 'ru', '650', 'Läbiviimine vene keeles'],
+      ['KK-2026-546', 'Töötuba 2 veebis apteekritele ja proviisoritele', 'Töötuba 2', '18.12.2026', '', 'Veebipõhine', 'Zoom', 'Tervishoid', '40', 'et', '650', ''],
+      ['KK-2026-547', 'Töötuba 1 veebis inglise keeles rahvusvahelistele meeskondadele', 'Töötuba 1', '22.12.2026', '', 'Veebipõhine', 'MS Teams', 'Riigiasutused', '30', 'en', '500', 'Läbiviimine inglise keeles'],
     ]),
   },
   {
@@ -110,10 +112,10 @@ const ROUNDS: RoundDraft[] = [
       'Ettevalmistamisel — ootab avaldamist. Detsembri suursündmused OSA-4 koolitustele: ' +
       'asukohad täpsustatakse võitjaga kokkuleppel.',
     trainings: rows([
-      ['KK-2026-561', 'Eesti.ai kaasloomepäev riigiasutuste juhtidele', 'Suursündmus', '09.12.2026', '', 'Harju maakond', 'Tallinn, täpsustatakse kokkuleppel', 'Riigiasutused', '220', 'et', '4800', 'Vajalik modereerimine ja registreerimine'],
-      ['KK-2026-562', 'Eesti.ai häkaton KOV arendusmeeskondadele', 'Suursündmus', '15.12.2026', '16.12.2026', 'Tartu maakond', 'Tartu, täpsustatakse kokkuleppel', 'KOV ametnikud', '110', 'et', '6400', 'Kahepäevane, vajalik tehniline tugi'],
-      ['KK-2026-563', 'Eesti.ai loeng haridusasutuste juhtidele', 'Muu formaat', '17.12.2026', '', 'Viljandi maakond', 'Viljandi, täpsustatakse kokkuleppel', 'Haridus', '240', 'et', '5200', ''],
-      ['KK-2026-564', 'Eesti.ai konverentsipäev sotsiaalvaldkonna spetsialistidele', 'Suursündmus', '22.12.2026', '', 'Pärnu maakond', 'Pärnu kontserdimaja', 'Sotsiaalvaldkond', '180', 'et', '5600', ''],
+      ['KK-2026-561', 'Eesti.ai kaasloomepäev riigiasutuste juhtidele', 'Suursündmus', '09.12.2026', '', 'Harju maakond', 'Tallinn, täpsustatakse kokkuleppel', 'Riigiasutused', '220', 'et', '5950', 'Vajalik modereerimine ja registreerimine'],
+      ['KK-2026-562', 'Eesti.ai häkaton KOV arendusmeeskondadele', 'Suursündmus', '15.12.2026', '16.12.2026', 'Tartu maakond', 'Tartu, täpsustatakse kokkuleppel', 'KOV ametnikud', '110', 'et', '3000', 'Kahepäevane, vajalik tehniline tugi'],
+      ['KK-2026-563', 'Eesti.ai loeng haridusasutuste juhtidele', 'Muu formaat', '17.12.2026', '', 'Viljandi maakond', 'Viljandi, täpsustatakse kokkuleppel', 'Haridus', '240', 'et', '6500', ''],
+      ['KK-2026-564', 'Eesti.ai konverentsipäev sotsiaalvaldkonna spetsialistidele', 'Suursündmus', '22.12.2026', '', 'Pärnu maakond', 'Pärnu kontserdimaja', 'Sotsiaalvaldkond', '180', 'et', '4900', ''],
     ]),
   },
 ];

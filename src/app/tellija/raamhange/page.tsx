@@ -169,7 +169,7 @@ export default async function FrameworkPage() {
                   <th className="kh-th">Partner</th>
                   <th className="kh-th">Raamlepingu kontaktisik</th>
                   <th className="kh-th">Sisselogimine</th>
-                  <th className="kh-th">Ühikhind</th>
+                  <th className="kh-th">Hind osaleja kohta</th>
                   {canWrite && <th className="kh-th" />}
                 </tr>
               </thead>

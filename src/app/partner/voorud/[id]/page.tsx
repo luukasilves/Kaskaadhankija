@@ -20,7 +20,8 @@ import { eq } from 'drizzle-orm';
 import { getDb } from '@/db';
 import { lots, roundTrainings, rounds, trainings } from '@/db/schema';
 import { partnerView } from '@/domain/allocate';
-import { formatDateTime, formatDateTimeShort, formatEur, formatIsoDay } from '@/domain/format';
+import { formatDateTime, formatDateTimeShort, formatEurCents, formatIsoDay } from '@/domain/format';
+import { HIND, trainingMaxPriceEur } from '@/domain/pricing';
 import {
   capLabel,
   RESPONSE_STATE_LABELS,
@@ -104,7 +105,6 @@ export default async function PartnerRoundPage({
       targetGroup: trainings.targetGroup,
       participantCount: trainings.participantCount,
       language: trainings.language,
-      estimatedValueEur: trainings.estimatedValueEur,
       notes: trainings.notes,
       withdrawnAt: roundTrainings.withdrawnAt,
     })
@@ -168,6 +168,10 @@ export default async function PartnerRoundPage({
           <RankChip rank={participant.rankAtPublication} />
           <span className="text-[13px] text-[var(--color-muted)]">
             teie koht selle hankeosa järjestuses
+          </span>
+          <span className="text-[13px] text-[var(--color-muted)]" data-testid="unit-price">
+            · {HIND.osalejaKohta.toLowerCase()}{' '}
+            <strong className="text-[var(--color-text)]">{formatEurCents(participant.unitPriceEur)}</strong>
           </span>
         </div>
         <p className="mt-1 text-[var(--color-muted)]">
@@ -381,6 +385,7 @@ export default async function PartnerRoundPage({
         confirmedAt={latest ? formatDateTimeShort(latest.confirmedAt) : null}
         confirmedKind={latest?.kind ?? null}
         deadlineText={round.deadlineAt ? formatDateTime(round.deadlineAt) : ''}
+        unitPriceText={formatEurCents(participant.unitPriceEur)}
         finalMine={round.status === 'confirmed' ? [...mine] : null}
         trainings={trainingRows.map((row) => {
           const view = stateByTraining.get(row.id);
@@ -397,7 +402,7 @@ export default async function PartnerRoundPage({
             targetGroup: TARGET_GROUPS[row.targetGroup],
             participants: row.participantCount,
             language: LANGUAGE_LABELS[row.language],
-            value: formatEur(row.estimatedValueEur),
+            maxPriceText: formatEurCents(trainingMaxPriceEur(row.participantCount, participant.unitPriceEur)),
             notes: row.notes,
             stateLabel: parts?.label ?? null,
             stateReason: parts?.reason ?? null,

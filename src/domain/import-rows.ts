@@ -221,10 +221,13 @@ export const TRAINING_COLUMNS = [
   'sihtruhm',
   'osalejate_arv',
   'keel',
-  'hinnanguline_maksumus',
 ] as const;
 
-export const TRAINING_OPTIONAL_COLUMNS = ['lopp_kuupaev', 'asukoht', 'markused'] as const;
+/**
+ * `hinnanguline_maksumus` is the buyer's own planning figure [L-26] — optional,
+ * never shown to a partner, whose price comes from the framework [T-08].
+ */
+export const TRAINING_OPTIONAL_COLUMNS = ['lopp_kuupaev', 'asukoht', 'markused', 'hinnanguline_maksumus'] as const;
 
 export interface TrainingImportContext {
   /** lot codes that exist, e.g. ['OSA-1', …] */
@@ -309,10 +312,10 @@ export function parseTrainingRows(
       parseInteger(cells.osalejate_arv ?? '', 'osalejate arv', 1, 2000),
     );
     const language = take('keel', parseEnum(cells.keel ?? '', LANGUAGE_LABELS, 'keel'));
-    const estimatedValueEur = take(
-      'hinnanguline_maksumus',
-      parseAmount(cells.hinnanguline_maksumus ?? '', 'hinnanguline maksumus'),
-    );
+    // The buyer's estimate is optional [L-26]; an empty cell is simply no estimate.
+    const estimatedValueEur = (cells.hinnanguline_maksumus ?? '').trim()
+      ? take('hinnanguline_maksumus', parseAmount(cells.hinnanguline_maksumus ?? '', 'tellija hinnang'))
+      : 0;
     const locationText = take('asukoht', parseText(cells.asukoht ?? '', 'asukoht', { max: 160, required: false }));
     const notes = take('markused', parseText(cells.markused ?? '', 'märkused', { max: 600, required: false }));
 
@@ -404,8 +407,11 @@ export const PARTNER_COLUMNS = [
   'koht',
   'kontaktisik',
   'e_post',
-  'uhikhind',
+  'uhikuhind',
 ] as const;
+
+/** The spelling the column had before v2.6; still accepted on import. */
+const UNIT_PRICE_ALIAS = 'uhikhind';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
@@ -420,6 +426,7 @@ export function parsePartnerRows(
   }
 
   const present = new Set(Object.keys(foldRow(raws[0])));
+  if (present.has(UNIT_PRICE_ALIAS)) present.add('uhikuhind');
   for (const column of PARTNER_COLUMNS) {
     if (!present.has(column)) {
       fileErrors.push({ field: column, message: `Failis puudub veerg „${column}“.` });
@@ -449,7 +456,10 @@ export function parsePartnerRows(
 
     const partnerName = take('partner', parseText(cells.partner ?? '', 'partneri nimi', { min: 2, max: 120 }));
     const contactName = take('kontaktisik', parseText(cells.kontaktisik ?? '', 'kontaktisik', { min: 2, max: 80 }));
-    const unitPriceEur = take('uhikhind', parseAmount(cells.uhikhind ?? '', 'ühikhind'));
+    const unitPriceEur = take(
+      'uhikuhind',
+      parseAmount(cells.uhikuhind ?? cells[UNIT_PRICE_ALIAS] ?? '', 'hind osaleja kohta'),
+    );
 
     const rawReg = (cells.registrikood ?? '').replace(/[\s ]/g, '');
     let regCode: string | null = null;

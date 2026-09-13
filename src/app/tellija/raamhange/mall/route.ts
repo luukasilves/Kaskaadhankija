@@ -89,7 +89,7 @@ export async function GET() {
       koht: String(m.rank),
       kontaktisik: m.contactName,
       e_post: m.contactEmail,
-      uhikhind: String(m.unitPriceEur),
+      uhikuhind: String(m.unitPriceEur),
     })),
     representativeRows: extras.map((row) => ({
       registrikood: row.regCode,

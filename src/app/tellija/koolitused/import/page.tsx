@@ -126,9 +126,9 @@ export default async function TrainingsImportPage({
                 ['maakond', true, 'nt Harju maakond, Harjumaa, Harju, või Veebipõhine'],
                 ['asukoht', false, 'täpsem asukoht või platvorm'],
                 ['sihtruhm', true, Object.values(TARGET_GROUPS).join(', ')],
-                ['osalejate_arv', true, '1–2000'],
+                ['osalejate_arv', true, 'maksimaalne osalejate arv, 1–2000'],
                 ['keel', true, 'et, ru, en'],
-                ['hinnanguline_maksumus', true, 'nt 1450 või 1 450,00'],
+                ['hinnanguline_maksumus', false, 'tellija sisemine hinnang (€); partnerid seda ei näe — nende hind tuleb raamlepingust'],
                 ['markused', false, 'kuni 600 tähemärki'],
               ].map(([column, required, note]) => (
                 <tr key={String(column)}>

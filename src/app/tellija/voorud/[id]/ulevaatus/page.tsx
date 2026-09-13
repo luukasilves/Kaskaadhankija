@@ -17,7 +17,8 @@ import { buyerCanWrite } from '@/server/auth/actor';
 import { ReadOnlyNote } from '@/components/read-only-note';
 import { lots, orders, rounds, trainings } from '@/db/schema';
 import { WORKSHOP_TYPE_LABELS } from '@/domain/statuses';
-import { formatDateTimeShort, formatEur, formatIsoDay } from '@/domain/format';
+import { formatDateTimeShort, formatEur, formatIsoDay, formatEurCents } from '@/domain/format';
+import { allocationMaxPriceEur } from '@/domain/pricing';
 import { PARTICIPANT_OUTCOME_LABELS, ROUND_STATUS_LABELS, ROUND_STATUS_TONES, TARGET_GROUPS } from '@/domain/round-statuses';
 import { RankChip, StatusBadge } from '@/components/status-badge';
 import { effectiveAdjustmentRows } from '@/server/rounds/allocation-input';
@@ -95,9 +96,12 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
       [];
     const adjustment = adjustmentRows.find((a) => a.lotPartnerId === participant.lotPartnerId);
     const workload = workloadFor(db, participant.lotPartnerId);
-    const value = final.reduce(
-      (sum, trainingId) => sum + (trainingById.get(trainingId)?.estimatedValueEur ?? 0),
-      0,
+    // [T-08] the partner's own price per participant × max participants — not the buyer's estimate
+    const value = allocationMaxPriceEur(
+      final.map((trainingId) => ({
+        participantCount: trainingById.get(trainingId)?.participantCount ?? 0,
+        unitPriceEur: participant.unitPriceEur,
+      })),
     );
     return {
       lotPartnerId: participant.lotPartnerId,
@@ -123,7 +127,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
           participantCount: t.participantCount,
         })),
       finalCount: final.length,
-      valueText: formatEur(value),
+      valueText: formatEurCents(value),
       workload,
       overThreshold: workload >= round.workloadThresholdSnapshot,
       adjustment: adjustment

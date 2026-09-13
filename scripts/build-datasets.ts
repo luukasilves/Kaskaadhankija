@@ -78,6 +78,26 @@ async function main(): Promise<void> {
   );
   const partners = parsePartnerRows(partnerCsv.rows, { knownLotCodes: LOT_CODES });
   ok = report('naidis-partnerid.csv', partners.rows, partners.fileErrors) && ok;
+  // [T-08] The price is per participant: a plausible magnitude, and strictly
+  // rising with rank inside each lot — the ranking is the price order.
+  for (const lot of LOT_CODES) {
+    const ladder = partners.rows
+      .map((r) => r.value)
+      .filter((v): v is NonNullable<typeof v> => Boolean(v) && v!.lotCode === lot)
+      .sort((a, b) => a.rank - b.rank)
+      .map((v) => v.unitPriceEur);
+    for (let i = 0; i < ladder.length; i++) {
+      const price = ladder[i]!;
+      if (price < 5 || price > 500) {
+        console.error(`  ✗ ${lot} koht ${i + 1}: hind ${price} € ei ole hind osaleja kohta (oodati 5–500 €)`);
+        ok = false;
+      }
+      if (i > 0 && price <= ladder[i - 1]!) {
+        console.error(`  ✗ ${lot} koht ${i + 1}: hind ${price} € ei ole kõrgem kui koht ${i} — järjestus on hinnajärjestus`);
+        ok = false;
+      }
+    }
+  }
   await buildTwin('naidis-partnerid.csv', 'Raamlepingu partnerid');
 
   const representativeCsv = parseCsv(

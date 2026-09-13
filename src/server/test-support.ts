@@ -116,7 +116,7 @@ export function rawTrainingRow(over: Record<string, string> = {}): Record<string
     sihtruhm: 'KOV ametnikud',
     osalejate_arv: '20',
     keel: 'et',
-    hinnanguline_maksumus: '1450',
+    hinnanguline_maksumus: '1200',
     markused: '',
     ...over,
   };
@@ -140,7 +140,7 @@ export function rawPartnerRow(over: Record<string, string> = {}): Record<string,
     koht: '1',
     kontaktisik: 'Jaan Kask',
     e_post: regCode === '10000001' ? 'jaan.kask@tehisaru-naidis.ee' : `kontakt.${regCode}@naidis.ee`,
-    uhikhind: '1450',
+    uhikuhind: '58',
     ...over,
   };
 }
@@ -230,7 +230,7 @@ export function seedLotWithPartners(
           rank,
           contactName: `Kontakt ${rank}`,
           contactEmail: `kontakt${rank}@naidis.ee`,
-          unitPriceEur: 1000 + rank * 50,
+          unitPriceEur: 50 + rank * 5,
           createdAt: ctx.at,
         })
         .run();
@@ -256,7 +256,7 @@ export function seedLotWithPartners(
           targetGroup: 'kov',
           participantCount: 20,
           language: 'et',
-          estimatedValueEur: 1000,
+          estimatedValueEur: 1200,
           status: 'unassigned',
           createdAt: ctx.at,
           updatedAt: ctx.at,

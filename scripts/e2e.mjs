@@ -145,7 +145,7 @@ async function writeRoundWorkbook(path, fields, codes) {
       'Riigiasutused',
       String(20 + index * 5),
       'et',
-      '1450',
+      '',
       '',
     ]);
   });

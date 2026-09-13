@@ -11,6 +11,7 @@
  */
 
 import Link from 'next/link';
+import { HIND } from '@/domain/pricing';
 import { ActionForm, Disclosure } from '@/components/action-form';
 import { RankChip, StatusBadge } from '@/components/status-badge';
 import {
@@ -104,7 +105,7 @@ export function ReviewPanel({
                 <th className="kh-th">Märkeid</th>
                 <th className="kh-th">Ettepanekus</th>
                 <th className="kh-th">{confirmed ? 'Lõplikus' : 'Praegu'}</th>
-                <th className="kh-th">Maksumus</th>
+                <th className="kh-th">{HIND.tellimuseMax}</th>
                 <th className="kh-th">Töömaht</th>
                 {!confirmed && <th className="kh-th">Kohandus</th>}
               </tr>
@@ -350,7 +351,7 @@ export function ReviewPanel({
                   <th className="kh-th">Tellimus</th>
                   <th className="kh-th">Partner</th>
                   <th className="kh-th">Koolitusi</th>
-                  <th className="kh-th">Kogumaksumus</th>
+                  <th className="kh-th">{HIND.tellimuseMax}</th>
                 </tr>
               </thead>
               <tbody>

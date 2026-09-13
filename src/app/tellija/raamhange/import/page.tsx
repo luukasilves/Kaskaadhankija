@@ -271,7 +271,7 @@ export default async function FrameworkImportPage({
                 <th className="kh-th">Koht</th>
                 <th className="kh-th">Partner</th>
                 <th className="kh-th">Kontaktisik</th>
-                <th className="kh-th">Ühikhind</th>
+                <th className="kh-th">Hind osaleja kohta</th>
                 <th className="kh-th">Mis juhtub</th>
               </tr>
             </thead>

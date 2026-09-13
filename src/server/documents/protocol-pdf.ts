@@ -20,7 +20,7 @@ import type {
   CustomTableLayout,
   TDocumentDefinitions,
 } from 'pdfmake/interfaces';
-import { formatDateTime, formatDateTimeShort, formatEur, formatIsoDay } from '@/domain/format';
+import { formatDateTime, formatDateTimeShort, formatEur, formatIsoDay, formatEurCents } from '@/domain/format';
 import {
   ADJUSTMENT_KIND_LABELS,
   BID_KIND_LABELS,
@@ -365,7 +365,7 @@ function buildDefinition(data: RoundProtocolData, hash: string): TDocumentDefini
       'Järjestus on avaldamise hetkel külmutatud: hilisemad raamlepingu muudatused seda vooru ei puuduta.',
     ),
     table(
-      ['Koht', 'Partner', 'Registrikood', 'Kontaktisik', 'E-post', 'Ühikhind', 'Tulemus'],
+      ['Koht', 'Partner', 'Registrikood', 'Kontaktisik', 'E-post', 'Hind osaleja kohta', 'Tulemus'],
       [5, 20, 11, 16, 24, 10, 14],
       data.participants.map((p) => [
         String(p.rank),
@@ -373,7 +373,7 @@ function buildDefinition(data: RoundProtocolData, hash: string): TDocumentDefini
         p.partnerRegCode,
         p.contactName,
         p.contactEmail,
-        formatEur(p.unitPriceEur),
+        formatEurCents(p.unitPriceEur),
         p.excludedAt !== null
           ? `Arvati välja${p.excludedReason ? `: ${p.excludedReason}` : ''}`
           : p.outcomeAtClose
@@ -504,7 +504,7 @@ function buildDefinition(data: RoundProtocolData, hash: string): TDocumentDefini
     for (const group of byPartner) {
       content.push(
         {
-          text: `Koht ${group.rank} — ${group.partnerName} (reg. kood ${group.partnerRegCode}) · ${group.trainings.length} koolitust`,
+          text: `Koht ${group.rank} — ${group.partnerName} (reg. kood ${group.partnerRegCode}) · ${group.trainings.length} koolitust · kuni ${group.participantCount} osalejat · hind osaleja kohta ${formatEurCents(group.unitPriceEur)} · hind max osalejate korral ${formatEurCents(group.maxPriceEur)}`,
           style: 'td',
           bold: true,
           margin: [0, 4, 0, 2],
@@ -530,7 +530,7 @@ function buildDefinition(data: RoundProtocolData, hash: string): TDocumentDefini
   content.push(
     heading(`7. Tellimused (${data.orders.length})`),
     table(
-      ['Number', 'Partner', 'Registrikood', 'Koolitused', 'Ühikhind', 'Kokku', 'Olek'],
+      ['Number', 'Partner', 'Registrikood', 'Koolitused', 'Hind osaleja kohta', 'Kokku', 'Olek'],
       [14, 19, 11, 26, 10, 10, 10],
       data.orders.map((order) => [
         order.number,

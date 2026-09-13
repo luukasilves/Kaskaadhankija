@@ -15,7 +15,7 @@ import { createHash } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { auditEvents, confirmations, partners, roundProtocols, rounds } from '@/db/schema';
-import { canonicalJson, fingerprint, respondingPartnerCount } from '@/domain/round-protocol';
+import { allocationByPartner, canonicalJson, fingerprint, respondingPartnerCount } from '@/domain/round-protocol';
 import { buildProtocolPdf } from '../documents/protocol-pdf';
 import { buildProtocolXlsx } from '../documents/protocol-xlsx';
 import { parseXlsxSheets } from '../import/xlsx';
@@ -668,8 +668,26 @@ describe('[L-22] the final allocation by partner', () => {
     const allocated = protocol.data.allocation.byTraining.filter((row) => row.final !== null);
     expect(byPartner.rows).toHaveLength(allocated.length);
     expect(byPartner.headers).toEqual(
-      expect.arrayContaining(['koht', 'partner', 'kood', 'nimetus', 'kuupaev', 'formaat', 'sihtruhm', 'osalejaid']),
+      expect.arrayContaining(['koht', 'partner', 'kood', 'nimetus', 'kuupaev', 'formaat', 'sihtruhm', 'max_osalejaid', 'hind_osaleja_kohta']),
     );
     expect(byPartner.rows[0]!.partner).toBe(partnerName(0));
+  });
+});
+
+describe('[T-08] the protocol prices each partner at their own rate', () => {
+  it('prints the price per participant and the price at max participants, never a "maksumus"', async () => {
+    const roundId = fullRound();
+    const protocol = stored(roundId);
+    const text = pdfText(await buildProtocolPdf(protocol.data, protocol.contentHash));
+    expect(text).toContain('Hind osaleja kohta');
+    expect(text).toContain('hind max osalejate korral');
+    expect(text).not.toContain('Ühikhind');
+    const byPartner = allocationByPartner(protocol.data);
+    expect(byPartner.length).toBeGreaterThan(0);
+    for (const group of byPartner) {
+      expect(group.maxPriceEur).toBeCloseTo(group.participantCount * group.unitPriceEur, 2);
+    }
+    // three partners, three prices: the fixture ladders 55, 60, 65
+    expect(new Set(protocol.data.participants.map((p) => p.unitPriceEur)).size).toBe(3);
   });
 });

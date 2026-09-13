@@ -124,6 +124,8 @@ export interface ParticipantRow {
   partnerName: string;
   contactName: string;
   contactEmail: string;
+  /** the partner's framework price per participant in this lot [T-08] */
+  unitPriceEur: number;
   excludedAt: number | null;
   excludedReason: string;
   draftMarks: string[];
@@ -146,6 +148,7 @@ export function participantsOf(tx: Reader, roundId: string): ParticipantRow[] {
       partnerName: partners.name,
       contactName: roundParticipants.contactNameSnapshot,
       contactEmail: roundParticipants.contactEmailSnapshot,
+      unitPriceEur: lotPartners.unitPriceEur,
       excludedAt: roundParticipants.excludedAt,
       excludedReason: roundParticipants.excludedReason,
       draftMarks: roundParticipants.draftMarks,

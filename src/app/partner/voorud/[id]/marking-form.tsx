@@ -21,6 +21,7 @@ import { useMemo, useState } from 'react';
 import { ActionForm } from '@/components/action-form';
 import { StatusBadge } from '@/components/status-badge';
 import type { CapKind } from '@/domain/allocate';
+import { HIND } from '@/domain/pricing';
 import { allowedCapKinds, type CapOptions, type StatusTone } from '@/domain/round-statuses';
 import {
   confirmMarksAction,
@@ -40,7 +41,8 @@ export interface MarkingTraining {
   targetGroup: string;
   participants: number;
   language: string;
-  value: string;
+  /** max participants × this partner's price per participant [T-08] */
+  maxPriceText: string;
   notes: string;
   stateLabel: string | null;
   /** the [N-03] reason, shown under the badge rather than inside it */
@@ -63,6 +65,7 @@ export function MarkingForm({
   confirmedAt,
   confirmedKind,
   deadlineText,
+  unitPriceText,
   finalMine,
   trainings,
 }: {
@@ -81,6 +84,8 @@ export function MarkingForm({
   confirmedAt: string | null;
   confirmedKind: 'confirm' | 'decline_all' | null;
   deadlineText: string;
+  /** this partner's framework price per participant in the lot, shown once [T-08] */
+  unitPriceText: string;
   /** after confirmation: the trainings actually allocated to this partner */
   finalMine: string[] | null;
   trainings: MarkingTraining[];
@@ -155,6 +160,10 @@ export function MarkingForm({
       <section className="kh-card">
         <div className="flex flex-wrap items-center gap-3 border-b border-[var(--color-border)] px-4 py-3">
           <h2>Vooru koolitused ({trainings.length})</h2>
+          <span className="text-[12px] text-[var(--color-muted)]">
+            Teie {HIND.osalejaKohta.toLowerCase()}: <strong>{unitPriceText}</strong> — „{HIND.ruhmaTaitumisel}“ on
+            see korrutatud koolituse maksimaalse osalejate arvuga.
+          </span>
           {editable && (
             <span className="text-[13px] text-[var(--color-muted)]">
               Valitud: <strong>{selected.size}</strong>
@@ -177,9 +186,9 @@ export function MarkingForm({
                 <th className="kh-th">Koolitus</th>
                 <th className="kh-th">Toimumine</th>
                 <th className="kh-th">Asukoht</th>
-                <th className="kh-th">Osalejaid</th>
+                <th className="kh-th">{HIND.maxOsalejaid}</th>
                 <th className="kh-th">Keel</th>
-                <th className="kh-th">Maksumus</th>
+                <th className="kh-th">{HIND.ruhmaTaitumisel}</th>
                 {dynamic && <th className="kh-th">Olek</th>}
                 {finalMine && <th className="kh-th">Tulemus</th>}
               </tr>
@@ -240,7 +249,7 @@ export function MarkingForm({
                     </td>
                     <td className="kh-td tabular-nums">{training.participants}</td>
                     <td className="kh-td text-[13px] whitespace-nowrap">{training.language}</td>
-                    <td className="kh-td whitespace-nowrap tabular-nums">{training.value}</td>
+                    <td className="kh-td whitespace-nowrap tabular-nums">{training.maxPriceText}</td>
                     {dynamic && (
                       <td className="kh-td min-w-[168px]" data-testid="state-cell">
                         {training.stateLabel && training.stateTone ? (

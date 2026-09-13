@@ -52,7 +52,7 @@ export async function GET(request: Request): Promise<Response> {
       sihtruhm: TARGET_GROUPS[t.targetGroup],
       osalejate_arv: String(t.participantCount),
       keel: t.language,
-      hinnanguline_maksumus: String(t.estimatedValueEur),
+      hinnanguline_maksumus: t.estimatedValueEur > 0 ? String(t.estimatedValueEur) : '',
       markused: t.notes,
     })),
   });

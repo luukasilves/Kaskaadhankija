@@ -1,5 +1,7 @@
 'use client';
 
+import { HIND } from '@/domain/pricing';
+
 import { useMemo, useState } from 'react';
 import { ActionForm } from '@/components/action-form';
 import { CAP_OPTIONS_LABELS, CAP_OPTIONS_VALUES, type CapOptions } from '@/domain/round-statuses';
@@ -173,8 +175,8 @@ export function NewRoundForm({
                   <th className="kh-th">Toimumine</th>
                   <th className="kh-th">Maakond</th>
                   <th className="kh-th">Sihtrühm</th>
-                  <th className="kh-th">Osalejaid</th>
-                  <th className="kh-th">Maksumus</th>
+                  <th className="kh-th">{HIND.maxOsalejaid}</th>
+                  <th className="kh-th">{HIND.tellijaHinnang}</th>
                 </tr>
               </thead>
               <tbody>

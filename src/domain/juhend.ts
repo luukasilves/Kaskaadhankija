@@ -27,6 +27,7 @@
  * `docs/juhend/glossary/locked_decisions.txt`.
  */
 
+import { HIND } from './pricing';
 import {
   capLabel,
   RESPONSE_STATE_LABELS,
@@ -393,12 +394,16 @@ export const SECTIONS: readonly Section[] = [
   {
     id: 'markimine',
     title: 'Koolituste märkimine',
-    rules: ['K-01', 'N-03', 'N-04', 'N-05'],
+    rules: ['K-01', 'N-03', 'N-04', 'N-05', 'T-08'],
     blocks: [
       {
         kind: 'para',
         text:
-          'Vooru avades näete tabelit **„Vooru koolitused“**: koodi, nimetuse, toimumisaja, asukoha, osalejate arvu, keele ja maksumuse. Märkige linnukesega need, mida olete valmis läbi viima.',
+          `Vooru avades näete tabelit **„Vooru koolitused“**: koodi, nimetuse, toimumisaja, asukoha, veeru „${HIND.maxOsalejaid}“, keele ja veeru „${HIND.ruhmaTaitumisel}“. Märkige linnukesega need, mida olete valmis läbi viima.`,
+      },
+      {
+        kind: 'para',
+        text: `Tabeli päises seisab teie **„${HIND.osalejaKohta}“** — teie raamlepingu hind selles hankeosas, üks number kogu vooru peale. „${HIND.ruhmaTaitumisel}“ on see korrutatud koolituse maksimaalse osalejate arvuga: nii palju maksaks koolitus, kui rühm täitub. Osalejate arv on ülempiir, mitte lubadus. Teiste partnerite hindu te ei näe.`,
       },
       {
         kind: 'para',
@@ -425,7 +430,7 @@ export const SECTIONS: readonly Section[] = [
         tone: 'info',
         title: 'Mida te teiste kohta ei näe — ja miks',
         text:
-          'Te näete eespool olevate partnerite märgete **mõju**, mitte kunagi seda, **kes** nad on, kui palju neid on ega kas keegi on üldse vastanud. Nii on see meelega: hinnad on raamlepingus fikseeritud, järjestus on teada ja kiirus eelist ei anna, nii et rohkem teadmist ei annaks teile midagi peale võimaluse teisi mõjutada. Vaadet liigutavad ainult kinnitused, mitte kellegi kinnitamata mustandid.',
+          'Te näete eespool olevate partnerite märgete **mõju**, mitte kunagi seda, **kes** nad on, kui palju neid on ega kas keegi on üldse vastanud. Nii on see meelega: hind osaleja kohta on raamlepingus fikseeritud, järjestus on teada ja kiirus eelist ei anna, nii et rohkem teadmist ei annaks teile midagi peale võimaluse teisi mõjutada. Vaadet liigutavad ainult kinnitused, mitte kellegi kinnitamata mustandid.',
       },
       {
         kind: 'para',

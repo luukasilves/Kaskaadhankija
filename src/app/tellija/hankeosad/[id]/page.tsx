@@ -98,7 +98,7 @@ export default async function LotDetail({ params }: { params: Promise<{ id: stri
                 <th className="kh-th">Koht</th>
                 <th className="kh-th">Partner</th>
                 <th className="kh-th">Kontakt</th>
-                <th className="kh-th">Ühikhind</th>
+                <th className="kh-th">Hind osaleja kohta</th>
                 <th className="kh-th">Töömaht</th>
                 <th className="kh-th">Olek</th>
                 <th className="kh-th" />

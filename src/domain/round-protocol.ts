@@ -107,6 +107,7 @@ export interface ProtocolParticipant {
   partnerRegCode: string;
   contactName: string;
   contactEmail: string;
+  /** the partner's framework price per participant in this lot [T-08] */
   unitPriceEur: number;
   excludedAt: number | null;
   excludedReason: string;
@@ -336,6 +337,11 @@ export interface ProtocolPartnerAllocation {
   rank: number;
   partnerName: string;
   partnerRegCode: string;
+  /** the partner's price per participant in the lot [T-08] */
+  unitPriceEur: number;
+  /** Σ max participants × price per participant */
+  maxPriceEur: number;
+  participantCount: number;
   trainings: ProtocolTraining[];
 }
 
@@ -359,14 +365,21 @@ export function allocationByPartner(data: RoundProtocolData): ProtocolPartnerAll
   }
   return data.participants
     .filter((p) => groups.has(p.partnerName))
-    .map((p) => ({
-      rank: p.rank,
-      partnerName: p.partnerName,
-      partnerRegCode: p.partnerRegCode,
-      trainings: [...(groups.get(p.partnerName) ?? [])].sort(
+    .map((p) => {
+      const list = [...(groups.get(p.partnerName) ?? [])].sort(
         (a, b) => a.eventDate.localeCompare(b.eventDate) || a.code.localeCompare(b.code),
-      ),
-    }));
+      );
+      const participantCount = list.reduce((sum, t) => sum + t.participantCount, 0);
+      return {
+        rank: p.rank,
+        partnerName: p.partnerName,
+        partnerRegCode: p.partnerRegCode,
+        unitPriceEur: p.unitPriceEur,
+        maxPriceEur: Math.round(participantCount * p.unitPriceEur * 100) / 100,
+        participantCount,
+        trainings: list,
+      };
+    });
 }
 
 /**

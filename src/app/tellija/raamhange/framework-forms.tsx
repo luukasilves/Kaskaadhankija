@@ -180,7 +180,7 @@ export function MemberRowForms({
               required
             />
             <Field
-              label="Ühikhind (€)"
+              label="Hind osaleja kohta (€)"
               name="unitPriceEur"
               value={member.unitPriceEur}
               type="number"
@@ -217,7 +217,7 @@ export function AddLotPartnerForm({ lotId, lotCode }: { lotId: string; lotCode: 
         <Field label="Partneri nimi" name="partnerName" hint="Uue ettevõtte puhul" />
         <Field label="Kontaktisik" name="contactName" required />
         <Field label="E-post" name="contactEmail" type="email" required />
-        <Field label="Ühikhind (€)" name="unitPriceEur" type="number" step="0.01" />
+        <Field label="Hind osaleja kohta (€)" name="unitPriceEur" type="number" step="0.01" />
       </div>
     </ActionForm>
   );

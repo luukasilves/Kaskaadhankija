@@ -526,7 +526,7 @@ export default async function RoundDetail({ params }: { params: Promise<{ id: st
                 {unmarked.map((training) => (
                   <li key={training.id}>
                     <span className="font-semibold">{training.code}</span> ·{' '}
-                    {formatIsoDay(training.eventDate)} · {formatEur(training.estimatedValueEur)}
+                    {formatIsoDay(training.eventDate)} · kuni {training.participantCount} osalejat
                   </li>
                 ))}
               </ul>

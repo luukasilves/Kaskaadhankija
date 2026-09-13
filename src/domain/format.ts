@@ -61,6 +61,11 @@ export function formatIsoDay(iso: string): string {
   return `${day}.${month}.${year}`;
 }
 
+/**
+ * Whole euros — for the buyer's own planning estimate only. Anything derived
+ * from a framework price per participant is not whole (60,50 €) and must go
+ * through `formatEurCents`, or a contract figure is silently rounded [T-08].
+ */
 export function formatEur(amount: number): string {
   return EUR_FMT.format(amount);
 }

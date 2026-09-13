@@ -459,7 +459,7 @@ export function addLotPartner(
   const contactName = input.contactName.trim();
   if (contactName.length < 2) throw new Error('Kontaktisiku nimi on puudu.');
   if (!Number.isFinite(input.unitPriceEur) || input.unitPriceEur < 0) {
-    throw new Error('Ühikhind peab olema null või suurem.');
+    throw new Error('Hind osaleja kohta peab olema null või suurem.');
   }
 
   let partner = ctx.tx.select().from(partners).where(eq(partners.regCode, regCode)).get();
@@ -554,7 +554,7 @@ export function updateLotPartnerContact(
   if (contactName.length < 2) throw new Error('Kontaktisiku nimi on puudu.');
   if (!EMAIL_RE.test(contactEmail)) throw new Error('Kontaktisiku e-posti aadress on vigane.');
   if (!Number.isFinite(input.unitPriceEur) || input.unitPriceEur < 0) {
-    throw new Error('Ühikhind peab olema null või suurem.');
+    throw new Error('Hind osaleja kohta peab olema null või suurem.');
   }
   if (contactEmail !== row.contactEmail) {
     const collision = representativeCollision(ctx.tx, contactEmail, row.partnerId);

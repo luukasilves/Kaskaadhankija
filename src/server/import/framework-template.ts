@@ -84,6 +84,12 @@ const EXPLANATION_ROWS: ReadonlyArray<Record<string, string>> = [
   { leht: 'Partnerid', väli: 'koht', selgitus: 'Koht järjestuses; 1 tähendab eesõigust. Kohad on hankeosa piires unikaalsed.' },
   {
     leht: 'Partnerid',
+    väli: 'uhikuhind',
+    selgitus:
+      'Partneri raamlepingu hind ÜHE OSALEJA KOHTA selles hankeosas, eurodes, komaga (nt 60,50). Koolituse hind rühma täitumisel = max osalejaid × see hind; jaotuse hind max osalejate korral on nende summa. Vana veerunimi „uhikhind“ võetakse samuti vastu.',
+  },
+  {
+    leht: 'Partnerid',
     väli: 'e_post',
     selgitus:
       'Raamlepingu kontaktisiku aadress. Sellele lähevad vooru teated JA sellega saab partner sisse logida — üks aadress esindab ühte ettevõtet.',

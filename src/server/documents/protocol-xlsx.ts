@@ -167,7 +167,7 @@ export async function buildProtocolXlsx(
         'registrikood',
         'kontaktisik',
         'e_post',
-        'uhikhind',
+        'hind_osaleja_kohta',
         'tulemus',
         'valja_arvatud',
         'pohjus',
@@ -178,7 +178,7 @@ export async function buildProtocolXlsx(
         registrikood: p.partnerRegCode,
         kontaktisik: p.contactName,
         e_post: p.contactEmail,
-        uhikhind: eur(p.unitPriceEur),
+        hind_osaleja_kohta: eur(p.unitPriceEur),
         tulemus: p.outcomeAtClose
           ? (TRACE_OUTCOME_LABELS[p.outcomeAtClose] ?? p.outcomeAtClose)
           : '',
@@ -256,7 +256,7 @@ export async function buildProtocolXlsx(
     ),
     sheet(
       'Täitjate kaupa',
-      ['koht', 'partner', 'registrikood', 'kood', 'nimetus', 'kuupaev', 'formaat', 'maakond', 'asukoht', 'sihtruhm', 'osalejaid', 'keel'],
+      ['koht', 'partner', 'registrikood', 'kood', 'nimetus', 'kuupaev', 'formaat', 'maakond', 'asukoht', 'sihtruhm', 'max_osalejaid', 'keel', 'hind_osaleja_kohta', 'hind_ruhma_taitumisel'],
       allocationByPartner(data).flatMap((group) =>
         group.trainings.map((t) => ({
           koht: String(group.rank),
@@ -269,8 +269,10 @@ export async function buildProtocolXlsx(
           maakond: t.county,
           asukoht: t.locationText,
           sihtruhm: t.targetGroup ?? '',
-          osalejaid: String(t.participantCount),
+          max_osalejaid: String(t.participantCount),
           keel: t.language,
+          hind_osaleja_kohta: eur(group.unitPriceEur),
+          hind_ruhma_taitumisel: eur(Math.round(t.participantCount * group.unitPriceEur * 100) / 100),
         })),
       ),
     ),
@@ -303,7 +305,7 @@ export async function buildProtocolXlsx(
         'partner',
         'registrikood',
         'koolitused',
-        'uhikhind',
+        'hind_osaleja_kohta',
         'kokku',
         'partner_kinnitas',
         'tellija_kinnitas',
@@ -315,7 +317,7 @@ export async function buildProtocolXlsx(
         partner: order.partnerName,
         registrikood: order.partnerRegCode,
         koolitused: order.trainingCodes.join(', '),
-        uhikhind: eur(order.unitPriceEur),
+        hind_osaleja_kohta: eur(order.unitPriceEur),
         kokku: eur(order.totalEur),
         partner_kinnitas: instant(order.partnerConfirmedAt),
         tellija_kinnitas: instant(order.buyerConfirmedAt),

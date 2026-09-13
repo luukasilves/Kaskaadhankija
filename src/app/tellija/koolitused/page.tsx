@@ -7,6 +7,7 @@
  */
 
 import Link from 'next/link';
+import { HIND } from '@/domain/pricing';
 import { eq } from 'drizzle-orm';
 import { getDb } from '@/db';
 import { buyerCanWrite } from '@/server/auth/actor';
@@ -144,9 +145,9 @@ export default async function TrainingsPage({
                 <th className="kh-th">Toimumine</th>
                 <th className="kh-th">Maakond</th>
                 <th className="kh-th">Sihtrühm</th>
-                <th className="kh-th">Osalejaid</th>
+                <th className="kh-th">{HIND.maxOsalejaid}</th>
                 <th className="kh-th">Keel</th>
-                <th className="kh-th">Maksumus</th>
+                <th className="kh-th">{HIND.tellijaHinnang}</th>
                 <th className="kh-th">Olek</th>
                 <th className="kh-th">Täitja</th>
               </tr>
@@ -172,7 +173,7 @@ export default async function TrainingsPage({
                     {LANGUAGE_LABELS[row.language]}
                   </td>
                   <td className="kh-td whitespace-nowrap tabular-nums">
-                    {formatEur(row.estimatedValueEur)}
+                    {row.estimatedValueEur > 0 ? formatEur(row.estimatedValueEur) : '—'}
                   </td>
                   <td className="kh-td whitespace-nowrap">
                     <StatusBadge

@@ -104,7 +104,7 @@ export default async function OrderDetail({ params }: { params: Promise<{ id: st
                   <th className="kh-th">Asukoht</th>
                   <th className="kh-th">Osalejaid</th>
                   <th className="kh-th">Keel</th>
-                  <th className="kh-th">Ühikhind</th>
+                  <th className="kh-th">Hind osaleja kohta</th>
                 </tr>
               </thead>
               <tbody>
