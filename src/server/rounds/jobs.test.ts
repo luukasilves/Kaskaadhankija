@@ -131,6 +131,56 @@ describe('runDueJobs', () => {
     ).toHaveLength(0);
   });
 
+  it('sends the final summary inside the last two hours, to those who confirmed, once [D-11]', () => {
+    // The runner reads the real clock and confirmations are append-only, so the
+    // confirmation is made three hours ago rather than moved there.
+    harness.now = Date.now() - 3 * 3_600_000;
+    const roundId = publish();
+    harness.write((ctx) =>
+      confirmMarks(ctx, roundId, fx.partnerIds[0], { marks: [fx.trainingIds[0]], cap: null }),
+    );
+    harness.now = Date.now();
+    const deadline = harness.read((db) =>
+      db.select().from(rounds).where(eq(rounds.id, roundId)).get(),
+    )!.deadlineAt!;
+
+    // Twelve hours out: the reminder is due, the summary is not.
+    timePasses(deadline - 12 * 3_600_000 - Date.now());
+    let report = runDueJobs(harness.db);
+    expect(report.remindersSent).toBe(3);
+    expect(report.finalSummariesSent).toBe(0);
+
+    // One hour out: the summary goes to the one partner who confirmed, once.
+    timePasses(11 * 3_600_000);
+    report = runDueJobs(harness.db);
+    expect(report.finalSummariesSent).toBe(1);
+    expect(runDueJobs(harness.db).finalSummariesSent).toBe(0);
+    expect(
+      harness.read((db) =>
+        db.select().from(notifications).where(eq(notifications.type, 'reminder_final')).all(),
+      ),
+    ).toHaveLength(1);
+    expect(statusOf(roundId)).toBe('open');
+  });
+
+  it('never summarises a round it has just closed', () => {
+    harness.now = Date.now() - 3 * 3_600_000;
+    const roundId = publish();
+    harness.write((ctx) =>
+      confirmMarks(ctx, roundId, fx.partnerIds[0], { marks: [fx.trainingIds[0]], cap: null }),
+    );
+    harness.now = Date.now();
+    timePasses(10 * 86_400_000);
+    const report = runDueJobs(harness.db);
+    expect(report.closed).toHaveLength(1);
+    expect(report.finalSummariesSent).toBe(0);
+    expect(
+      harness.read((db) =>
+        db.select().from(notifications).where(eq(notifications.type, 'reminder_final')).all(),
+      ),
+    ).toHaveLength(0);
+  });
+
   it('ignores draft and cancelled rounds', () => {
     const draftId = harness.write((ctx) =>
       createRound(ctx, { lotId: fx.lotId, trainingIds: fx.trainingIds }),

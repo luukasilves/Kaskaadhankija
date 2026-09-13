@@ -133,6 +133,7 @@ export interface ParticipantRow {
   draftCapKind: CapKind;
   outcomeAtClose: string | null;
   reminderSentAt: number | null;
+  finalReminderSentAt: number | null;
   lastProjectionCount: number | null;
   lastProjectionNotifiedAt: number | null;
 }
@@ -156,6 +157,7 @@ export function participantsOf(tx: Reader, roundId: string): ParticipantRow[] {
       draftCapKind: roundParticipants.draftCapKind,
       outcomeAtClose: roundParticipants.outcomeAtClose,
       reminderSentAt: roundParticipants.reminderSentAt,
+      finalReminderSentAt: roundParticipants.finalReminderSentAt,
       lastProjectionCount: roundParticipants.lastProjectionCount,
       lastProjectionNotifiedAt: roundParticipants.lastProjectionNotifiedAt,
     })

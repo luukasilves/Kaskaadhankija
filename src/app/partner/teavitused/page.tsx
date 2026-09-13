@@ -23,7 +23,7 @@ import { deliveriesFor } from '@/server/notify';
 export const dynamic = 'force-dynamic';
 
 /** Types worth pulling the eye to: something is expected of the partner. */
-const ACTIONABLE = new Set(['round_published', 'reminder_24h', 'round_changed', 'round_closed_partner', 'order_issued']);
+const ACTIONABLE = new Set(['round_published', 'reminder_24h', 'reminder_final', 'round_changed', 'round_closed_partner', 'order_issued']);
 
 export default async function PartnerNotificationsPage() {
   const actor = await requirePartner();

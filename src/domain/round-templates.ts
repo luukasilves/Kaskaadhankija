@@ -208,6 +208,38 @@ export function renderDeadlineReminder(
   );
 }
 
+/**
+ * [D-11] The personal summary two hours before the deadline, for a partner who
+ * has confirmed: their confirmed choice, the trainings the projection gives
+ * them now, and their marks that would go elsewhere — each with its [N-03]
+ * reason. Names nobody [N-04].
+ */
+export function renderFinalSummary(
+  input: RoundNoticeBase & {
+    contactName: string;
+    remainingText: string;
+    confirmedText: string;
+    projectedLines: string[];
+    lostLines: string[];
+  },
+): RenderedNotice {
+  return composeNotice(
+    `Lõppkokkuvõte: voor ${input.roundCode} sulgub ${input.deadlineText}`,
+    [
+      `Lugupeetud ${input.contactName}`,
+      `Voor ${input.roundCode} (${input.lotLabel}) sulgub ${input.deadlineText} (${input.remainingText}). ${input.confirmedText}`,
+      input.projectedLines.length > 0
+        ? `Praeguse seisuga prognoositakse teile ${input.projectedLines.length} koolitust:`
+        : 'Praeguse seisuga ei prognoosita teile sellest voorust ühtegi koolitust.',
+      list(input.projectedLines),
+      input.lostLines.length > 0 ? 'Teie märgitud koolitused, mis praeguse seisuga läheksid mujale:' : '',
+      list(input.lostLines),
+      'Prognoos on esialgne ja võib muutuda kuni tähtajani. Kui soovite valikut muuta, kinnitage see enne tähtaega — loevad ainult kinnitatud märked.',
+    ],
+    { url: input.url, label: 'Ava voor' },
+  );
+}
+
 /** [D-06] Deadline extended, a training withdrawn, or the round cancelled. */
 export function renderRoundChanged(
   input: RoundNoticeBase & { contactName: string; changeText: string; reason: string },

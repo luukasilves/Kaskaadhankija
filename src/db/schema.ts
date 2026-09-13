@@ -433,6 +433,8 @@ export const roundParticipants = sqliteTable(
     lastProjectionNotifiedAt: integer('last_projection_notified_at'),
     /** [D-05] */
     reminderSentAt: integer('reminder_sent_at'),
+    /** [D-11] set when the final summary was sent — or deliberately skipped */
+    finalReminderSentAt: integer('final_reminder_sent_at'),
     createdAt: integer('created_at').notNull(),
   },
   (t) => [
@@ -655,6 +657,7 @@ export type NotificationType =
   | 'decline_receipt'
   | 'projection_changed'
   | 'reminder_24h'
+  | 'reminder_final'
   | 'round_changed'
   | 'round_cancelled'
   | 'participant_excluded'

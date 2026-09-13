@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_FRAMEWORK_IDENTITY } from './framework';
-import { composeNotice, renderConfirmationReceipt, renderRoundPublished } from './round-templates';
+import { composeNotice, renderConfirmationReceipt, renderFinalSummary, renderRoundPublished } from './round-templates';
 
 const lines = [
   'KK-2026-101 — Töötuba 1 Tallinna teenistujatele · 15.09.2026 · Töötuba 1 · Harju maakond · 28 osalejat',
@@ -82,5 +82,35 @@ describe('the templates that carry a training list', () => {
     });
     expect(notice.bodyHtml.match(/<li\b/g)).toHaveLength(2);
     expect(notice.bodyHtml).toContain('Töötuba 1 Tartu teenistujatele');
+  });
+});
+
+describe('[D-11] the final summary', () => {
+  const base = {
+    framework: DEFAULT_FRAMEWORK_IDENTITY,
+    roundCode: 'VOOR-2026-001',
+    lotLabel: 'OSA-1 — Koolitused',
+    deadlineText: '15.09.2026 17:00',
+    url: 'https://example.test/partner/voorud/r1',
+    contactName: 'Jaan Kask',
+    remainingText: '1 h 58 min',
+    confirmedText: 'Teie kinnitatud valik (15.09.2026 09:12): 2 koolitust, piirmäär 1 koolitust.',
+  };
+
+  it('keeps the projected and the lost trainings as two lists, each item on its own line', () => {
+    const notice = renderFinalSummary({ ...base, projectedLines: [lines[0]!], lostLines: [`${lines[1]} — ületab teie piirmäära`] });
+    expect(notice.title).toBe('Lõppkokkuvõte: voor VOOR-2026-001 sulgub 15.09.2026 17:00');
+    expect(notice.body).toContain('prognoositakse teile 1 koolitust');
+    expect(notice.body).toContain('läheksid mujale');
+    expect(notice.body.match(/^· /gm)).toHaveLength(2);
+    expect(notice.bodyHtml.match(/<ul\b/g)).toHaveLength(2);
+    expect(notice.body).toContain('loevad ainult kinnitatud märked');
+  });
+
+  it('says so when nothing is projected, and leaves the lost block out when nothing is lost', () => {
+    const notice = renderFinalSummary({ ...base, projectedLines: [], lostLines: [] });
+    expect(notice.body).toContain('ei prognoosita teile sellest voorust ühtegi koolitust');
+    expect(notice.body).not.toContain('läheksid mujale');
+    expect(notice.bodyHtml).not.toContain('<ul');
   });
 });

@@ -46,6 +46,7 @@ import {
   reissueLeftover,
   saveDraftMarks,
   sendDeadlineReminder,
+  sendFinalSummary,
   withdrawTraining,
 } from './engine';
 import { projectionInput } from './allocation-input';
@@ -1102,6 +1103,110 @@ describe('[D-05] the reminder', () => {
         db.select().from(notifications).where(eq(notifications.type, 'reminder_24h')).all(),
       ),
     ).toHaveLength(3);
+  });
+});
+
+describe('[D-11] the final summary', () => {
+  const summaries = () =>
+    harness.read((db) =>
+      db.select().from(notifications).where(eq(notifications.type, 'reminder_final')).all(),
+    );
+  const inWindow = (roundId: string) => {
+    harness.now = roundRow(roundId)!.deadlineAt! - 3_600_000;
+  };
+  const codeOf = (index: number) => trainingRow(fx.trainingIds[index]!)!.code;
+
+  it('goes to the partners who confirmed, once, and to nobody else', () => {
+    const roundId = openRound();
+    confirm(roundId, 0, [fx.trainingIds[0]]);
+    confirm(roundId, 1, [fx.trainingIds[0], fx.trainingIds[1]]);
+    harness.write((ctx) => declineAll(ctx, roundId, fx.partnerIds[2]));
+    inWindow(roundId);
+
+    expect(harness.write((ctx) => sendFinalSummary(ctx, roundId))).toBe(2);
+    expect(harness.write((ctx) => sendFinalSummary(ctx, roundId))).toBe(0);
+    expect(summaries().map((n) => n.recipientLotPartnerId).sort()).toEqual(
+      [fx.lotPartnerIds[0], fx.lotPartnerIds[1]].sort(),
+    );
+  });
+
+  it('is not due before the window opens — and is still owed once it does', () => {
+    const roundId = openRound();
+    confirm(roundId, 0, [fx.trainingIds[0]]);
+    expect(harness.write((ctx) => sendFinalSummary(ctx, roundId))).toBe(0);
+    expect(summaries()).toHaveLength(0);
+    inWindow(roundId);
+    expect(harness.write((ctx) => sendFinalSummary(ctx, roundId))).toBe(1);
+  });
+
+  it('lists what is projected and what would go elsewhere, with the reason and without a name [N-03][N-04]', () => {
+    const roundId = openRound();
+    confirm(roundId, 0, [fx.trainingIds[0], fx.trainingIds[1]]);
+    confirm(roundId, 1, [fx.trainingIds[0], fx.trainingIds[2]]);
+    inWindow(roundId);
+    harness.write((ctx) => sendFinalSummary(ctx, roundId));
+
+    const mine = summaries().find((n) => n.recipientLotPartnerId === fx.lotPartnerIds[1])!;
+    expect(mine.title).toContain('Lõppkokkuvõte');
+    expect(mine.body).toContain('Teie kinnitatud valik');
+    expect(mine.body).toContain('2 koolitust');
+    expect(mine.body).toContain('prognoositakse teile 1 koolitust');
+    expect(mine.body).toContain(codeOf(2));
+    expect(mine.body).toMatch(new RegExp(`${codeOf(0)}.*eesõigusega partner saab selle`));
+    expect(mine.body).not.toMatch(/Partner [13]/);
+    // Two lists, one item each, in the mail client too.
+    expect(mine.bodyHtml.match(/<li\b/g)).toHaveLength(2);
+  });
+
+  it('names the cap as the reason when it is the cap', () => {
+    const roundId = openRound();
+    confirm(roundId, 0, [fx.trainingIds[0], fx.trainingIds[1], fx.trainingIds[2]], 1);
+    inWindow(roundId);
+    harness.write((ctx) => sendFinalSummary(ctx, roundId));
+    const body = summaries()[0]!.body;
+    expect(body).toContain('piirmäär 1');
+    expect(body).toContain('prognoositakse teile 1 koolitust');
+    expect(body.match(/ületab teie piirmäära/g)).toHaveLength(2);
+  });
+
+  it('skips a partner whose latest confirmation already falls inside the window — the receipt carries it', () => {
+    const roundId = openRound();
+    confirm(roundId, 0, [fx.trainingIds[0]]);
+    inWindow(roundId);
+    confirm(roundId, 1, [fx.trainingIds[1]]);
+
+    expect(harness.write((ctx) => sendFinalSummary(ctx, roundId))).toBe(1);
+    expect(summaries().map((n) => n.recipientLotPartnerId)).toEqual([fx.lotPartnerIds[0]]);
+    // and is not revisited by the next run either
+    harness.advance(10 * 60_000);
+    expect(harness.write((ctx) => sendFinalSummary(ctx, roundId))).toBe(0);
+    const participant = harness
+      .read((db) => participantsOf(db, roundId))
+      .find((p) => p.lotPartnerId === fx.lotPartnerIds[1]);
+    expect(participant?.finalReminderSentAt).not.toBeNull();
+  });
+
+  it('has nothing to say in a sealed round [N-06]', () => {
+    const roundId = harness.write((ctx) => {
+      const id = createRound(ctx, {
+        lotId: fx.lotId,
+        trainingIds: fx.trainingIds,
+        visibilityMode: 'sealed',
+      });
+      publishRound(ctx, id);
+      return id;
+    });
+    confirm(roundId, 0, [fx.trainingIds[0]]);
+    inWindow(roundId);
+    expect(harness.write((ctx) => sendFinalSummary(ctx, roundId))).toBe(0);
+  });
+
+  it('leaves out a partner excluded from the round [E-01]', () => {
+    const roundId = openRound();
+    confirm(roundId, 0, [fx.trainingIds[0]]);
+    harness.write((ctx) => deactivateLotPartner(ctx, fx.lotPartnerIds[0], 'lõppes'));
+    inWindow(roundId);
+    expect(harness.write((ctx) => sendFinalSummary(ctx, roundId))).toBe(0);
   });
 });
 

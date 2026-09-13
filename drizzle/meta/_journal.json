@@ -85,6 +85,13 @@
       "when": 1789131600000,
       "tag": "0011_listed_representatives",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1789135200000,
+      "tag": "0012_final_reminder",
+      "breakpoints": true
     }
   ]
 }

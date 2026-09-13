@@ -313,6 +313,7 @@ export const NOTIFICATION_TYPE_LABELS: Record<string, string> = {
   decline_receipt: 'Loobumise kviitung',
   projection_changed: 'Prognoos muutus',
   reminder_24h: 'Meeldetuletus',
+  reminder_final: 'Lõppkokkuvõte',
   round_changed: 'Vooru muudatus',
   round_cancelled: 'Voor tühistatud',
   participant_excluded: 'Partner arvati välja',

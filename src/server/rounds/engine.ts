@@ -64,6 +64,7 @@ import {
   renderLateActionRejected,
   renderOrderIssued,
   renderParticipantExcluded,
+  renderFinalSummary,
   renderProjectionChanged,
   renderRoundCancelled,
   renderRoundChanged,
@@ -133,25 +134,32 @@ function protocolUrl(roundId: string): string {
   return `${env.APP_BASE_URL}/tellija/voorud/${roundId}/protokoll`;
 }
 
-/**
- * One human-readable line per training, for notifications — code, title, date,
- * format, place, size. The title is there because a partner reads a mail with
- * five of these and has to tell them apart [D-01].
- */
-function trainingLines(ctx: Ctx, trainingIds: readonly string[]): string[] {
+type TrainingRow = typeof trainings.$inferSelect;
+
+/** The trainings behind a set of ids, in (date, code) order — the order every list keeps. */
+function trainingRows(ctx: Ctx, trainingIds: readonly string[]): TrainingRow[] {
   if (trainingIds.length === 0) return [];
   const rows = ctx.tx.select().from(trainings).where(inArray(trainings.id, trainingIds)).all();
   const byId = new Map(rows.map((r) => [r.id, r]));
   return trainingIds
     .map((id) => byId.get(id))
-    .filter((row): row is typeof trainings.$inferSelect => Boolean(row))
-    .sort((a, b) => a.eventDate.localeCompare(b.eventDate) || a.code.localeCompare(b.code))
-    .map(
-      (row) =>
-        `${row.code} — ${row.title} · ${formatIsoDay(row.eventDate)} · ${WORKSHOP_TYPE_LABELS[row.workshopType]} · ${
-          row.county
-        }${row.locationText ? `, ${row.locationText}` : ''} · ${row.participantCount} osalejat`,
-    );
+    .filter((row): row is TrainingRow => Boolean(row))
+    .sort((a, b) => a.eventDate.localeCompare(b.eventDate) || a.code.localeCompare(b.code));
+}
+
+/**
+ * One human-readable line for a training, for notifications — code, title,
+ * date, format, place, size. The title is there because a partner reads a mail
+ * with five of these and has to tell them apart [D-01].
+ */
+function trainingLine(row: TrainingRow): string {
+  return `${row.code} — ${row.title} · ${formatIsoDay(row.eventDate)} · ${WORKSHOP_TYPE_LABELS[row.workshopType]} · ${
+    row.county
+  }${row.locationText ? `, ${row.locationText}` : ''} · ${row.participantCount} osalejat`;
+}
+
+function trainingLines(ctx: Ctx, trainingIds: readonly string[]): string[] {
+  return trainingRows(ctx, trainingIds).map(trainingLine);
 }
 
 function transition(ctx: Ctx, round: Round, to: RoundStatus): void {
@@ -1222,6 +1230,78 @@ export function sendDeadlineReminder(ctx: Ctx, roundId: string): number {
           round.visibilityMode === 'dynamic'
             ? `Praeguse seisuga on teile prognoositud ${projected} koolitust (${formatRemaining(ctx.at, round.deadlineAt)}).`
             : 'Jaotus selgub pärast vastamistähtaega.',
+      }),
+    });
+    sent += 1;
+  }
+  return sent;
+}
+
+/** [D-11] How long before the deadline the personal summary goes out [L-24]. */
+export const FINAL_SUMMARY_WINDOW_MS = 2 * 3_600_000;
+
+/**
+ * [D-11] The personal summary two hours before the deadline: to every partner
+ * who has confirmed, once — what they confirmed, what the projection gives them
+ * right now, and which of their marks would go elsewhere and why [N-03].
+ *
+ * Only confirmers: a decliner's outcome is settled, and a non-responder was
+ * told at 24 hours [D-05] that silence counts as declining. A confirmation
+ * made inside the window is skipped — its receipt [D-02] already carries this
+ * position, and two messages for one state teach a reader to skip both. Sealed
+ * rounds have no projection to summarise [N-06]. No rate limit is needed: the
+ * round is quiet in its last day [D-04], so this is the one message.
+ *
+ * The participant is stamped before the skip check, so a partner whose only
+ * confirmation falls inside the window is never revisited by a later run.
+ */
+export function sendFinalSummary(ctx: Ctx, roundId: string): number {
+  const round = loadRound(ctx, roundId);
+  if (round.status !== 'open' || round.deadlineAt === null || round.visibilityMode !== 'dynamic') return 0;
+  if (round.deadlineAt - ctx.at > FINAL_SUMMARY_WINDOW_MS) return 0;
+  const lot = loadLot(ctx, round.lotId);
+  const input = projectionInput(ctx.tx, roundId, ctx.at);
+
+  let sent = 0;
+  for (const participant of participantsOf(ctx.tx, roundId)) {
+    if (participant.excludedAt !== null || participant.finalReminderSentAt !== null) continue;
+    const latest = latestConfirmation(ctx.tx, roundId, participant.lotPartnerId);
+    if (!latest || latest.kind !== 'confirm') continue;
+
+    ctx.tx
+      .update(roundParticipants)
+      .set({ finalReminderSentAt: ctx.at })
+      .where(eq(roundParticipants.id, participant.id))
+      .run();
+    if (round.deadlineAt - latest.confirmedAt <= FINAL_SUMMARY_WINDOW_MS) continue;
+
+    const capKind = latest.capKind ?? 'trainings';
+    const view = partnerView(input, participant.lotPartnerId, { marks: latest.marks, cap: latest.cap, capKind });
+    const reasons = new Map(
+      view.rows.filter((row) => row.state === 'marked_not_projected').map((row) => [row.trainingId, row.reason] as const),
+    );
+    const lostLines = trainingRows(ctx, [...reasons.keys()]).map(
+      (row) =>
+        `${trainingLine(row)} — ${reasons.get(row.id) === 'over_cap' ? 'ületab teie piirmäära' : 'eesõigusega partner saab selle'}`,
+    );
+
+    notify(ctx, {
+      recipientKind: 'partner',
+      recipientLotPartnerId: participant.lotPartnerId,
+      type: 'reminder_final',
+      roundId,
+      emailTo: partnerRecipients(ctx.tx, participant.lotPartnerId),
+      notice: renderFinalSummary({
+        framework: frameworkIdentity(ctx.tx),
+        roundCode: round.code,
+        lotLabel: lotLabel(lot),
+        deadlineText: formatDateTime(round.deadlineAt),
+        url: partnerUrl(roundId),
+        contactName: participant.contactName,
+        remainingText: formatRemaining(ctx.at, round.deadlineAt),
+        confirmedText: `Teie kinnitatud valik (${formatDateTimeShort(latest.confirmedAt)}): ${latest.marks.length} koolitust${capSummary(latest.cap, capKind)}.`,
+        projectedLines: trainingLines(ctx, view.projectedTrainingIds),
+        lostLines,
       }),
     });
     sent += 1;

@@ -313,6 +313,38 @@ describe('0011_listed_representatives on a populated v2.5 database', () => {
   });
 });
 
+describe('0012_final_reminder on a populated v2.6 database', () => {
+  it('adds the timestamp without touching the 24-hour reminder’s [D-11]', () => {
+    const raw = databaseThrough('0011_listed_representatives');
+    raw.prepare("INSERT INTO lots (id, code, name, created_at) VALUES ('l1', 'OSA-1', 'Hankeosa 1', 1000)").run();
+    raw.prepare("INSERT INTO partners (id, name, reg_code, created_at) VALUES ('p1', 'Tehisaru', '10000001', 1000)").run();
+    raw
+      .prepare(
+        "INSERT INTO lot_partners (id, lot_id, partner_id, rank, contact_name, contact_email, created_at) VALUES ('lp1', 'l1', 'p1', 1, 'Jaan', 'jaan@naidis.ee', 1000)",
+      )
+      .run();
+    raw
+      .prepare("INSERT INTO rounds (id, code, lot_id, created_at, created_by) VALUES ('r1', 'VOOR-2026-001', 'l1', 1000, 'test')")
+      .run();
+    raw
+      .prepare(
+        `INSERT INTO round_participants (id, round_id, lot_partner_id, rank_at_publication, contact_name_snapshot, contact_email_snapshot, reminder_sent_at, created_at)
+         VALUES ('rp1', 'r1', 'lp1', 1, 'Jaan', 'jaan@naidis.ee', 5000, 1000)`,
+      )
+      .run();
+
+    migrate(drizzle(raw, { schema }), { migrationsFolder: folder });
+
+    expect(raw.prepare('SELECT reminder_sent_at, final_reminder_sent_at FROM round_participants').all()).toEqual([
+      { reminder_sent_at: 5000, final_reminder_sent_at: null },
+    ]);
+    const triggers = raw.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type = 'trigger'").get() as { n: number };
+    expect(triggers.n).toBe(6);
+    expect(raw.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+    raw.close();
+  });
+});
+
 describe('0007_acting_via on a populated v2 database', () => {
   it('adds the two columns without disturbing the append-only trail [L-08]', () => {
     const raw = v2Database();

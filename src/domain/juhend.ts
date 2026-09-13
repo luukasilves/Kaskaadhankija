@@ -81,13 +81,15 @@ export interface Section {
 }
 
 /* ------------------------------------------------------------------ *
- * the two numbers that may be stated [L-08]
+ * the numbers that may be stated [L-08][L-24]
  * ------------------------------------------------------------------ */
 
 /** `CODE_TTL_MS` in minutes. Pinned to the code by `juhend.test.ts`. */
 export const KOODI_KEHTIVUS_MIN = 10;
 /** `SESSION_TTL_MS` in days. Pinned to the code by `juhend.test.ts`. */
 export const SESSIOONI_KEHTIVUS_PAEVI = 30;
+/** `FINAL_SUMMARY_WINDOW_MS` in hours [D-11]. Pinned to the code by `juhend.test.ts`. */
+export const LOPPKOKKUVOTE_TUNDE = 2;
 
 /* ------------------------------------------------------------------ *
  * quoted on-screen strings [see rule 1 above]
@@ -528,7 +530,7 @@ export const SECTIONS: readonly Section[] = [
   {
     id: 'loobumine',
     title: 'Kui ükski koolitus ei sobi',
-    rules: ['K-07', 'K-08', 'E-03'],
+    rules: ['K-07', 'K-08', 'E-03', 'D-05', 'D-11'],
     blocks: [
       {
         kind: 'para',
@@ -557,6 +559,10 @@ export const SECTIONS: readonly Section[] = [
         kind: 'para',
         text:
           '24 tundi enne tähtaega saadab süsteem meeldetuletuse, milles on kirjas, mis teie seis on: kas olete kinnitanud, loobunud või vastamata jätnud.',
+      },
+      {
+        kind: 'para',
+        text: `Kui olete kinnitanud, saate **${LOPPKOKKUVOTE_TUNDE} tundi enne tähtaega** veel isikliku lõppkokkuvõtte: mis teile praeguse seisuga prognoositakse ja millised teie märgitud koolitused läheksid mujale — iga koolituse juures põhjus. Nii ei ole tulemus tähtajal üllatus. Kui teie viimane kinnitus on tehtud juba viimase ${LOPPKOKKUVOTE_TUNDE} tunni sees, kokkuvõtet ei tule: sama seis on teie kinnituse kviitungis.`,
       },
     ],
   },
@@ -635,7 +641,7 @@ export const SECTIONS: readonly Section[] = [
   {
     id: 'teavitused',
     title: 'Teated ja kes neid saab',
-    rules: ['D-02', 'D-03', 'D-04', 'D-05', 'D-07', 'D-10'],
+    rules: ['D-02', 'D-03', 'D-04', 'D-05', 'D-07', 'D-10', 'D-11'],
     blocks: [
       {
         kind: 'para',
@@ -648,6 +654,7 @@ export const SECTIONS: readonly Section[] = [
           '**Kinnituse või loobumise kviitung** — iga kinnituse kohta eraldi.',
           '**Prognoosi muutus** — kui teist eespool olev partner muudab oma valikut nii, et teie prognoos muutub. Neid ei saadeta tihedamalt kui kord nelja tunni jooksul ja viimasel ööpäeval enam mitte.',
           '**Meeldetuletus** — 24 tundi enne tähtaega.',
+          `**Lõppkokkuvõte** — ${LOPPKOKKUVOTE_TUNDE} tundi enne tähtaega, kui olete kinnitanud: praegu prognoositud koolitused ja mujale minevad märked koos põhjusega.`,
           '**Vooru muudatus või tühistamine** — koos põhjendusega.',
           '**Tellimus** — kui teile midagi määrati.',
         ],
