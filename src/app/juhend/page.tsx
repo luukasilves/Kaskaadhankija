@@ -21,6 +21,7 @@ import { isDemoMode } from '@/lib/env';
 import {
   AJATELG,
   KASKAAD,
+  JUHENDI_SEIS,
   KASKAAD_PIIRMAAR,
   OLEKU_SILDID as LEGEND,
   PEALKIRI,
@@ -278,6 +279,9 @@ export default function JuhendPage() {
       <header data-testid="juhend">
         <h1 className="text-[26px]">{PEALKIRI}</h1>
         <p className="mt-2 max-w-[70ch] text-[14px] text-[var(--color-muted)]">{SISSEJUHATUS}</p>
+        <p className="mt-1 text-[12.5px] text-[var(--color-muted)]" data-testid="juhend-seis">
+          Juhendi seis: {JUHENDI_SEIS}.
+        </p>
       </header>
 
       <nav className="kh-card kh-no-print my-6 p-4" aria-label="Sisukord">

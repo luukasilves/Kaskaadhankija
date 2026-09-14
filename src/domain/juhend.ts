@@ -16,8 +16,9 @@
  *     English source to back-translate against, so fidelity is checked against
  *     `docs/kaskaadi-ariloogika.md`: `rules` on each section is the trace, and
  *     the test asserts each tag still exists in the spec.
- *  3. **Only two numbers may be stated** — the code's lifetime and the
- *     session's, because they are constants the test pins to the code. Response
+ *  3. **Only three numbers may be stated** — the code's lifetime, the
+ *     session's and the final summary's lead time, because they are constants
+ *     the test pins to the code. Response
  *     windows, workload thresholds and the buyer's decision time are per-lot
  *     data or open questions [L-09][L-10], and printing one would turn it into
  *     a promise this document has no right to make.
@@ -53,6 +54,7 @@ export const FIGURE_IDS = [
   'kinnitamine',
   'maarati-teisele',
   'teavitused',
+  'klastri-kaart',
 ] as const;
 
 export type FigureId = (typeof FIGURE_IDS)[number];
@@ -108,6 +110,7 @@ const VOORUD = 'src/app/partner/voorud/page.tsx';
 const SISENE = 'src/components/sign-in.tsx';
 const PARTNER_TEAVITUSED = 'src/app/partner/teavitused/page.tsx';
 const PARTNER_KALENDER = 'src/app/partner/kalender/page.tsx';
+const PARTNER_LAYOUT = 'src/app/partner/layout.tsx';
 
 export const QUOTED: readonly { tekst: string; fail: string }[] = [
   { tekst: 'Saada kood', fail: SISENE },
@@ -143,6 +146,9 @@ export const QUOTED: readonly { tekst: string; fail: string }[] = [
   { tekst: 'Võtan kuni', fail: MARKING_FORM },
   { tekst: 'Kõik vabad', fail: MARKING_FORM },
   { tekst: 'Klastrivoor', fail: PARTNER_VOOR },
+  { tekst: 'Teie vastus', fail: PARTNER_VOOR },
+  { tekst: 'juba samal kujul kinnitatud', fail: PARTNER_VOOR },
+  { tekst: 'Kalender', fail: PARTNER_LAYOUT },
 ] as const;
 
 /* ------------------------------------------------------------------ *
@@ -256,6 +262,9 @@ export const AJATELG: readonly { samm: string; kes: 'tellija' | 'teie' | 'sustee
 
 export const PEALKIRI = 'Juhend koolitajale';
 
+/** The date the guide was last brought into line with the application. */
+export const JUHENDI_SEIS = '14.09.2026';
+
 export const SISSEJUHATUS =
   'Kuidas vastata koolitustellimuste voorule raamlepingu „Eesti.ai koolitajate tellimine“ (RHR 10567384) alusel.';
 
@@ -316,6 +325,34 @@ export const SECTIONS: readonly Section[] = [
   },
 
   {
+    id: 'uuendused',
+    title: 'Mis on uuenenud (13.09.2026)',
+    rules: ['D-01', 'E-10', 'D-12', 'L-25', 'T-08', 'D-11', 'K-06', 'L-27', 'N-02', 'V-09', 'K-10', 'N-03'],
+    pilotOnly: true,
+    blocks: [
+      {
+        kind: 'para',
+        text:
+          'Esimese läbimängu (10.–11.09.2026) järel muutus partneri vaates järgmine. Kõik see on juhendis ka omal kohal kirjas; loend on neile, kes keskkonda juba tunnevad.',
+      },
+      {
+        kind: 'list',
+        items: [
+          `**Hind:** tabelis on veerud „${HIND.maxOsalejaid}“ ja „${HIND.ruhmaTaitumisel}“ ning päises teie „${HIND.osalejaKohta}“ — ainult teie enda hind; tellija hinnangut ega teiste partnerite hindu ei näidata.`,
+          '**Kinnitamine:** vastus on lehe ülaosas plokis „Teie vastus“; sama valiku uuesti kinnitamine ei loo uut kannet ega kviitungit. Telefonis püsivad nupud ekraani allservas.',
+          `**Seis uueneb ise** umbes iga ${AUTO_REFRESH_MS / 60_000} minuti järel, kuni voor on avatud; prognoosi kõrval on seisu aeg.`,
+          '**Märkimine:** nupud „Märgi kõik saadaval“, „Märgi kõik“ ja „Tühjenda“; ülempiir on sõnaselge valik „Piirmäära ei ole“ või „Kuni“.',
+          '**Kalender:** menüüs on „Minu kalender“ ja märkimistabel hoiatab „Samal päeval: …“, kui teil on sel päeval juba koolitus.',
+          `**Teated:** koolitused on e-kirjas ühe kaupa omal real; kinnitanud partner saab ${LOPPKOKKUVOTE_TUNDE} tundi enne tähtaega lõppkokkuvõtte; vooru sulgumisel tuleb kiri „Voor on lõppenud“ esialgse tulemusega; teabekirjad saab lehel „Teavitused“ e-postist välja lülitada.`,
+          '**Tellimus** vormistatakse praegu väljaspool rakendust — rakendus tellimusi ei koosta ega saada.',
+          '**Klastrivoor:** tellija võib tellida mahu perioodi jooksul; te ütlete rühmade arvu, mitte ei märgi ridu (vt osa „Klastrivoor: rühmad, mitte kuupäevad“).',
+          '**Sõnastus:** olekud on teie-vormis („Prognoosis teile“) ja keskkonna nimi on ühtselt „testkeskkond“.',
+        ],
+      },
+    ],
+  },
+
+  {
     id: 'teade',
     title: 'Kuidas voor teieni jõuab',
     rules: ['D-01', 'D-10'],
@@ -328,7 +365,7 @@ export const SECTIONS: readonly Section[] = [
       {
         kind: 'para',
         text:
-          'Teate saavad **kõik teie ettevõtte aktiivsed esindajad** korraga, mitte ainult üks inimene. Kui esindajate loendis kedagi ei ole, läheb teade raamlepingu kontaktisikule. Sama kehtib kõigi hilisemate teadete kohta: kinnituste kviitungid, meeldetuletus, tellimus.',
+          'Teate saavad **kõik teie ettevõtte aktiivsed esindajad** korraga, mitte ainult üks inimene. Kui esindajate loendis kedagi ei ole, läheb teade raamlepingu kontaktisikule. Sama kehtib kõigi hilisemate teadete kohta: kinnituste kviitungid, meeldetuletused, vooru lõppemise teade.',
       },
       {
         kind: 'para',
@@ -529,6 +566,7 @@ export const SECTIONS: readonly Section[] = [
           '**Toimumisajad** perioodi sees lepitakse kokku pärast jaotust, väljaspool seda keskkonda. Kinnitades ütlete, mitu rühma te perioodi jooksul läbi viite.',
         ],
       },
+      { kind: 'figure', id: 'klastri-kaart', caption: 'Klastri kaart: mitu rühma te võtate, mitu on vaba ja mitu on praeguse seisuga prognoosis teile.' },
       {
         kind: 'note',
         tone: 'info',
@@ -542,7 +580,7 @@ export const SECTIONS: readonly Section[] = [
   {
     id: 'kinnitamine',
     title: 'Mustand ei ole kinnitus',
-    rules: ['K-02', 'K-03', 'K-04', 'K-05'],
+    rules: ['K-02', 'K-03', 'K-04', 'K-05', 'E-10'],
     blocks: [
       {
         kind: 'note',
@@ -568,13 +606,18 @@ export const SECTIONS: readonly Section[] = [
       {
         kind: 'para',
         text:
+          'Pärast kinnitamist või loobumist viib leht teid ülaossa plokki **„Teie vastus“**: seal on teie vastuse olek, viimase kinnituse aeg ja kinnitatud koolituste arv. Telefonis püsivad kolm nuppu ekraani allservas ka pika tabeli juures, nii et kinnitamiseks ei pea tabeli lõppu kerima.',
+      },
+      {
+        kind: 'para',
+        text:
           'Kui teie praegune valik erineb sellest, mille te viimati kinnitasite, on lehe ülaosas kollane hoiatus **„Kinnitamata muudatused“**, ja iga muudetud koolituse koodi kõrval sõna „muudetud“. Hoiatus ütleb ka, mis kehtima jääks, kui te midagi ei tee.',
       },
       { kind: 'figure', id: 'kinnitamata', caption: 'Kinnitamata muudatuste hoiatus. Seda ei tohi tähelepanuta jätta.' },
       {
         kind: 'para',
         text:
-          'Kinnitada võite **nii mitu korda kui vaja** kuni tähtajani: iga kinnitus on eraldi kanne ja siduv on **viimane kinnitus enne tähtaega**. Kõik kanded on lehe all osas „Teie kinnituste ajalugu“, kus viimase juures seisab „Kehtib“. Nii saate valikut julgelt täpsustada, kui prognoos muutub.',
+          'Kinnitada võite **nii mitu korda kui vaja** kuni tähtajani: iga kinnitus on eraldi kanne ja siduv on **viimane kinnitus enne tähtaega**. Kõik kanded on lehe all osas „Teie kinnituste ajalugu“, kus viimase juures seisab „Kehtib“. Nii saate valikut julgelt täpsustada, kui prognoos muutub. Kui kinnitate sama valiku uuesti, uut kannet ega kviitungit ei teki: leht ütleb, et teie valik oli juba samal kujul kinnitatud, ja kehtima jääb varasem kinnitus.',
       },
       {
         kind: 'note',
@@ -705,7 +748,7 @@ export const SECTIONS: readonly Section[] = [
   {
     id: 'teavitused',
     title: 'Teated ja kes neid saab',
-    rules: ['D-02', 'D-03', 'D-04', 'D-05', 'D-07', 'D-10', 'D-11', 'L-27'],
+    rules: ['D-02', 'D-03', 'D-04', 'D-05', 'D-12', 'D-10', 'D-11', 'L-27'],
     blocks: [
       {
         kind: 'para',
@@ -720,7 +763,7 @@ export const SECTIONS: readonly Section[] = [
           '**Meeldetuletus** — 24 tundi enne tähtaega.',
           `**Lõppkokkuvõte** — ${LOPPKOKKUVOTE_TUNDE} tundi enne tähtaega, kui olete kinnitanud: praegu prognoositud koolitused ja mujale minevad märked koos põhjusega.`,
           '**Vooru muudatus või tühistamine** — koos põhjendusega.',
-          '**Tellimus** — kui teile midagi määrati.',
+          '**Voor on lõppenud** — vooru sulgumisel: teie kinnitatud valik ja mitu koolitust teile esialgse jaotuse järgi läheks. See on esialgne tulemus, mitte tellimus.',
         ],
       },
       { kind: 'figure', id: 'teavitused', caption: 'Teavituste logi. Iga teate juures on ka see, mis e-kirjaga juhtus.' },
@@ -740,7 +783,7 @@ export const SECTIONS: readonly Section[] = [
   {
     id: 'tore',
     title: 'Kui midagi läheb valesti',
-    rules: ['L-08', 'L-18', 'E-07'],
+    rules: ['L-08', 'L-18', 'E-07', 'E-10', 'D-10'],
     blocks: [
       {
         kind: 'list',
@@ -751,6 +794,8 @@ export const SECTIONS: readonly Section[] = [
           '**Märkisin vale koolituse.** Kuni tähtajani muutke linnukesi ja **kinnitage uuesti** — kehtib viimane kinnitus.',
           '**Kinnitasin, aga ei saa koolitust läbi viia.** Teatage tellijale kohe. Pärast jaotuse kinnitamist on tegu tellimuse muutmisega ja seda ei saa süsteemis ise teha.',
           '**Voor kadus loendist.** Kinnitatud voorud on rühmas „Lõpetatud voorud“. Kui tellija vooru tühistas, saite selle kohta teate koos põhjendusega.',
+          '**Kinnitasin telefonis, aga ei näinud, kas läks läbi.** Pärast kinnitamist on vastus lehe ülaosas plokis „Teie vastus“ koos viimase kinnituse ajaga. Kui see on seal, läks läbi — uuesti vajutamine ei lisa midagi.',
+          '**Sama kiri tuli mitu korda.** Iga teade saadetakse eraldi igale teie ettevõtte aktiivsele esindajale; kui te olete kirjas kahe aadressiga või kiri suunatakse edasi, jõuab see teieni mitu korda. Sama valiku uuesti kinnitamine uut kviitungit ei anna.',
         ],
       },
     ],

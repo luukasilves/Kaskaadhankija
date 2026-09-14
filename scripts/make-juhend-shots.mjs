@@ -36,9 +36,13 @@ import {
   makeChecker,
   openFinishedRound,
   openOpenRound,
+  pickActAs,
+  publishWithShortDeadline,
   removeDatabase,
   requestCode,
+  SEED_ADMIN,
   signInAs,
+  signInAsAdmin,
   startServer,
   waitForHealth,
   watchPage,
@@ -194,6 +198,40 @@ async function main() {
 
     check('the open OSA-2 round is theirs as well', await openOpenRound(page, base, 'OSA-2'));
     await figure('vastamata', page.getByTestId('no-response-banner'));
+
+    /* --- the cluster round: the buyer publishes the seeded draft, koht 3 answers with a count [K-10] --- */
+    // The one figure that needs the buyer: the seeded cluster is a draft, and a
+    // partner sees nothing before publication. The admin signs in, acts as the
+    // buyer, publishes with a short window, and signs out again — the partner
+    // then signs in properly, as every other figure here does.
+    note('Klastrivoor — rühmade arv, mitte read');
+    await page.getByTestId('sign-out').click();
+    await page.waitForURL(/\/sisene/, { timeout: 20_000 });
+    await signInAsAdmin(page, server);
+    await pickActAs(page, SEED_ADMIN.name);
+    await page.goto(`${base}/tellija/voorud`);
+    await page.waitForSelector('h1', { timeout: 20_000 });
+    const clusterLink = page.locator('tr', { hasText: 'klastrivoor' }).locator('a').first();
+    check('the seeded cluster draft is in the rounds list', (await clusterLink.count()) === 1);
+    await page.goto(`${base}${await clusterLink.getAttribute('href')}`);
+    await page.waitForSelector('h1', { timeout: 20_000 });
+    // Two minutes at least: signing out, signing in as the partner and
+    // confirming must all happen while the round is still open.
+    await publishWithShortDeadline(page, { minLeadMs: 120_000 });
+    const clusterRoundId = new URL(page.url()).pathname.split('/').pop();
+
+    await page.getByTestId('sign-out').click();
+    await page.waitForURL(/\/sisene/, { timeout: 20_000 });
+    await signInAs(page, server, TEHISARU);
+    await page.goto(`${base}/partner/voorud/${clusterRoundId}`);
+    await page.waitForSelector('[data-testid="cluster-card"]', { timeout: 20_000 });
+    await page.locator('input[aria-label="Rühmi klastris KL-2026-001"]').fill('4');
+    await page.getByTestId('confirm-marks').locator('button').click();
+    await page.waitForFunction(() => document.body.textContent.includes('Viimane kinnitus'), null, {
+      timeout: 20_000,
+    });
+    await assertOnlyFictionalCompanies(page, 'klastrivoor');
+    await figure('klastri-kaart', page.getByTestId('cluster-card'));
 
     check('no console errors', watched.consoleErrors.length === 0, watched.consoleErrors.slice(0, 2).join(' | '));
     check('no failed requests', watched.badResponses.length === 0, watched.badResponses.slice(0, 3).join(' | '));

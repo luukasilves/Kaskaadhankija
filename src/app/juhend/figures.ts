@@ -19,6 +19,7 @@ import type { StaticImageData } from 'next/image';
 import type { FigureId } from '@/domain/juhend';
 import kinnitamata from './pildid/kinnitamata.png';
 import kinnitamine from './pildid/kinnitamine.png';
+import klastriKaart from './pildid/klastri-kaart.png';
 import maaratiTeisele from './pildid/maarati-teisele.png';
 import neliOlekut from './pildid/neli-olekut.png';
 import siseneViga from './pildid/sisene-viga.png';
@@ -39,4 +40,5 @@ export const FIGURES: Record<FigureId, StaticImageData> = {
   kinnitamine,
   'maarati-teisele': maaratiTeisele,
   teavitused,
+  'klastri-kaart': klastriKaart,
 };
