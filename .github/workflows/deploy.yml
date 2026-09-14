@@ -1,43 +1,35 @@
 name: Deploy to Fly.io
 
-# Deploys a test environment: one machine, one SQLite file on a volume.
+# Deploys the test environment: one machine, one SQLite file on a volume.
 #
-# Two environments run side by side from this one workflow, so the accepted v2
-# stays up while v3 is built and compared against it:
+#   main → kaskaadhankija-v3   (https://kaskaadhankija-v3.fly.dev)
 #
-#   main, claude/parallel-cascade-spec          → kaskaadhankija      (v2)
-#   claude/cascade-miniprocurement-mvp-plan-…   → kaskaadhankija-v3   (v3)
-#
-# Each app has its own volume, database and secrets. The mapping lives in the
-# `resolve` step below; the `app` input of a manual run overrides it. fly.toml
-# carries the v2 defaults, and the deploy step overrides the app name and
-# APP_BASE_URL for whichever app is being deployed.
+# The app name and APP_BASE_URL come from fly.toml; the `app` input of a manual
+# run overrides the name, for a clash or a throwaway copy. Until September 2026
+# a second app, `kaskaadhankija`, ran the accepted v2 (the persona picker) side
+# by side with the v3 line so the team could compare them; the v3 line is now
+# the only one and that app is retired — nothing deploys to it any more, and
+# the operator deletes it with `flyctl apps destroy kaskaadhankija`.
 #
 # Requires a single repository secret, FLY_API_TOKEN, scoped to the account or
 # the organisation — not an app-scoped deploy token, because the bootstrap job
 # may have to create the app itself.
-#
-# On the branch triggers: `workflow_dispatch` is only offered for workflows that
-# already exist on the default branch, so until a branch is merged the push
-# trigger is the only way to run it for that branch.
 
 on:
   workflow_dispatch:
     inputs:
       app:
-        description: 'Fly app name (must be globally unique)'
+        description: 'Fly app name (must be globally unique); empty takes fly.toml'
         required: false
         default: ''
   push:
     branches:
       - main
-      - claude/parallel-cascade-spec
-      - claude/cascade-miniprocurement-mvp-plan-re21yp
 
 concurrency:
   # One deploy at a time per app: two concurrent runs would fight over one
-  # machine. v2 and v3 deploys do not need to wait for each other.
-  group: fly-deploy-${{ inputs.app || (github.ref_name == 'claude/cascade-miniprocurement-mvp-plan-re21yp' && 'kaskaadhankija-v3' || 'kaskaadhankija') }}
+  # machine. The default here must match `app` in fly.toml.
+  group: fly-deploy-${{ inputs.app || 'kaskaadhankija-v3' }}
   cancel-in-progress: false
 
 env:
@@ -45,9 +37,6 @@ env:
   FLY_REGION: arn # Stockholm — the closest Fly region to Tallinn
   VOLUME_NAME: kh_data
   VOLUME_SIZE_GB: '1'
-  # The v3 line. Everything else deploys to the app named in fly.toml.
-  V3_BRANCH: claude/cascade-miniprocurement-mvp-plan-re21yp
-  V3_APP: kaskaadhankija-v3
 
 jobs:
   # ------------------------------------------------------------------ #
@@ -80,12 +69,8 @@ jobs:
         id: resolve
         run: |
           # The input wins, so a name clash can be worked around without a
-          # commit. Otherwise the branch decides: the v3 branch goes to the v3
-          # app, everything else to the app named in fly.toml.
+          # commit. Otherwise the app named in fly.toml is deployed.
           APP='${{ inputs.app }}'
-          if [ -z "$APP" ] && [ "$GITHUB_REF_NAME" = "$V3_BRANCH" ]; then
-            APP="$V3_APP"
-          fi
           if [ -z "$APP" ]; then
             APP=$(sed -n 's/^app *= *"\(.*\)"/\1/p' fly.toml | head -1)
           fi
@@ -150,12 +135,11 @@ jobs:
 
       - uses: superfly/flyctl-actions/setup-flyctl@master
 
-      # The v3 line gets the mail relay and the sign-in secret; the accepted v2
-      # stays mail-less. Only secrets that are set in GitHub are pushed, so an
-      # unset one never blanks a value already on Fly. `--stage` stores them
-      # for the deploy below instead of triggering a release of their own.
-      - name: Push mail and sign-in secrets (v3 only)
-        if: needs.bootstrap.outputs.app == env.V3_APP
+      # The mail relay and the sign-in secrets. Only secrets that are set in
+      # GitHub are pushed, so an unset one never blanks a value already on Fly.
+      # `--stage` stores them for the deploy below instead of triggering a
+      # release of their own.
+      - name: Push mail and sign-in secrets
         env:
           SMTP_HOST: ${{ secrets.SMTP_HOST }}
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
@@ -166,21 +150,15 @@ jobs:
           # [L-19]. Every active representative and lot contact is derived from
           # the uploaded framework data, so this covers only the people the
           # framework does not contain: the buyer's own team.
-          #
-          # The tool team's domain came off this default when the derivation
-          # landed — it was there so a bidder's code could arrive, and that is
-          # no longer what it does. Set the secret to add it back for a
-          # throwaway environment.
           EMAIL_ALLOWED_RECIPIENTS: ${{ secrets.EMAIL_ALLOWED_RECIPIENTS || '@riigikantselei.ee' }}
           TEAM_NOTIFICATIONS_EMAIL: ${{ secrets.TEAM_NOTIFICATIONS_EMAIL }}
           # `nimi,e-post[,roll];…` — the buyer team's own members, added when the
           # seed runs, alongside the sample Mari Tamm rather than replacing her.
-          # Partner representatives are not seeded from a secret any more: they
-          # arrive with the framework workbook an admin uploads [L-21].
+          # Partner representatives are not seeded from a secret: they arrive
+          # with the framework workbook an admin uploads [L-21].
           SEED_TEAM: ${{ secrets.SEED_TEAM }}
           # Who may sign in as a buyer **admin** without being listed first
-          # [L-08]. A named list, not a domain: the wide domain rule was a
-          # testing-phase convenience, and anyone it admitted could publish
+          # [L-08]. A named list, not a domain: anyone it admits can publish
           # rounds and confirm allocations irreversibly. Everyone else is added
           # on *Meeskond* by an admin and starts as a hankija [R-01].
           #
@@ -228,8 +206,8 @@ jobs:
           #                needs no Docker of its own.
           # --ha=false:    exactly one machine. Two would mean two SQLite files
           #                on two volumes behind one hostname.
-          # --env:         fly.toml carries the v2 hostname; notification and
-          #                sign-in links must point at the app being deployed.
+          # --env:         notification and sign-in links must point at the app
+          #                being deployed, whatever fly.toml says.
           flyctl deploy \
             --app "$APP" \
             --remote-only \
@@ -292,82 +270,64 @@ jobs:
           cat health.json
           jq -e '.ok == true' health.json > /dev/null \
             || { echo "::error::$BASE/api/health did not report ok."; exit 1; }
-          # The links in every notification are built from this; a v3 machine
-          # still pointing at the v2 hostname would send testers to the wrong app.
+          # The links in every notification are built from this; a machine
+          # still pointing at another hostname would send people to the wrong app.
           jq -e --arg base "$BASE" '.baseUrl == $base' health.json > /dev/null \
             || { echo "::error::APP_BASE_URL is $(jq -r .baseUrl health.json), expected $BASE."; exit 1; }
           echo "Mail transport: $(jq -r .mail health.json)"
 
-          if [ "$APP" = "$V3_APP" ]; then
-            # v3: the sign-in is the front door, so `/` redirects there and the
-            # opening page can no longer be read for proof that anything seeded.
-            HOME_CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$BASE/")
-            HOME_LOCATION=$(curl -sI --max-time 20 "$BASE/" | tr -d '\r' | sed -n 's/^[Ll]ocation: //p')
-            case "$HOME_CODE" in
-              30*) : ;;
-              *) echo "::error::/ returned $HOME_CODE; the front door must redirect to the sign-in."; exit 1 ;;
-            esac
-            case "$HOME_LOCATION" in
-              */sisene) : ;;
-              *) echo "::error::/ redirects to '$HOME_LOCATION', expected /sisene."; exit 1 ;;
-            esac
-            echo "/ returned $HOME_CODE to $HOME_LOCATION, as the front door should."
+          # The sign-in is the front door, so `/` redirects there.
+          HOME_CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$BASE/")
+          HOME_LOCATION=$(curl -sI --max-time 20 "$BASE/" | tr -d '\r' | sed -n 's/^[Ll]ocation: //p')
+          case "$HOME_CODE" in
+            30*) : ;;
+            *) echo "::error::/ returned $HOME_CODE; the front door must redirect to the sign-in."; exit 1 ;;
+          esac
+          case "$HOME_LOCATION" in
+            */sisene) : ;;
+            *) echo "::error::/ redirects to '$HOME_LOCATION', expected /sisene."; exit 1 ;;
+          esac
+          echo "/ returned $HOME_CODE to $HOME_LOCATION, as the front door should."
 
-            # The sign-in itself, and the proof that the admin allowlist
-            # reached the machine — a secret that silently failed to arrive
-            # would otherwise look exactly like "nobody can log in", with no
-            # visible cause anywhere in the interface. The page publishes the
-            # **count** and not the entries: a named person's address does not
-            # belong on a public page, and the count is all this gate needs.
-            curl -fsS --max-time 20 "$BASE/sisene" > signin.html
-            grep -q 'data-testid="sign-in-form"' signin.html \
-              || { echo '::error::/sisene does not serve the sign-in form.'; exit 1; }
-            grep -q 'TESTKESKKOND' signin.html \
-              || { echo '::error::/sisene does not name itself the test environment.'; exit 1; }
-            ALLOWLIST_SIZE=$(sed -n 's/.*data-admin-allowlist="\([^"]*\)".*/\1/p' signin.html | head -1)
-            case "$ALLOWLIST_SIZE" in
-              ''|0) echo '::error::AUTO_ADMIN_ALLOWLIST did not reach the machine — the first admin could not sign in, and a demotion would leave nobody able to administer the team.'; exit 1 ;;
-            esac
-            echo "Sign-in serving, admin allowlist configured: $ALLOWLIST_SIZE entry/entries."
+          # The sign-in itself, and the proof that the admin allowlist reached
+          # the machine — a secret that silently failed to arrive would
+          # otherwise look exactly like "nobody can log in", with no visible
+          # cause anywhere in the interface. The page publishes the **count**
+          # and not the entries: a named person's address does not belong on a
+          # public page, and the count is all this gate needs.
+          curl -fsS --max-time 20 "$BASE/sisene" > signin.html
+          grep -q 'data-testid="sign-in-form"' signin.html \
+            || { echo '::error::/sisene does not serve the sign-in form.'; exit 1; }
+          grep -q 'TESTKESKKOND' signin.html \
+            || { echo '::error::/sisene does not name itself the test environment.'; exit 1; }
+          ALLOWLIST_SIZE=$(sed -n 's/.*data-admin-allowlist="\([^"]*\)".*/\1/p' signin.html | head -1)
+          case "$ALLOWLIST_SIZE" in
+            ''|0) echo '::error::AUTO_ADMIN_ALLOWLIST did not reach the machine — the first admin could not sign in, and a demotion would leave nobody able to administer the team.'; exit 1 ;;
+          esac
+          echo "Sign-in serving, admin allowlist configured: $ALLOWLIST_SIZE entry/entries."
 
-            # The bidder guide, and its figures. It is the only public page
-            # here, and the one thing a bidder reads before they can sign in —
-            # so a 404 on it, or on an image inside it, is a deploy failure.
-            # The figures are static imports emitted to /_next/static/media,
-            # which ship only because the Dockerfile copies .next/static.
-            curl -fsS --max-time 20 "$BASE/juhend" > juhend.html \
-              || { echo '::error::/juhend does not serve — bidders have no instructions.'; exit 1; }
-            grep -q 'data-testid="juhend"' juhend.html \
-              || { echo '::error::/juhend served something, but not the guide.'; exit 1; }
-            FIGURE=$(sed -n 's/.*<img[^>]*src="\(\/_next\/static\/media\/[^"]*\)".*/\1/p' juhend.html | head -1)
-            if [ -z "$FIGURE" ]; then
-              echo '::error::/juhend carries no figures — the static image imports did not ship.'; exit 1
-            fi
-            curl -fsS --max-time 20 -o figure.bin "$BASE$FIGURE" \
-              || { echo "::error::a guide figure 404s: $FIGURE"; exit 1; }
-            echo "Guide serving, first figure $(wc -c < figure.bin) B: $FIGURE"
-
-            # What the opening page used to prove: that the framework data is
-            # there. On a fresh volume these are 0 until the first upload, so
-            # this reports rather than fails.
-            echo "Framework data: $(jq -c .data health.json)"
-          else
-            # v2 keeps its persona gate: six partners and one buyer on `/`.
-            curl -fsS --max-time 20 "$BASE/" > home.html
-            grep -q 'TESTKESKKOND' home.html \
-              || { echo '::error::The opening screen is not the test environment.'; exit 1; }
-            PARTNERS=$(grep -o 'value="partner:[0-9a-f-]*"' home.html | sort -u | wc -l)
-            BUYERS=$(grep -o 'value="buyer:[0-9a-f-]*"' home.html | sort -u | wc -l)
-            if [ "$PARTNERS" -ne 6 ] || [ "$BUYERS" -ne 1 ]; then
-              echo "::error::Expected 6 partner personas and 1 buyer, found $PARTNERS and $BUYERS — the sample data did not seed."
-              exit 1
-            fi
-            echo "Six partner personas and the buyer are offered."
-            grep -q 'VOOR-' home.html \
-              || { echo '::error::No seeded round on the opening screen.'; exit 1; }
+          # The bidder guide, and its figures. It is the only public page
+          # here, and the one thing a bidder reads before they can sign in —
+          # so a 404 on it, or on an image inside it, is a deploy failure.
+          # The figures are static imports emitted to /_next/static/media,
+          # which ship only because the Dockerfile copies .next/static.
+          curl -fsS --max-time 20 "$BASE/juhend" > juhend.html \
+            || { echo '::error::/juhend does not serve — bidders have no instructions.'; exit 1; }
+          grep -q 'data-testid="juhend"' juhend.html \
+            || { echo '::error::/juhend served something, but not the guide.'; exit 1; }
+          FIGURE=$(sed -n 's/.*<img[^>]*src="\(\/_next\/static\/media\/[^"]*\)".*/\1/p' juhend.html | head -1)
+          if [ -z "$FIGURE" ]; then
+            echo '::error::/juhend carries no figures — the static image imports did not ship.'; exit 1
           fi
+          curl -fsS --max-time 20 -o figure.bin "$BASE$FIGURE" \
+            || { echo "::error::a guide figure 404s: $FIGURE"; exit 1; }
+          echo "Guide serving, first figure $(wc -c < figure.bin) B: $FIGURE"
 
-          # Either way, the buyer area must not be reachable without an identity.
+          # How much framework data is there. On a fresh volume these are 0
+          # until the first upload, so this reports rather than fails.
+          echo "Framework data: $(jq -c .data health.json)"
+
+          # The buyer area must not be reachable without an identity.
           CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$BASE/tellija")
           if [ "$CODE" = "200" ]; then
             echo '::error::/tellija served without signing in.'
@@ -386,8 +346,4 @@ jobs:
             echo
             echo "One machine in \`$FLY_REGION\`, SQLite on the \`$VOLUME_NAME\` volume."
             echo "The seeded round \`VOOR-2026-003\` is Lisa B of the specification."
-            if [ "$APP" = "$V3_APP" ]; then
-              echo
-              echo "This is the **v3** line; v2 stays at https://kaskaadhankija.fly.dev."
-            fi
           } >> "$GITHUB_STEP_SUMMARY"

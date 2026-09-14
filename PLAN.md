@@ -1,5 +1,11 @@
 # Kaskaadhankija — plan (v2, parallel cascade)
 
+*Seis 14.09.2026: this is the design rationale, kept as written while the
+application was built. The specification is now v2.7 and the counts below are
+current; for how the system works and how to deploy it see
+[`docs/tehniline-ulevaade.md`](docs/tehniline-ulevaade.md) and
+[`docs/juurutamine.md`](docs/juurutamine.md).*
+
 ## What this is
 
 An online tool for running **cascade mini-procurements (kaskaad-minihanked)** — the
@@ -29,7 +35,7 @@ partners' confirmed marks — never their identity — so it can plan around wha
 realistically still available.
 
 The business logic is specified, in Estonian, in
-[`docs/kaskaadi-ariloogika.md`](docs/kaskaadi-ariloogika.md): **83 numbered
+[`docs/kaskaadi-ariloogika.md`](docs/kaskaadi-ariloogika.md): **96 numbered
 rules** with stable IDs (`[J-04]`, `[N-03]`, …), a traceability appendix mapping
 verbatim quotes from the specialists' meeting to the rules they justify, and a
 worked example (**Lisa B**) that doubles as the acceptance test. The document is
@@ -182,7 +188,7 @@ with the rank-3 partner holding an unconfirmed draft — which is where the
 
 | Suite | What it holds to account |
 |---|---|
-| `pnpm test` — 379 tests | one `describe` per rule ID; Lisa B.1–B.4 exactly; the append-only triggers; the seed *is* Lisa B; migrations against a populated database; the protocol's determinism and its hash |
+| `pnpm test` — 591 tests | one `describe` per rule ID; Lisa B.1–B.4 exactly; the append-only triggers; the seed *is* Lisa B; migrations against a populated database; the protocol's determinism and its hash |
 | `node scripts/e2e.mjs` | the real flow: sign in, act-as, a round from an uploaded workbook, published with a window of about a minute, answered by two partners through act-as and one with their own code, closed by the deadline passing, reviewed, capped, confirmed, and its protocol downloaded — then what a partner may and may not see on the seeded Lisa B round, and finally an **empty** database set up by hand from the sample workbooks |
 | `node scripts/verify-auth.mjs` | sign-in by e-mail code with the code read from the server log — wrong code, lock after five, unknown address, rate limit — the landing rules per role, that switching keeps the session, and the production posture |
 | `node scripts/verify-admin.mjs` | the framework round trip: download the workbook, change one contact with exceljs, upload it, then sign in with that new address as that partner; the admin forms for identity, rank, contact and representative, **each followed by its row in „Muudatuste logi“**; a legacy `.xls` refused; representatives and the buyer team |
@@ -200,7 +206,8 @@ were traced into the standalone output, so a tracer change breaks the build
 rather than production. Migrations and the seed run at start-up, not as a release
 command: a Fly release machine has no volume mounted.
 
-**Deployed** at [kaskaadhankija.fly.dev](https://kaskaadhankija.fly.dev), from
+**Deployed** at [kaskaadhankija-v3.fly.dev](https://kaskaadhankija-v3.fly.dev)
+(the original `kaskaadhankija` app that ran v2 was retired in September 2026), from
 GitHub Actions rather than a workstation — the build environment has no Docker
 daemon and no route to Fly. The workflow creates the app and volume if missing,
 deploys with `--ha=false`, and then asserts the result from outside: one machine
@@ -211,8 +218,9 @@ catching.
 
 ## The v3 line
 
-Built on the v2 test deployment, as a second Fly app so the accepted v2 stays
-comparable ([kaskaadhankija-v3.fly.dev](https://kaskaadhankija-v3.fly.dev)):
+Built on the v2 test deployment, at first as a second Fly app so the accepted v2
+stayed comparable; since September 2026 it is the only environment,
+[kaskaadhankija-v3.fly.dev](https://kaskaadhankija-v3.fly.dev), deployed from `main`:
 
 - **Mail that sends** — a public SMTP relay now, the Riigikantselei server
   later, config only. One `email_deliveries` row per recipient is the evidence

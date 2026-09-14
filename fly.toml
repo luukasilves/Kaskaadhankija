@@ -1,6 +1,7 @@
 # Kaskaadhankija on Fly.io — one machine, one volume, one SQLite file.
 #
-# Rename `app` before the first deploy, then:
+# The test environment. (The `kaskaadhankija` app that ran the accepted v2 beside
+# this one until September 2026 is retired.) Rename `app` for another copy, then:
 #
 #   fly launch --no-deploy                       # claims the name, keeps this file
 #   fly volumes create kh_data --region arn --size 1
@@ -15,7 +16,7 @@
 #   * `auto_stop_machines` is off. Rounds close on an in-process timer, so a
 #     machine that suspends between requests would stop closing them.
 
-app = "kaskaadhankija"
+app = "kaskaadhankija-v3"
 primary_region = "arn"
 
 [build]
@@ -26,7 +27,7 @@ primary_region = "arn"
   # The test deployment. Remove this line for a production one: no personas,
   # no strip, no virtual clock, and the demo-only actions refuse to run.
   DEMO_MODE = "1"
-  APP_BASE_URL = "https://kaskaadhankija.fly.dev"
+  APP_BASE_URL = "https://kaskaadhankija-v3.fly.dev"
   PORT = "3000"
 
 # The database. The volume and the machine must be in the same region.

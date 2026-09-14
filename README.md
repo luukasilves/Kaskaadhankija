@@ -27,12 +27,11 @@ specialists edit it directly.
 | **[`docs/uuendused-2026-09-13.md`](docs/uuendused-2026-09-13.md)** | What changed after the first play-through (v2.5 → v2.7), as a changelog for the review team. Estonian |
 | **`src/`** | The application: buyer and partner screens, the round engine, the framework and round imports, the protocol |
 | **[`demo/`](demo/)** | The v1 single-file HTML demo of the *sequential* cascade — still useful, no server needed |
-| **[kaskaadhankija.fly.dev](https://kaskaadhankija.fly.dev)** | The accepted v2 test environment — the persona picker, kept as the specialists reviewed it |
-| **[kaskaadhankija-v3.fly.dev](https://kaskaadhankija-v3.fly.dev)** | The v3 line: sign-in as the front door, the framework data in the application, real time, the signable round protocol |
+| **[kaskaadhankija-v3.fly.dev](https://kaskaadhankija-v3.fly.dev)** | The test environment, deployed from `main`: sign-in as the front door, the framework data in the application, real time, the signable round protocol, cluster rounds. (The v2 persona-picker environment at kaskaadhankija.fly.dev was retired in September 2026.) |
 
 ## Try it
 
-The v3 test environment is live at
+The test environment is live at
 **[kaskaadhankija-v3.fly.dev](https://kaskaadhankija-v3.fly.dev)**: one machine
 in Stockholm, SQLite on a volume, sample data loaded on first boot. Everything
 below works there exactly as it does locally. The partners in it are fictional
@@ -313,15 +312,12 @@ reporting ok and naming how much framework data is loaded; `/` redirecting to
 the sign-in, which carries the environment badge and proves the admin
 allowlist reached the machine; and `/tellija` unreachable without a session.
 
-Two environments run from the same workflow. Pushes to `main` and
-`claude/parallel-cascade-spec` deploy the accepted **v2** at
-[kaskaadhankija.fly.dev](https://kaskaadhankija.fly.dev); pushes to
-`claude/cascade-miniprocurement-mvp-plan-re21yp` deploy the **v3** line, where
-the sign-in front door, the framework data, real time and the round protocol
-are being built, at
-[kaskaadhankija-v3.fly.dev](https://kaskaadhankija-v3.fly.dev). Each has its
-own machine, volume, database and secrets, so the team can compare them side by
-side. The mapping is the `resolve` step of `deploy.yml`.
+One environment runs from the workflow: a push to `main` deploys the app named
+in `fly.toml`, [kaskaadhankija-v3.fly.dev](https://kaskaadhankija-v3.fly.dev).
+Until September 2026 a second app, `kaskaadhankija`, ran the accepted v2 (the
+persona picker) beside it so the team could compare the two; the v3 line is now
+the only one, nothing deploys to the old app, and the operator deletes it with
+`flyctl apps destroy kaskaadhankija` — its data was fictional.
 
 Two things that bite. Fly app names are **globally unique** — if `kaskaadhankija`
 is taken, re-run the workflow with a different name in its `app` input, and
@@ -338,8 +334,8 @@ production).
 
 ### Mail
 
-The v3 workflow pushes the mail settings to the v3 app from repository
-secrets, so nothing needs `flyctl`: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`,
+The workflow pushes the mail settings to the app from repository secrets, so
+nothing needs `flyctl`: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`,
 `SMTP_PASS`, `EMAIL_FROM`, and `EMAIL_ALLOWED_RECIPIENTS`.
 
 **Who may receive mail [L-19]** is two sets, and only one of them is
