@@ -16,44 +16,67 @@
 
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { getDb } from '@/db';
-import { lots, orders, roundTrainings, rounds, trainings } from '@/db/schema';
+import { lots, roundTrainings, rounds, trainings } from '@/db/schema';
 import { partnerView } from '@/domain/allocate';
-import { formatDateTime, formatDateTimeShort, formatEur, formatIsoDay } from '@/domain/format';
-import { TARGET_GROUPS, viewStateParts, VIEW_STATE_TONES } from '@/domain/round-statuses';
+import { nominalGroupSize, totalParticipants, unitCount } from '@/domain/clusters';
+import { formatDateTime, formatDateTimeShort, formatEurCents, formatIsoDay, formatPeriod, formatTime } from '@/domain/format';
+import { HIND, trainingMaxPriceEur } from '@/domain/pricing';
+import {
+  capLabel,
+  RESPONSE_STATE_LABELS,
+  RESPONSE_STATE_TONES,
+  TARGET_GROUPS,
+  viewStateParts,
+  VIEW_STATE_TONES,
+} from '@/domain/round-statuses';
 import { LANGUAGE_LABELS, WORKSHOP_TYPE_LABELS } from '@/domain/statuses';
+import { AutoRefresh } from '@/components/auto-refresh';
 import { Countdown } from '@/components/countdown';
 import { RankChip, StatusBadge } from '@/components/status-badge';
 import { requirePartner } from '@/server/auth/actor';
-import { readClock } from '@/server/clock';
+import { currentTimeMs } from '@/server/clock';
 import { projectionInput } from '@/server/rounds/allocation-input';
 import { runDueJobs } from '@/server/rounds/jobs';
 import {
   allConfirmations,
+  commitmentsByDay,
   latestConfirmation,
   participantForPartner,
+  partnerCalendar,
   responseStateFor,
   workloadFor,
 } from '@/server/rounds/views';
-import { MarkingForm } from './marking-form';
+import { MarkingForm, type MarkingCluster } from './marking-form';
 
 export const dynamic = 'force-dynamic';
 
-export default async function PartnerRoundPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function PartnerRoundPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { id } = await params;
+  const vastusParam = (await searchParams).vastus;
+  /** set by the confirm/decline actions' redirect, so the result lands in view */
+  const vastus = typeof vastusParam === 'string' ? vastusParam : null;
   const actor = await requirePartner();
   runDueJobs();
 
   const db = getDb();
-  const { nowMs } = readClock(db);
+  const nowMs = currentTimeMs();
 
   const round = db
     .select({
       id: rounds.id,
       code: rounds.code,
       status: rounds.status,
+      kind: rounds.kind,
       visibilityMode: rounds.visibilityMode,
+      capOptions: rounds.capOptions,
       publishedAt: rounds.publishedAt,
       deadlineAt: rounds.deadlineAt,
       expectedDecisionAt: rounds.expectedDecisionAt,
@@ -82,12 +105,14 @@ export default async function PartnerRoundPage({ params }: { params: Promise<{ i
       workshopType: trainings.workshopType,
       eventDate: trainings.eventDate,
       eventEnd: trainings.eventEnd,
+      dateKind: trainings.dateKind,
+      clusterCode: trainings.clusterCode,
+      groupIndex: trainings.groupIndex,
       county: trainings.county,
       locationText: trainings.locationText,
       targetGroup: trainings.targetGroup,
       participantCount: trainings.participantCount,
       language: trainings.language,
-      estimatedValueEur: trainings.estimatedValueEur,
       notes: trainings.notes,
       withdrawnAt: roundTrainings.withdrawnAt,
     })
@@ -99,12 +124,14 @@ export default async function PartnerRoundPage({ params }: { params: Promise<{ i
     .sort((a, b) => a.eventDate.localeCompare(b.eventDate) || a.code.localeCompare(b.code));
 
   const latest = latestConfirmation(db, id, participant.lotPartnerId);
-  const state = responseStateFor(latest, participant.draftMarks, participant.draftCap);
+  const state = responseStateFor(latest, participant.draftMarks, participant.draftCap, participant.draftCapKind);
   const history = allConfirmations(db, id).filter(
     (row) => row.lotPartnerId === participant.lotPartnerId,
   );
 
   const isOpen = round.status === 'open' && participant.excludedAt === null;
+  // What the company already has on each day, from every other round [N-02].
+  const busyDays = commitmentsByDay(partnerCalendar(db, actor.partnerId), round.id);
   /** dynamic visibility [N-06]: sealed rounds show a partner only their own marks */
   const showsStates = round.visibilityMode === 'dynamic';
 
@@ -114,6 +141,7 @@ export default async function PartnerRoundPage({ params }: { params: Promise<{ i
       ? partnerView(projectionInput(db, id, nowMs), participant.lotPartnerId, {
           marks: participant.draftMarks,
           cap: participant.draftCap,
+          capKind: participant.draftCapKind,
         })
       : null;
   const confirmedView =
@@ -121,6 +149,7 @@ export default async function PartnerRoundPage({ params }: { params: Promise<{ i
       ? partnerView(projectionInput(db, id, nowMs), participant.lotPartnerId, {
           marks: latest.kind === 'confirm' ? latest.marks : [],
           cap: latest.cap,
+          capKind: latest.capKind,
         })
       : null;
 
@@ -134,21 +163,47 @@ export default async function PartnerRoundPage({ params }: { params: Promise<{ i
     finalResult?.allocations.find((a) => a.lotPartnerId === participant.lotPartnerId)?.trainingIds ??
       [],
   );
-  // Scoped to this participant: a round has one order per partner, and the
-  // others are none of this partner's business [N-04].
-  const myOrder =
-    round.status === 'confirmed'
-      ? db
-          .select({ id: orders.id, year: orders.orderYear, seq: orders.orderSeq })
-          .from(orders)
-          .where(
-            and(eq(orders.roundId, id), eq(orders.lotPartnerId, participant.lotPartnerId)),
-          )
-          .get()
-      : undefined;
 
   const workload = workloadFor(db, participant.lotPartnerId);
   const overThreshold = workload >= round.workloadThresholdSnapshot;
+
+  /* [K-10] a cluster round is shown as cards — counts, not rows */
+  const clusterViews = new Map((draftView?.clusters ?? []).map((c) => [c.clusterCode, c] as const));
+  const clusterCards: MarkingCluster[] = [];
+  for (const row of trainingRows) {
+    if (row.dateKind !== 'period' || !row.clusterCode) continue;
+    if (clusterCards.some((c) => c.clusterCode === row.clusterCode)) continue;
+    const groups = trainingRows
+      .filter((r) => r.clusterCode === row.clusterCode)
+      .sort((a, b) => (a.groupIndex ?? 0) - (b.groupIndex ?? 0));
+    const likes = groups.map((g) => ({ groupIndex: g.groupIndex ?? 0, participantCount: g.participantCount }));
+    const view = clusterViews.get(row.clusterCode);
+    const parts = view ? viewStateParts(view.state, view.reason) : null;
+    const size = nominalGroupSize(likes);
+    clusterCards.push({
+      clusterCode: row.clusterCode,
+      title: row.title,
+      workshopType: WORKSHOP_TYPE_LABELS[row.workshopType],
+      targetGroup: TARGET_GROUPS[row.targetGroup],
+      county: row.county,
+      locationText: row.locationText,
+      language: LANGUAGE_LABELS[row.language],
+      notes: row.notes,
+      periodText: formatPeriod(row.eventDate, row.eventEnd),
+      periodDaysText: row.eventEnd ? `${formatIsoDay(row.eventDate)} – ${formatIsoDay(row.eventEnd)}` : formatIsoDay(row.eventDate),
+      groupIds: groups.map((g) => g.id),
+      groupSize: size,
+      totalParticipants: totalParticipants(likes),
+      groupPriceText: formatEurCents(trainingMaxPriceEur(size, participant.unitPriceEur)),
+      held: view?.held ?? null,
+      free: view?.free ?? null,
+      projected: view?.projected ?? null,
+      stateLabel: parts?.label ?? null,
+      stateReason: parts?.reason ?? null,
+      stateTone: view ? VIEW_STATE_TONES[view.state] : null,
+      finalIndices: round.status === 'confirmed' ? groups.filter((g) => mine.has(g.id)).map((g) => g.groupIndex ?? 0) : null,
+    });
+  }
 
   return (
     <div className="space-y-5">
@@ -158,9 +213,14 @@ export default async function PartnerRoundPage({ params }: { params: Promise<{ i
         </Link>
         <div className="mt-1 flex flex-wrap items-center gap-3">
           <h1>{round.code}</h1>
+          {round.kind === 'cluster' && <StatusBadge label="Klastrivoor" tone="info" />}
           <RankChip rank={participant.rankAtPublication} />
           <span className="text-[13px] text-[var(--color-muted)]">
             teie koht selle hankeosa järjestuses
+          </span>
+          <span className="text-[13px] text-[var(--color-muted)]" data-testid="unit-price">
+            · {HIND.osalejaKohta.toLowerCase()}{' '}
+            <strong className="text-[var(--color-text)]">{formatEurCents(participant.unitPriceEur)}</strong>
           </span>
         </div>
         <p className="mt-1 text-[var(--color-muted)]">
@@ -168,6 +228,54 @@ export default async function PartnerRoundPage({ params }: { params: Promise<{ i
           {round.publishedAt ? formatDateTimeShort(round.publishedAt) : '—'}
         </p>
       </div>
+
+      {/* ---------------- the partner's answer, first ----------------
+          The confirm action redirects here. On a phone the button sat under a
+          long table and its inline message out of view, so people pressed it
+          again [E-10]; the result now sits at the top, where the eye lands. */}
+
+      {(latest || vastus) && (
+        <section
+          id="kinnitus"
+          data-testid="confirmation-status"
+          className="rounded-[10px] border p-4"
+          style={{
+            borderColor: vastus === 'sama' ? 'var(--color-warning)' : 'var(--color-success)',
+            background: vastus === 'sama' ? 'var(--color-warning-soft)' : 'var(--color-success-soft)',
+          }}
+        >
+          <div className="flex flex-wrap items-center gap-3">
+            <h2>Teie vastus</h2>
+            <StatusBadge label={RESPONSE_STATE_LABELS[state]} tone={RESPONSE_STATE_TONES[state]} />
+          </div>
+          {vastus === 'kinnitatud' && (
+            <p className="mt-1 text-[13px] font-semibold" role="status">
+              Valik kinnitatud. Kviitung on menüüs Teavitused.
+            </p>
+          )}
+          {vastus === 'loobutud' && (
+            <p className="mt-1 text-[13px] font-semibold" role="status">
+              Loobumine registreeritud. Saate otsust muuta kuni tähtajani.
+            </p>
+          )}
+          {vastus === 'sama' && latest && (
+            <p className="mt-1 text-[13px] font-semibold" role="status">
+              Teie valik oli juba samal kujul kinnitatud — uut kinnitust ei lisatud ega kviitungit
+              ei saadetud. Kehtib kinnitus {formatDateTimeShort(latest.confirmedAt)}.
+            </p>
+          )}
+          <p className="mt-1 text-[13px]">
+            {latest
+              ? `Viimane kinnitus ${formatDateTimeShort(latest.confirmedAt)}: ${
+                  latest.kind === 'decline_all'
+                    ? `loobusite kõigist ${round.kind === 'cluster' ? 'rühmadest' : 'koolitustest'}`
+                    : `${unitCount(round.kind, latest.marks.length)}${latest.cap !== null ? `, piirmäär ${latest.capKind === 'participants' ? capLabel(latest.cap, latest.capKind) : unitCount(round.kind, latest.cap)}` : ''}`
+                }.`
+              : 'Te ei ole veel kinnitanud.'}
+            {confirmedView && ` Kinnitatud seisuga prognoosis ${unitCount(round.kind, confirmedView.projectedCount)}.`}
+          </p>
+        </section>
+      )}
 
       {/* ---------------- state banners ---------------- */}
 
@@ -218,21 +326,14 @@ export default async function PartnerRoundPage({ params }: { params: Promise<{ i
           style={{ borderColor: 'var(--color-success)', background: 'var(--color-success-soft)' }}
         >
           <h2 style={{ color: 'var(--color-success)' }}>
-            Jaotus on kinnitatud
+            Tellija on jaotuse kinnitanud
             {round.confirmedAt ? ` ${formatDateTimeShort(round.confirmedAt)}` : ''}
           </h2>
           <p className="mt-1 text-[13px]">
             {mine.size > 0
-              ? `Teile määrati ${mine.size} koolitust. Tellimuse leiate menüüst „Tellimused“.`
-              : 'Teile ei määratud sellest voorust koolitusi.'}
+              ? `Teile on ette nähtud ${unitCount(round.kind, mine.size)} — need on ${round.kind === 'cluster' ? 'klastri kaardil' : 'tabelis'} märgitud „Määratud teile“. Tellimuse vormistab tellija eraldi ja võtab teiega ühendust.`
+              : `Teile ei ole sellest voorust ${round.kind === 'cluster' ? 'rühmi' : 'koolitusi'} ette nähtud.`}
           </p>
-          {myOrder && (
-            <p className="mt-2">
-              <Link href={`/partner/tellimused/${myOrder.id}`} className="kh-btn kh-btn-primary">
-                Ava tellimus KH-{myOrder.year}-{String(myOrder.seq).padStart(4, '0')}
-              </Link>
-            </p>
-          )}
         </div>
       )}
 
@@ -253,6 +354,7 @@ export default async function PartnerRoundPage({ params }: { params: Promise<{ i
         </div>
       )}
 
+      {isOpen && <AutoRefresh />}
       {isOpen && (
         <div className="kh-card p-4">
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
@@ -271,7 +373,7 @@ export default async function PartnerRoundPage({ params }: { params: Promise<{ i
             {showsStates && (
               <div>
                 <div className="text-[12px] text-[var(--color-muted)]">
-                  Prognoosis sinule (esialgne)
+                  Prognoosis teile (esialgne)
                 </div>
                 <div className="text-[20px] font-bold tabular-nums">
                   {draftView?.projectedCount ?? 0}
@@ -284,6 +386,9 @@ export default async function PartnerRoundPage({ params }: { params: Promise<{ i
                         kinnitatud seisuga {confirmedView.projectedCount}
                       </span>
                     )}
+                </div>
+                <div className="text-[11.5px] text-[var(--color-muted)]" data-testid="state-as-of">
+                  Seis {formatTime(nowMs)} · värskendub ise umbes kord minutis
                 </div>
               </div>
             )}
@@ -305,8 +410,10 @@ export default async function PartnerRoundPage({ params }: { params: Promise<{ i
           {showsStates ? (
             <p className="mt-3 text-[12.5px] text-[var(--color-muted)]">
               Prognoos on <strong>esialgne</strong> ja võib muutuda kuni tähtajani: eesõigusega
-              partnerid võivad oma valikut veel muuta. Koolitused jaotatakse rangelt raamlepingu
+              partnerid võivad oma valikut veel muuta. {round.kind === 'cluster' ? 'Rühmad' : 'Koolitused'} jaotatakse rangelt raamlepingu
               järjestuse alusel — vastamise kiirus eelist ei anna.
+              {round.kind === 'cluster' &&
+                ' Klastri rühmad on omavahel vahetatavad: loeb, mitu rühma te võtate, mitte millised; toimumisajad perioodi sees lepitakse kokku pärast jaotust.'}
             </p>
           ) : (
             <p className="mt-3 text-[12.5px] text-[var(--color-muted)]">
@@ -320,37 +427,47 @@ export default async function PartnerRoundPage({ params }: { params: Promise<{ i
 
       <MarkingForm
         roundId={id}
+        roundKind={round.kind}
+        clusters={clusterCards}
         editable={isOpen}
         dynamic={showsStates}
         responseState={state}
+        capOptions={round.capOptions}
         draftMarks={participant.draftMarks}
         draftCap={participant.draftCap}
+        draftCapKind={participant.draftCapKind}
         confirmedMarks={latest && latest.kind === 'confirm' ? latest.marks : []}
         confirmedCap={latest?.cap ?? null}
+        confirmedCapKind={latest?.capKind ?? null}
         confirmedAt={latest ? formatDateTimeShort(latest.confirmedAt) : null}
         confirmedKind={latest?.kind ?? null}
         deadlineText={round.deadlineAt ? formatDateTime(round.deadlineAt) : ''}
+        unitPriceText={formatEurCents(participant.unitPriceEur)}
         finalMine={round.status === 'confirmed' ? [...mine] : null}
         trainings={trainingRows.map((row) => {
           const view = stateByTraining.get(row.id);
+          // A period is not a day the company is busy on [N-02].
+          const sameDay = isOpen && row.dateKind !== 'period' ? busyDays.get(row.eventDate) ?? [] : [];
           const parts = view ? viewStateParts(view.state, view.reason) : null;
           return {
             id: row.id,
             code: row.code,
             title: row.title,
             workshopType: WORKSHOP_TYPE_LABELS[row.workshopType],
-            eventDate: formatIsoDay(row.eventDate),
-            eventEnd: row.eventEnd ? formatIsoDay(row.eventEnd) : null,
+            eventDate: row.dateKind === 'period' ? formatPeriod(row.eventDate, row.eventEnd) : formatIsoDay(row.eventDate),
+            eventEnd: row.dateKind === 'period' ? null : row.eventEnd ? formatIsoDay(row.eventEnd) : null,
             county: row.county,
             locationText: row.locationText,
             targetGroup: TARGET_GROUPS[row.targetGroup],
             participants: row.participantCount,
             language: LANGUAGE_LABELS[row.language],
-            value: formatEur(row.estimatedValueEur),
+            maxPriceText: formatEurCents(trainingMaxPriceEur(row.participantCount, participant.unitPriceEur)),
             notes: row.notes,
             stateLabel: parts?.label ?? null,
             stateReason: parts?.reason ?? null,
             stateTone: view ? VIEW_STATE_TONES[view.state] : null,
+            stateKey: view?.state ?? null,
+            sameDay,
           };
         })}
       />
@@ -386,7 +503,7 @@ export default async function PartnerRoundPage({ params }: { params: Promise<{ i
                       {row.kind === 'confirm' ? 'Kinnitus' : 'Loobumine'}
                     </td>
                     <td className="kh-td tabular-nums">{row.marks.length}</td>
-                    <td className="kh-td tabular-nums">{row.cap ?? '—'}</td>
+                    <td className="kh-td tabular-nums">{capLabel(row.cap, row.capKind)}</td>
                     <td className="kh-td">
                       {index === 0 && <StatusBadge label="Kehtib" tone="success" />}
                     </td>

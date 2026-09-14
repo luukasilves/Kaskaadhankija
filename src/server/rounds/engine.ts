@@ -35,8 +35,15 @@ import {
   trainings,
   type OrderDocument,
 } from '@/db/schema';
-import { allocate, partnerView, type AllocationResult } from '@/domain/allocate';
+import { type CapKind, allocate, canonicalMarks, partnerView, type AllocationResult } from '@/domain/allocate';
+import { roundKindOf, UNIT_WORDS, unitCount, type RoundKind } from '@/domain/clusters';
 import {
+  clusterLine,
+  fixedTrainingLine,
+  trainingLines as describeTrainingLines,
+  type TrainingLineRow,
+} from '@/domain/training-lines';
+import { CAP_KIND_LABELS, allowedCapKinds, type CapOptions,
   canEnterRound,
   canTransitionRound,
   roundDisplayCode,
@@ -44,6 +51,7 @@ import {
   type VisibilityMode,
 } from '@/domain/round-statuses';
 import { orderDisplayNumber, WORKSHOP_TYPE_LABELS } from '@/domain/statuses';
+import { allocationMaxPriceEur, priceLine } from '@/domain/pricing';
 import { addWorkingDays } from '@/domain/working-days';
 import {
   formatDateTime,
@@ -55,6 +63,7 @@ import {
 import {
   renderAllocatedElsewhere,
   renderBuyerRoundClosed,
+  renderRoundClosedPartner,
   renderBuyerRoundConfirmed,
   renderConfirmationReceipt,
   renderDeadlineReminder,
@@ -62,19 +71,43 @@ import {
   renderLateActionRejected,
   renderOrderIssued,
   renderParticipantExcluded,
+  renderFinalSummary,
   renderProjectionChanged,
   renderRoundCancelled,
   renderRoundChanged,
   renderRoundPublished,
 } from '@/domain/round-templates';
-import { env } from '@/lib/env';
+import { env, isDemoMode } from '@/lib/env';
 import { logAudit } from '../audit';
+import { evidenceLabel } from '../auth/identity';
+import { frameworkTitleLine } from '@/domain/framework';
+import { frameworkIdentity, syncFrameworkContacts } from '../framework';
 import { failure, type Ctx, type Db, type Tx } from '../context';
-import { notify, teamEmail } from '../notify';
+import { notify } from '../notify';
+import { partnerRecipients, teamRecipients } from '../recipients';
 import { effectiveAdjustments, finalInput, projectionInput, proposalInput } from './allocation-input';
-import { latestConfirmation, participantsOf, roundTrainingList, workloadFor } from './views';
+import { storeRoundProtocol } from './protocol';
+import {
+  latestConfirmation,
+  participantsOf,
+  responseStateFor,
+  roundClusterGroups,
+  roundTrainingList,
+  workloadFor,
+} from './views';
 
-const ALGORITHM_VERSION = 1;
+/** 2 (v2.7): a cluster's groups are pooled — marks count, identity does not [K-10]. */
+const ALGORITHM_VERSION = 2;
+
+/**
+ * The test environment's deadline floor [L-23]: a real wait, but a short one.
+ *
+ * Five minutes by default — long enough that a tester experiences a deadline
+ * rather than a form, short enough to sit through. `TEST_DEADLINE_FLOOR_SECONDS`
+ * shortens it for the browser suites, which would otherwise spend five minutes
+ * per round doing nothing. It has no effect outside DEMO_MODE.
+ */
+export const TEST_DEADLINE_FLOOR_MS = env.TEST_DEADLINE_FLOOR_SECONDS * 1_000;
 
 /* ------------------------------------------------------------------ *
  * small helpers
@@ -111,21 +144,90 @@ function orderUrl(orderId: string): string {
   return `${env.APP_BASE_URL}/partner/tellimused/${orderId}`;
 }
 
-/** One human-readable line per training, for notifications. */
-function trainingLines(ctx: Ctx, trainingIds: readonly string[]): string[] {
+/** [L-22] Where the buyer picks up the signable record of an ended round. */
+function protocolUrl(roundId: string): string {
+  return `${env.APP_BASE_URL}/tellija/voorud/${roundId}/protokoll`;
+}
+
+type TrainingRow = typeof trainings.$inferSelect;
+
+/** The trainings behind a set of ids, in (date, code) order — the order every list keeps. */
+function trainingRows(ctx: Ctx, trainingIds: readonly string[]): TrainingRow[] {
   if (trainingIds.length === 0) return [];
   const rows = ctx.tx.select().from(trainings).where(inArray(trainings.id, trainingIds)).all();
   const byId = new Map(rows.map((r) => [r.id, r]));
   return trainingIds
     .map((id) => byId.get(id))
-    .filter((row): row is typeof trainings.$inferSelect => Boolean(row))
-    .sort((a, b) => a.eventDate.localeCompare(b.eventDate) || a.code.localeCompare(b.code))
-    .map(
-      (row) =>
-        `${row.code} · ${formatIsoDay(row.eventDate)} · ${WORKSHOP_TYPE_LABELS[row.workshopType]} · ${
-          row.county
-        }${row.locationText ? `, ${row.locationText}` : ''} · ${row.participantCount} osalejat`,
-    );
+    .filter((row): row is TrainingRow => Boolean(row))
+    .sort((a, b) => a.eventDate.localeCompare(b.eventDate) || a.code.localeCompare(b.code));
+}
+
+/** A training row in the shape the pure line writer takes. */
+function lineRow(row: TrainingRow): TrainingLineRow {
+  return {
+    id: row.id,
+    code: row.code,
+    title: row.title,
+    dateKind: row.dateKind,
+    eventDate: row.eventDate,
+    eventEnd: row.eventEnd,
+    clusterCode: row.clusterCode,
+    groupIndex: row.groupIndex,
+    workshopTypeLabel: WORKSHOP_TYPE_LABELS[row.workshopType],
+    county: row.county,
+    locationText: row.locationText,
+    participantCount: row.participantCount,
+  };
+}
+
+/**
+ * One human-readable line per training for notifications — code, title, date,
+ * format, place, size — and one per **cluster** in a cluster round, with the
+ * partner's share of it („6 rühma (05–10)“) measured against the round's whole
+ * [D-01][L-28]. The title is there because a partner reads a mail with five of
+ * these and has to tell them apart.
+ */
+function trainingLines(ctx: Ctx, trainingIds: readonly string[], roundId?: string): string[] {
+  const rows = trainingRows(ctx, trainingIds).map(lineRow);
+  const groups = roundId && rows.some((r) => r.dateKind === 'period') ? roundClusterGroups(ctx.tx, roundId) : undefined;
+  return describeTrainingLines(rows, groups);
+}
+
+/**
+ * The [N-03] reason after each lost line — per training, or per cluster, where
+ * every lost group of one cluster shares the cluster's reason.
+ */
+function lostLinesWithReasons(
+  ctx: Ctx,
+  roundId: string,
+  reasons: ReadonlyMap<string, 'higher_partner' | 'over_cap' | undefined>,
+): string[] {
+  const reasonText = (reason: 'higher_partner' | 'over_cap' | undefined) =>
+    reason === 'over_cap' ? 'ületab teie piirmäära' : 'eesõigusega partner saab selle';
+  const rows = trainingRows(ctx, [...reasons.keys()]).map(lineRow);
+  const groups = roundClusterGroups(ctx.tx, roundId);
+  const lines: string[] = [];
+  const seen = new Set<string>();
+  for (const row of rows) {
+    if (row.dateKind !== 'period' || !row.clusterCode) {
+      lines.push(`${fixedTrainingLine(row)} — ${reasonText(reasons.get(row.id))}`);
+      continue;
+    }
+    if (seen.has(row.clusterCode)) continue;
+    seen.add(row.clusterCode);
+    const clusterRows = rows.filter((r) => r.clusterCode === row.clusterCode);
+    lines.push(`${clusterLine(clusterRows, groups.get(row.clusterCode) ?? [])} — ${reasonText(reasons.get(row.id))}`);
+  }
+  return lines;
+}
+
+/** „koolitust“ or „rühma“ after a cap or a count, by the round's kind [V-09]. */
+function capSummary(cap: number | null, capKind: CapKind, kind: RoundKind = 'fixed'): string {
+  return cap !== null ? `, piirmäär ${cap} ${capUnit(capKind, kind)}` : '';
+}
+
+function capUnit(capKind: CapKind, kind: RoundKind): string {
+  return capKind === 'participants' ? CAP_KIND_LABELS.participants : UNIT_WORDS[kind].partitive;
 }
 
 function transition(ctx: Ctx, round: Round, to: RoundStatus): void {
@@ -163,6 +265,8 @@ export interface CreateRoundInput {
   trainingIds: string[];
   note?: string;
   visibilityMode?: VisibilityMode;
+  /** [K-06][L-17] which cap kinds partners may use; the lot's default otherwise */
+  capOptions?: CapOptions;
   /** created from another round's jääk [T-06] */
   originRoundId?: string | null;
 }
@@ -181,6 +285,7 @@ export function createRound(ctx: Ctx, input: CreateRoundInput): string {
       lotId: lot.id,
       status: 'draft',
       visibilityMode: input.visibilityMode ?? lot.defaultVisibilityMode,
+      capOptions: input.capOptions ?? lot.defaultCapOptions,
       workloadThresholdSnapshot: lot.workloadThreshold,
       responseWorkingDaysSnapshot: lot.responseDeadlineWorkingDays,
       note: input.note ?? '',
@@ -191,22 +296,35 @@ export function createRound(ctx: Ctx, input: CreateRoundInput): string {
     .run();
 
   addTrainingsToRound(ctx, roundId, input.trainingIds);
+  const kind = loadRound(ctx, roundId).kind;
 
   logAudit(ctx, {
     eventType: 'round.created',
-    summary: `Voor ${code} loodud hankeosas ${lot.code} (${input.trainingIds.length} koolitust)`,
+    summary: `Voor ${code} loodud hankeosas ${lot.code} (${unitCount(kind, input.trainingIds.length)})`,
     roundId,
     lotId: lot.id,
-    after: { code, trainingCount: input.trainingIds.length },
+    after: { code, trainingCount: input.trainingIds.length, kind },
   });
 
   return roundId;
 }
 
-/** Attach trainings to a draft round, claiming each one exclusively [E-09]. */
+/**
+ * Attach trainings to a draft round, claiming each one exclusively [E-09].
+ *
+ * [V-09] The first training decides the round's kind — dated trainings or
+ * clusters — and every later one must match. This is the one choke point the
+ * new-round form, the workbook import and the jääk re-issue all pass through,
+ * so there is no second place for a mixed round to come from.
+ */
 export function addTrainingsToRound(ctx: Ctx, roundId: string, trainingIds: readonly string[]): void {
   const round = loadRound(ctx, roundId);
   if (round.status !== 'draft') throw new Error('Koolitusi saab lisada ainult mustandvoorule.');
+
+  const hasAny =
+    ctx.tx.select({ id: roundTrainings.id }).from(roundTrainings).where(eq(roundTrainings.roundId, roundId)).limit(1).get() !==
+    undefined;
+  let kind: RoundKind | null = hasAny ? round.kind : null;
 
   for (const trainingId of trainingIds) {
     const training = ctx.tx.select().from(trainings).where(eq(trainings.id, trainingId)).get();
@@ -216,6 +334,17 @@ export function addTrainingsToRound(ctx: Ctx, roundId: string, trainingIds: read
     }
     if (!canEnterRound(training.status) || training.currentRoundId !== null) {
       throw new Error(`Koolitus ${training.code} on juba voorus või määratud.`);
+    }
+    const trainingKind = roundKindOf(training.dateKind);
+    if (kind === null) {
+      kind = trainingKind;
+      if (kind !== round.kind) ctx.tx.update(rounds).set({ kind }).where(eq(rounds.id, roundId)).run();
+    } else if (trainingKind !== kind) {
+      throw new Error(
+        kind === 'fixed'
+          ? `Voor ${round.code} on kindla kuupäevaga koolituste voor; klastri rühma ${training.code} sinna lisada ei saa.`
+          : `Voor ${round.code} on klastrivoor; kindla kuupäevaga koolitust ${training.code} sinna lisada ei saa.`,
+      );
     }
 
     ctx.tx
@@ -309,9 +438,17 @@ export function publishRound(ctx: Ctx, roundId: string, input: PublishRoundInput
           lot.deadlineLocalTime,
         ).getTime()
       : defaultDeadline);
-  if (deadlineAt < defaultDeadline) {
+  // The floor. In production it is the lot's own working-day window, and a
+  // deadline can only ever be extended afterwards [V-04]. In the test
+  // environment a cascade has to be walkable in an afternoon [L-23], so the
+  // floor is five minutes — long enough to be a real wait, short enough to sit
+  // through. The lot's window is what the round file plans against either way.
+  const floor = isDemoMode ? ctx.at + TEST_DEADLINE_FLOOR_MS : defaultDeadline;
+  if (deadlineAt < floor) {
     throw new Error(
-      `Vastamistähtaeg ei saa olla varasem kui ${lot.responseDeadlineWorkingDays} tööpäeva (${formatDateTimeShort(defaultDeadline)}).`,
+      isDemoMode
+        ? `Vastamistähtaeg peab olema vähemalt ${Math.round(TEST_DEADLINE_FLOOR_MS / 60_000) || 1} minutit tulevikus (${formatDateTimeShort(floor)}).`
+        : `Vastamistähtaeg ei saa olla varasem kui ${lot.responseDeadlineWorkingDays} tööpäeva (${formatDateTimeShort(defaultDeadline)}).`,
     );
   }
 
@@ -344,7 +481,16 @@ export function publishRound(ctx: Ctx, roundId: string, input: PublishRoundInput
   const lines = trainingLines(
     ctx,
     trainingsInRound.map((t) => t.id),
+    roundId,
   );
+  // [L-28] A cluster round is offered as what it is: an order of groups.
+  const clusterCount = new Set(trainingsInRound.map((t) => t.clusterCode).filter(Boolean)).size;
+  const offerText =
+    round.kind === 'cluster'
+      ? clusterCount === 1
+        ? `järgmise mahulise tellimuse (1 klaster, ${unitCount('cluster', trainingsInRound.length)})`
+        : `järgmised mahulised tellimused (${clusterCount} klastrit, ${unitCount('cluster', trainingsInRound.length)})`
+      : undefined;
 
   for (const member of members) {
     // [V-07] the rank is snapshotted here and never re-read for this round.
@@ -367,8 +513,9 @@ export function publishRound(ctx: Ctx, roundId: string, input: PublishRoundInput
       recipientLotPartnerId: member.id,
       type: 'round_published',
       roundId,
-      emailTo: member.contactEmail,
+      emailTo: partnerRecipients(ctx.tx, member.id),
       notice: renderRoundPublished({
+        framework: frameworkIdentity(ctx.tx),
         roundCode: round.code,
         lotLabel: lotLabel(lot),
         deadlineText: formatDateTime(deadlineAt),
@@ -378,7 +525,10 @@ export function publishRound(ctx: Ctx, roundId: string, input: PublishRoundInput
         trainingCount: trainingsInRound.length,
         trainingLines: lines,
         visibilityDynamic: visibilityMode === 'dynamic',
+        capOptionsText: capOptionsText(round.capOptions, round.kind),
         decisionText: formatDateTimeShort(expectedDecisionAt),
+        offerText,
+        unit: UNIT_WORDS[round.kind],
       }),
     });
   }
@@ -420,7 +570,14 @@ function resolveParticipant(ctx: Ctx, roundId: string, partnerId: string) {
 }
 
 export type PartnerActionResult =
-  | { ok: true; projectedCount: number }
+  | {
+      ok: true;
+      projectedCount: number;
+      /** [E-10] the answer was already confirmed in this exact form — nothing was written */
+      unchanged?: boolean;
+      /** when `unchanged`: the confirmation that stands */
+      confirmedAt?: number;
+    }
   | { ok: false; reason: string; message: string };
 
 /** Shared guards for any partner action on an open round. */
@@ -465,8 +622,9 @@ function guardPartnerAction(
       recipientKind: 'buyer',
       type: 'late_action_rejected',
       roundId,
-      emailTo: teamEmail(),
+      emailTo: teamRecipients(ctx.tx),
       notice: renderLateActionRejected({
+        framework: frameworkIdentity(ctx.tx),
         roundCode: round.code,
         lotLabel: lotLabel(lot),
         url: buyerUrl(roundId),
@@ -480,15 +638,80 @@ function guardPartnerAction(
   return { ok: true, round, lot, participant };
 }
 
-/** Marks still in the round, in case one was withdrawn since [V-04]. */
+/**
+ * Marks as stored: still in the round (one may have been withdrawn since
+ * [V-04]), each once, dated trainings in the partner's own order — and a
+ * cluster's groups canonically, the first n by position [K-10], so that "6
+ * rühma" is one answer however the form picked them.
+ */
 function validMarks(ctx: Ctx, roundId: string, marks: readonly string[]): string[] {
-  const available = new Set(roundTrainingList(ctx.tx, roundId).map((t) => t.id));
-  return [...new Set(marks)].filter((id) => available.has(id));
+  const inRound = roundTrainingList(ctx.tx, roundId);
+  const groupIds = new Set(inRound.filter((t) => t.clusterCode).map((t) => t.id));
+  const canonical = canonicalMarks(inRound, marks);
+  const canonicalSet = new Set(canonical);
+  return [
+    ...[...new Set(marks)].filter((id) => canonicalSet.has(id) && !groupIds.has(id)),
+    ...canonical.filter((id) => groupIds.has(id)),
+  ];
 }
 
-function currentProjection(ctx: Ctx, roundId: string, lotPartnerId: string, marks: string[], cap: number | null) {
+function currentProjection(
+  ctx: Ctx,
+  roundId: string,
+  lotPartnerId: string,
+  marks: string[],
+  cap: number | null,
+  capKind: CapKind,
+) {
   const input = projectionInput(ctx.tx, roundId, ctx.at);
-  return partnerView(input, lotPartnerId, { marks, cap });
+  return partnerView(input, lotPartnerId, { marks, cap, capKind });
+}
+
+/** The partner's answer: marks, and an optional ceiling of one kind [K-06]. */
+export interface MarksInput {
+  marks: string[];
+  cap: number | null;
+  /** ignored without a cap; defaults to trainings */
+  capKind?: CapKind;
+}
+
+/** How a round's cap offer reads in the publication notice [D-01]; groups in a cluster round [V-09]. */
+export function capOptionsText(options: CapOptions, kind: RoundKind = 'fixed'): string {
+  const unit = UNIT_WORDS[kind];
+  switch (options) {
+    case 'none':
+      return 'Selles voorus ülempiiri ei märgita: iga kinnitatud märge on siduv.';
+    case 'participants':
+      return `Soovi korral saate märkida ülempiiri osalejate arvuna („võtan vastu kuni N osalejat kokku“); ${unit.one}, mis järelejäänud eelarvesse ei mahu, jäetakse vahele ja järgmisi proovitakse edasi.`;
+    case 'both':
+      return `Soovi korral saate märkida ülempiiri kas ${unit.ofMany} arvuna („võtan vastu kuni N ${unit.partitive}“) või osalejate arvuna („võtan vastu kuni N osalejat kokku“).`;
+    default:
+      return `Soovi korral saate märkida ülempiiri („võtan vastu kuni N ${unit.partitive}“).`;
+  }
+}
+
+/**
+ * [K-06][L-17] The cap the partner asked for, checked against what the round
+ * offers. Returns the normalised kind, or the refusal to hand back.
+ */
+function resolveCap(
+  round: { code: string; capOptions: CapOptions },
+  input: MarksInput,
+): { cap: number | null; capKind: CapKind } | { ok: false; reason: string; message: string } {
+  if (input.cap === null) return { cap: null, capKind: 'trainings' };
+  if (!Number.isInteger(input.cap) || input.cap < 0) {
+    return failure('invalid_cap', 'Piirmäär peab olema täisarv, null või suurem.');
+  }
+  const capKind: CapKind = input.capKind ?? 'trainings';
+  const allowed = allowedCapKinds(round.capOptions);
+  if (allowed.length === 0) {
+    return failure('cap_not_allowed', `Voorus ${round.code} piirmäära ei kasutata — kõik kinnitatud märked on siduvad.`);
+  }
+  if (!allowed.includes(capKind)) {
+    const unit = allowed[0] === 'participants' ? 'osalejate arvuna' : 'koolituste arvuna';
+    return failure('cap_not_allowed', `Voorus ${round.code} saab piirmäära määrata ainult ${unit}.`);
+  }
+  return { cap: input.cap, capKind };
 }
 
 /** [K-02] Save the editable draft. Does not bind anything. */
@@ -496,28 +719,31 @@ export function saveDraftMarks(
   ctx: Ctx,
   roundId: string,
   partnerId: string,
-  input: { marks: string[]; cap: number | null },
+  input: MarksInput,
 ): PartnerActionResult {
   const guard = guardPartnerAction(ctx, roundId, partnerId);
   if (!guard.ok) return guard;
+  const resolved = resolveCap(guard.round, input);
+  if ('ok' in resolved) return resolved;
+  const { cap, capKind } = resolved;
 
   const marks = validMarks(ctx, roundId, input.marks);
   ctx.tx
     .update(roundParticipants)
-    .set({ draftMarks: marks, draftCap: input.cap, draftUpdatedAt: ctx.at })
+    .set({ draftMarks: marks, draftCap: cap, draftCapKind: capKind, draftUpdatedAt: ctx.at })
     .where(eq(roundParticipants.id, guard.participant.id))
     .run();
 
   logAudit(ctx, {
     eventType: 'marks.draft_saved',
-    summary: `${guard.participant.partnerName} salvestas mustandi (${marks.length} märget${input.cap !== null ? `, piirmäär ${input.cap}` : ''})`,
+    summary: `${guard.participant.partnerName} salvestas mustandi (${marks.length} märget${capSummary(cap, capKind, guard.round.kind)})`,
     roundId,
     lotId: guard.lot.id,
     lotPartnerId: guard.participant.lotPartnerId,
-    after: { marks, cap: input.cap },
+    after: { marks, cap, capKind },
   });
 
-  const view = currentProjection(ctx, roundId, guard.participant.lotPartnerId, marks, input.cap);
+  const view = currentProjection(ctx, roundId, guard.participant.lotPartnerId, marks, cap, capKind);
   return { ok: true, projectedCount: view.projectedCount };
 }
 
@@ -531,15 +757,47 @@ export function confirmMarks(
   ctx: Ctx,
   roundId: string,
   partnerId: string,
-  input: { marks: string[]; cap: number | null },
+  input: MarksInput,
 ): PartnerActionResult {
   const guard = guardPartnerAction(ctx, roundId, partnerId);
   if (!guard.ok) return guard;
   const { round, lot, participant } = guard;
+  const resolved = resolveCap(round, input);
+  if ('ok' in resolved) return resolved;
+  const { cap, capKind } = resolved;
 
   const marks = validMarks(ctx, roundId, input.marks);
   // [E-03] confirming an empty set is a decline, and the UI asks first.
   const kind = marks.length === 0 ? 'decline_all' : 'confirm';
+
+  // [E-10] An identical re-confirmation — same marks, same cap, same kind — is
+  // a no-op: no new row, no second receipt, no projection notices. A double tap
+  // on a phone or a slow connection produced two receipts for one answer. The
+  // comparison is the one the screen's "unconfirmed changes" banner uses, so
+  // server and UI cannot disagree about what "identical" means. Compared
+  // against the *stored* marks: after a withdrawal [V-04] the reduced set is a
+  // new answer, deliberately, because a confirmation is evidence.
+  const latest = latestConfirmation(ctx.tx, roundId, participant.lotPartnerId);
+  if (latest) {
+    const state = responseStateFor(latest, marks, cap, capKind);
+    if (state === 'confirmed' || state === 'declined_all') {
+      ctx.tx
+        .update(roundParticipants)
+        .set({ draftMarks: marks, draftCap: cap, draftCapKind: capKind, draftUpdatedAt: ctx.at })
+        .where(eq(roundParticipants.id, participant.id))
+        .run();
+      const view = currentProjection(ctx, roundId, participant.lotPartnerId, marks, cap, capKind);
+      logAudit(ctx, {
+        eventType: 'marks.confirm_repeated',
+        summary: `${participant.partnerName} kinnitas uuesti sama valiku — uut kinnitust ei lisatud (kehtib kinnitus ${formatDateTimeShort(latest.confirmedAt)})`,
+        roundId,
+        lotId: lot.id,
+        lotPartnerId: participant.lotPartnerId,
+        after: { confirmationId: latest.id, kind, marks, cap, capKind },
+      });
+      return { ok: true, projectedCount: view.projectedCount, unchanged: true, confirmedAt: latest.confirmedAt };
+    }
+  }
 
   const previousCounts = projectionCounts(ctx, roundId);
 
@@ -550,9 +808,12 @@ export function confirmMarks(
       lotPartnerId: participant.lotPartnerId,
       kind,
       marks,
-      cap: input.cap,
+      cap,
+      capKind,
       confirmedAt: ctx.at,
-      actorLabel: ctx.actor.label,
+      // [D-09] who answered — with the acting admin named too, when a test
+      // environment admin answered on this participant's screen [L-08].
+      actorLabel: evidenceLabel(ctx.actor),
       contactEmail: participant.contactEmail,
       ip: ctx.evidence.ip,
       ua: ctx.evidence.ua,
@@ -562,44 +823,49 @@ export function confirmMarks(
 
   ctx.tx
     .update(roundParticipants)
-    .set({ draftMarks: marks, draftCap: input.cap, draftUpdatedAt: ctx.at })
+    .set({ draftMarks: marks, draftCap: cap, draftCapKind: capKind, draftUpdatedAt: ctx.at })
     .where(eq(roundParticipants.id, participant.id))
     .run();
 
-  const view = currentProjection(ctx, roundId, participant.lotPartnerId, marks, input.cap);
+  const view = currentProjection(ctx, roundId, participant.lotPartnerId, marks, cap, capKind);
 
   logAudit(ctx, {
     eventType: kind === 'confirm' ? 'marks.confirmed' : 'marks.declined_all',
     summary:
       kind === 'confirm'
-        ? `${participant.partnerName} kinnitas ${marks.length} märget${input.cap !== null ? ` (piirmäär ${input.cap})` : ''}, prognoos ${view.projectedCount}`
+        ? `${participant.partnerName} kinnitas ${marks.length} märget${cap !== null ? ` (piirmäär ${cap} ${capUnit(capKind, round.kind)})` : ''}, prognoos ${view.projectedCount}`
         : `${participant.partnerName} loobus kõigist vooru koolitustest`,
     roundId,
     lotId: lot.id,
     lotPartnerId: participant.lotPartnerId,
-    after: { kind, marks, cap: input.cap, projectedCount: view.projectedCount },
+    after: { kind, marks, cap, capKind, projectedCount: view.projectedCount },
   });
 
   const receipt =
     kind === 'confirm'
       ? renderConfirmationReceipt({
+          framework: frameworkIdentity(ctx.tx),
           roundCode: round.code,
           lotLabel: lotLabel(lot),
           deadlineText: formatDateTime(round.deadlineAt ?? ctx.at),
           url: partnerUrl(roundId),
           contactName: participant.contactName,
           confirmedAtText: formatDateTimeShort(ctx.at),
-          trainingLines: trainingLines(ctx, marks),
+          trainingLines: trainingLines(ctx, marks, roundId),
+          unit: UNIT_WORDS[round.kind],
           capText:
-            input.cap !== null
-              ? `Märkisite ülempiiri: võtate vastu kuni ${input.cap} koolitust.`
+            cap !== null
+              ? capKind === 'participants'
+                ? `Märkisite ülempiiri: võtate vastu ${round.kind === 'cluster' ? 'rühmi' : 'koolitusi'} kokku kuni ${cap} osalejale. ${round.kind === 'cluster' ? 'Rühm' : 'Koolitus'}, mis eelarvesse ei mahu, jäetakse vahele ja järgmisi proovitakse edasi.`
+                : `Märkisite ülempiiri: võtate vastu kuni ${unitCount(round.kind, cap)}.`
               : 'Ülempiiri te ei märkinud.',
           projectionText:
             round.visibilityMode === 'dynamic'
-              ? `Praeguse seisuga on teile prognoositud ${view.projectedCount} koolitust. Prognoos on esialgne.`
+              ? `Praeguse seisuga on teile prognoositud ${unitCount(round.kind, view.projectedCount)}. Prognoos on esialgne.`
               : 'Jaotus selgub pärast vastamistähtaega.',
         })
       : renderDeclineReceipt({
+          framework: frameworkIdentity(ctx.tx),
           roundCode: round.code,
           lotLabel: lotLabel(lot),
           deadlineText: formatDateTime(round.deadlineAt ?? ctx.at),
@@ -608,12 +874,14 @@ export function confirmMarks(
           confirmedAtText: formatDateTimeShort(ctx.at),
         });
 
+  const receiptType = kind === 'confirm' ? 'confirmation_receipt' : 'decline_receipt';
   notify(ctx, {
     recipientKind: 'partner',
     recipientLotPartnerId: participant.lotPartnerId,
-    type: kind === 'confirm' ? 'confirmation_receipt' : 'decline_receipt',
+    type: receiptType,
     roundId,
-    emailTo: participant.contactEmail,
+    // Informational [L-27]: a representative may have switched these off.
+    emailTo: partnerRecipients(ctx.tx, participant.lotPartnerId, receiptType),
     notice: receipt,
   });
 
@@ -698,8 +966,9 @@ function notifyProjectionChanges(
       recipientLotPartnerId: participant.lotPartnerId,
       type: 'projection_changed',
       roundId,
-      emailTo: participant.contactEmail,
+      emailTo: partnerRecipients(ctx.tx, participant.lotPartnerId, 'projection_changed'),
       notice: renderProjectionChanged({
+        framework: frameworkIdentity(ctx.tx),
         roundCode: round.code,
         lotLabel: lotLabel(lot),
         deadlineText: formatDateTime(round.deadlineAt ?? ctx.at),
@@ -707,6 +976,7 @@ function notifyProjectionChanges(
         contactName: participant.contactName,
         previousCount: before,
         currentCount: after,
+        unit: UNIT_WORDS[round.kind],
       }),
     });
   }
@@ -770,8 +1040,9 @@ export function extendDeadline(ctx: Ctx, roundId: string, newDeadlineAt: number,
       recipientLotPartnerId: participant.lotPartnerId,
       type: 'round_changed',
       roundId,
-      emailTo: participant.contactEmail,
+      emailTo: partnerRecipients(ctx.tx, participant.lotPartnerId),
       notice: renderRoundChanged({
+        framework: frameworkIdentity(ctx.tx),
         roundCode: round.code,
         lotLabel: lotLabel(lot),
         deadlineText: formatDateTime(newDeadlineAt),
@@ -830,14 +1101,15 @@ export function withdrawTraining(ctx: Ctx, roundId: string, trainingId: string, 
       recipientLotPartnerId: participant.lotPartnerId,
       type: 'round_changed',
       roundId,
-      emailTo: participant.contactEmail,
+      emailTo: partnerRecipients(ctx.tx, participant.lotPartnerId),
       notice: renderRoundChanged({
+        framework: frameworkIdentity(ctx.tx),
         roundCode: round.code,
         lotLabel: lotLabel(lot),
         deadlineText: formatDateTime(round.deadlineAt ?? ctx.at),
         url: partnerUrl(roundId),
         contactName: participant.contactName,
-        changeText: `koolitus ${training?.code ?? ''} on voorust tagasi võetud`,
+        changeText: `${UNIT_WORDS[round.kind].one} ${training?.code ?? ''} on voorust tagasi võetud`,
         reason: reason.trim(),
       }),
     });
@@ -875,8 +1147,9 @@ export function cancelRound(ctx: Ctx, roundId: string, reason: string): void {
         recipientLotPartnerId: participant.lotPartnerId,
         type: 'round_cancelled',
         roundId,
-        emailTo: participant.contactEmail,
+        emailTo: partnerRecipients(ctx.tx, participant.lotPartnerId),
         notice: renderRoundCancelled({
+          framework: frameworkIdentity(ctx.tx),
           roundCode: round.code,
           lotLabel: lotLabel(lot),
           url: partnerUrl(roundId),
@@ -885,6 +1158,12 @@ export function cancelRound(ctx: Ctx, roundId: string, reason: string): void {
         }),
       });
     }
+
+    // [L-22] A round that partners already answered ends with a signable
+    // record, cancelled or not: what they were asked and what they replied is
+    // exactly what a cancellation has to be able to account for. A draft that
+    // never reached anyone has nothing to protocol.
+    storeRoundProtocol(ctx, roundId, 'cancelled');
   }
 }
 
@@ -955,7 +1234,7 @@ export function closeRound(ctx: Ctx, roundId: string): { closed: boolean; code: 
 
   logAudit(ctx, {
     eventType: 'round.closed',
-    summary: `Voor ${round.code} suletud: kinnitas ${confirmed}, loobus ${declined}, ei vastanud ${noResponse}; ettepanekus ${allocatedCount} koolitust, jääk ${result.leftover.length}`,
+    summary: `Voor ${round.code} suletud: kinnitas ${confirmed}, loobus ${declined}, ei vastanud ${noResponse}; ettepanekus ${unitCount(round.kind, allocatedCount)}, jääk ${result.leftover.length}`,
     roundId,
     lotId: lot.id,
     after: {
@@ -971,8 +1250,9 @@ export function closeRound(ctx: Ctx, roundId: string): { closed: boolean; code: 
     recipientKind: 'buyer',
     type: 'buyer_round_closed',
     roundId,
-    emailTo: teamEmail(),
+    emailTo: teamRecipients(ctx.tx),
     notice: renderBuyerRoundClosed({
+      framework: frameworkIdentity(ctx.tx),
       roundCode: round.code,
       lotLabel: lotLabel(lot),
       url: `${buyerUrl(roundId)}/ulevaatus`,
@@ -983,6 +1263,42 @@ export function closeRound(ctx: Ctx, roundId: string): { closed: boolean; code: 
       leftoverCount: result.leftover.length,
     }),
   });
+
+  // [D-12] Every participant learns the round has ended and what the closing
+  // allocation would give them. The decision itself is made outside the
+  // application for now [L-25], so this is the last word a partner gets from
+  // here about this round — and it says so, plainly, before anyone reads
+  // "läheks teile" as a contract.
+  for (const participant of participantsOf(ctx.tx, roundId)) {
+    if (participant.excludedAt !== null) continue;
+    const binding = latestConfirmation(ctx.tx, roundId, participant.lotPartnerId);
+    const predicted =
+      result.allocations.find((a) => a.lotPartnerId === participant.lotPartnerId)?.trainingIds ?? [];
+    const answerText = !binding
+      ? 'Te ei kinnitanud selles voorus ühtegi valikut; vastamata jätmine loeti loobumiseks.'
+      : binding.kind === 'decline_all'
+        ? `Loobusite ${formatDateTimeShort(binding.confirmedAt)} kõigist vooru koolitustest.`
+        : `Teie kinnitatud valik (${formatDateTimeShort(binding.confirmedAt)}): ${unitCount(round.kind, binding.marks.length)}${capSummary(binding.cap, binding.capKind ?? 'trainings', round.kind)}.`;
+    notify(ctx, {
+      recipientKind: 'partner',
+      recipientLotPartnerId: participant.lotPartnerId,
+      type: 'round_closed_partner',
+      roundId,
+      emailTo: partnerRecipients(ctx.tx, participant.lotPartnerId),
+      notice: renderRoundClosedPartner({
+        framework: frameworkIdentity(ctx.tx),
+        roundCode: round.code,
+        lotLabel: lotLabel(lot),
+        deadlineText: formatDateTime(round.deadlineAt ?? ctx.at),
+        url: partnerUrl(roundId),
+        contactName: participant.contactName,
+        answerText,
+        predictedLines: trainingLines(ctx, predicted, roundId),
+        predictedCount: predicted.length,
+        unit: UNIT_WORDS[round.kind],
+      }),
+    });
+  }
 
   return { closed: true, code: round.code };
 }
@@ -1005,7 +1321,7 @@ export function sendDeadlineReminder(ctx: Ctx, roundId: string): number {
       ? 'Te ei ole veel oma valikut kinnitanud.'
       : latest.kind === 'decline_all'
         ? 'Olete loobunud vooru koolitustest.'
-        : `Teie kinnitatud valik sisaldab ${latest.marks.length} koolitust.`;
+        : `Teie kinnitatud valik sisaldab ${unitCount(round.kind, latest.marks.length)}.`;
 
     ctx.tx
       .update(roundParticipants)
@@ -1018,8 +1334,9 @@ export function sendDeadlineReminder(ctx: Ctx, roundId: string): number {
       recipientLotPartnerId: participant.lotPartnerId,
       type: 'reminder_24h',
       roundId,
-      emailTo: participant.contactEmail,
+      emailTo: partnerRecipients(ctx.tx, participant.lotPartnerId),
       notice: renderDeadlineReminder({
+        framework: frameworkIdentity(ctx.tx),
         roundCode: round.code,
         lotLabel: lotLabel(lot),
         deadlineText: formatDateTime(round.deadlineAt),
@@ -1028,8 +1345,79 @@ export function sendDeadlineReminder(ctx: Ctx, roundId: string): number {
         statusText,
         projectionText:
           round.visibilityMode === 'dynamic'
-            ? `Praeguse seisuga on teile prognoositud ${projected} koolitust (${formatRemaining(ctx.at, round.deadlineAt)}).`
+            ? `Praeguse seisuga on teile prognoositud ${unitCount(round.kind, projected)} (${formatRemaining(ctx.at, round.deadlineAt)}).`
             : 'Jaotus selgub pärast vastamistähtaega.',
+      }),
+    });
+    sent += 1;
+  }
+  return sent;
+}
+
+/** [D-11] How long before the deadline the personal summary goes out [L-24]. */
+export const FINAL_SUMMARY_WINDOW_MS = 2 * 3_600_000;
+
+/**
+ * [D-11] The personal summary two hours before the deadline: to every partner
+ * who has confirmed, once — what they confirmed, what the projection gives them
+ * right now, and which of their marks would go elsewhere and why [N-03].
+ *
+ * Only confirmers: a decliner's outcome is settled, and a non-responder was
+ * told at 24 hours [D-05] that silence counts as declining. A confirmation
+ * made inside the window is skipped — its receipt [D-02] already carries this
+ * position, and two messages for one state teach a reader to skip both. Sealed
+ * rounds have no projection to summarise [N-06]. No rate limit is needed: the
+ * round is quiet in its last day [D-04], so this is the one message.
+ *
+ * The participant is stamped before the skip check, so a partner whose only
+ * confirmation falls inside the window is never revisited by a later run.
+ */
+export function sendFinalSummary(ctx: Ctx, roundId: string): number {
+  const round = loadRound(ctx, roundId);
+  if (round.status !== 'open' || round.deadlineAt === null || round.visibilityMode !== 'dynamic') return 0;
+  if (round.deadlineAt - ctx.at > FINAL_SUMMARY_WINDOW_MS) return 0;
+  const lot = loadLot(ctx, round.lotId);
+  const input = projectionInput(ctx.tx, roundId, ctx.at);
+
+  let sent = 0;
+  for (const participant of participantsOf(ctx.tx, roundId)) {
+    if (participant.excludedAt !== null || participant.finalReminderSentAt !== null) continue;
+    const latest = latestConfirmation(ctx.tx, roundId, participant.lotPartnerId);
+    if (!latest || latest.kind !== 'confirm') continue;
+
+    ctx.tx
+      .update(roundParticipants)
+      .set({ finalReminderSentAt: ctx.at })
+      .where(eq(roundParticipants.id, participant.id))
+      .run();
+    if (round.deadlineAt - latest.confirmedAt <= FINAL_SUMMARY_WINDOW_MS) continue;
+
+    const capKind = latest.capKind ?? 'trainings';
+    const view = partnerView(input, participant.lotPartnerId, { marks: latest.marks, cap: latest.cap, capKind });
+    const reasons = new Map(
+      view.rows.filter((row) => row.state === 'marked_not_projected').map((row) => [row.trainingId, row.reason] as const),
+    );
+    const lostLines = lostLinesWithReasons(ctx, roundId, reasons);
+
+    notify(ctx, {
+      recipientKind: 'partner',
+      recipientLotPartnerId: participant.lotPartnerId,
+      type: 'reminder_final',
+      roundId,
+      emailTo: partnerRecipients(ctx.tx, participant.lotPartnerId, 'reminder_final'),
+      notice: renderFinalSummary({
+        framework: frameworkIdentity(ctx.tx),
+        roundCode: round.code,
+        lotLabel: lotLabel(lot),
+        deadlineText: formatDateTime(round.deadlineAt),
+        url: partnerUrl(roundId),
+        contactName: participant.contactName,
+        remainingText: formatRemaining(ctx.at, round.deadlineAt),
+        confirmedText: `Teie kinnitatud valik (${formatDateTimeShort(latest.confirmedAt)}): ${unitCount(round.kind, latest.marks.length)}${capSummary(latest.cap, capKind, round.kind)}.`,
+        projectedLines: trainingLines(ctx, view.projectedTrainingIds, roundId),
+        projectedCount: view.projectedCount,
+        lostLines,
+        unit: UNIT_WORDS[round.kind],
       }),
     });
     sent += 1;
@@ -1134,12 +1522,20 @@ export function previewFinalAllocation(tx: Tx | Db, roundId: string): Allocation
 }
 
 /**
- * [T-04][T-05] Confirm the allocation: create one order per allocated partner.
+ * [T-04] The buyer's confirmation: the final allocation is computed once more
+ * over the adjustments, frozen, and written into the protocol — all in one
+ * transaction, so a confirmed round without its signable record is not a
+ * reachable state.
  *
- * The order is the operative call-off contract, so it carries a frozen document
- * snapshot and points at the confirmation that binds the partner.
+ * It creates **no orders and tells no partner** [L-25]. The formal decision on
+ * the outcome is made outside the application for now; the partner heard the
+ * provisional result in the closing notice [D-12], and the buyer contacts
+ * them from there. The order machinery is kept, suspended, in `issueOrders`.
  */
-export function confirmAllocation(ctx: Ctx, roundId: string): { orderIds: string[]; leftover: string[] } {
+export function confirmAllocation(
+  ctx: Ctx,
+  roundId: string,
+): { allocatedCount: number; partnerCount: number; leftover: string[] } {
   const round = loadRound(ctx, roundId);
   transition(ctx, round, 'confirmed');
   const lot = loadLot(ctx, round.lotId);
@@ -1158,9 +1554,102 @@ export function confirmAllocation(ctx: Ctx, roundId: string): { orderIds: string
     .where(eq(rounds.id, roundId))
     .run();
 
+  const participants = participantsOf(ctx.tx, roundId);
+  const allocationLines: string[] = [];
+  let allocatedCount = 0;
+  let partnerCount = 0;
+
+  for (const allocation of result.allocations) {
+    if (allocation.trainingIds.length === 0) continue;
+    const participant = participants.find((p) => p.lotPartnerId === allocation.lotPartnerId);
+    if (!participant) continue;
+    partnerCount += 1;
+    allocatedCount += allocation.trainingIds.length;
+
+    for (const trainingId of allocation.trainingIds) {
+      ctx.tx
+        .update(trainings)
+        .set({
+          status: 'allocated',
+          allocatedLotPartnerId: allocation.lotPartnerId,
+          currentRoundId: null,
+          updatedAt: ctx.at,
+        })
+        .where(eq(trainings.id, trainingId))
+        .run();
+    }
+    allocationLines.push(`koht ${participant.rankAtPublication} · ${participant.partnerName} · ${unitCount(round.kind, allocation.trainingIds.length)}`);
+  }
+
+  // [J-06][T-06] whatever nobody took waits visibly for a decision.
+  for (const trainingId of result.leftover) {
+    ctx.tx
+      .update(trainings)
+      .set({
+        status: 'leftover',
+        currentRoundId: null,
+        leftoverFromRoundId: roundId,
+        updatedAt: ctx.at,
+      })
+      .where(eq(trainings.id, trainingId))
+      .run();
+  }
+
+  logAudit(ctx, {
+    eventType: 'round.confirmed',
+    summary: `Voor ${round.code} kinnitatud: ${unitCount(round.kind, allocatedCount)} ${partnerCount} partnerile, jääk ${unitCount(round.kind, result.leftover.length)}`,
+    roundId,
+    lotId: lot.id,
+    after: { allocatedCount, partnerCount, leftoverCount: result.leftover.length },
+  });
+
+  notify(ctx, {
+    recipientKind: 'buyer',
+    type: 'buyer_round_confirmed',
+    roundId,
+    emailTo: teamRecipients(ctx.tx),
+    notice: renderBuyerRoundConfirmed({
+      framework: frameworkIdentity(ctx.tx),
+      roundCode: round.code,
+      lotLabel: lotLabel(lot),
+      url: buyerUrl(roundId),
+      protocolUrl: protocolUrl(roundId),
+      allocationLines,
+      leftoverCount: result.leftover.length,
+    }),
+  });
+
+  // [L-22] The protocol is written last, so it contains every notice this
+  // confirmation produced — and inside the same transaction.
+  storeRoundProtocol(ctx, roundId, 'confirmed');
+
+  return { allocatedCount, partnerCount, leftover: result.leftover };
+}
+
+/**
+ * [T-05][D-07] Issue the orders of a confirmed round — **suspended** [L-25].
+ *
+ * Nothing in the application calls this. The buyer team decided that the
+ * formal decision and the order are made outside the software for the moment,
+ * so `confirmAllocation` stops at the protocol. The machinery stays here,
+ * tested, so that reinstating it is one call from the confirmation rather than
+ * a rewrite: one order per allocated partner, the order document frozen from
+ * the final snapshot, the order notice to the partner and the neutral
+ * "määrati teisele partnerile" note [N-08] to everyone who lost a mark.
+ * Idempotent: a round whose orders exist gets none again.
+ */
+export function issueOrders(ctx: Ctx, roundId: string): { orderIds: string[] } {
+  const round = loadRound(ctx, roundId);
+  if (round.status !== 'confirmed' || !round.finalSnapshot) {
+    throw new Error('Tellimusi saab väljastada ainult kinnitatud vooru puhul.');
+  }
+  const existing = ctx.tx.select({ id: orders.id }).from(orders).where(eq(orders.roundId, roundId)).all();
+  if (existing.length > 0) return { orderIds: [] };
+
+  const lot = loadLot(ctx, round.lotId);
+  const result = round.finalSnapshot.result;
   const year = new Date(ctx.at).getFullYear();
   const orderIds: string[] = [];
-  const orderLines: string[] = [];
 
   const trainingRows = new Map(
     ctx.tx
@@ -1172,6 +1661,7 @@ export function confirmAllocation(ctx: Ctx, roundId: string): { orderIds: string
   );
 
   for (const allocation of result.allocations) {
+    if (allocation.trainingIds.length === 0) continue;
     const participant = participantsOf(ctx.tx, roundId).find(
       (p) => p.lotPartnerId === allocation.lotPartnerId,
     );
@@ -1195,11 +1685,12 @@ export function confirmAllocation(ctx: Ctx, roundId: string): { orderIds: string
     const rows = allocation.trainingIds
       .map((id) => trainingRows.get(id))
       .filter((row): row is typeof trainings.$inferSelect => Boolean(row));
-    const total = rows.length * membership.unitPriceEur;
+    const total = allocationMaxPriceEur(rows.map((row) => ({ participantCount: row.participantCount, unitPriceEur: membership.unitPriceEur })));
 
     const document: OrderDocument = {
-      frameworkReference:
-        'Raamleping „Eesti.ai koolitajate tellimine“, riigihanke viitenumber 10567384',
+      // Frozen into the document, so an order still names the agreement it was
+      // issued under even after the framework data is edited [T-05][L-21].
+      frameworkReference: frameworkTitleLine(frameworkIdentity(ctx.tx)),
       lotCode: lot.code,
       lotName: lot.name,
       roundCode: round.code,
@@ -1221,8 +1712,8 @@ export function confirmAllocation(ctx: Ctx, roundId: string): { orderIds: string
       })),
       totalEur: total,
       partnerConfirmedAt: binding?.confirmedAt ?? null,
-      buyerConfirmedAt: ctx.at,
-      buyerConfirmedBy: ctx.actor.label,
+      buyerConfirmedAt: round.confirmedAt ?? ctx.at,
+      buyerConfirmedBy: round.confirmedBy ?? ctx.actor.label,
     };
 
     ctx.tx
@@ -1237,8 +1728,8 @@ export function confirmAllocation(ctx: Ctx, roundId: string): { orderIds: string
         kind: 'allocation',
         partnerConfirmationId: binding?.id ?? null,
         partnerConfirmedAt: binding?.confirmedAt ?? null,
-        buyerConfirmedAt: ctx.at,
-        buyerConfirmedBy: ctx.actor.label,
+        buyerConfirmedAt: round.confirmedAt ?? ctx.at,
+        buyerConfirmedBy: round.confirmedBy ?? ctx.actor.label,
         status: 'active',
         documentSnapshot: document,
         createdAt: ctx.at,
@@ -1255,21 +1746,10 @@ export function confirmAllocation(ctx: Ctx, roundId: string): { orderIds: string
           unitPriceEur: membership.unitPriceEur,
         })
         .run();
-      ctx.tx
-        .update(trainings)
-        .set({
-          status: 'allocated',
-          allocatedLotPartnerId: allocation.lotPartnerId,
-          orderId,
-          currentRoundId: null,
-          updatedAt: ctx.at,
-        })
-        .where(eq(trainings.id, row.id))
-        .run();
+      ctx.tx.update(trainings).set({ orderId, updatedAt: ctx.at }).where(eq(trainings.id, row.id)).run();
     }
 
     orderIds.push(orderId);
-    orderLines.push(`${number} · ${partner.name} · ${rows.length} koolitust · ${formatEur(total)}`);
 
     logAudit(ctx, {
       eventType: 'order.created',
@@ -1287,18 +1767,19 @@ export function confirmAllocation(ctx: Ctx, roundId: string): { orderIds: string
       type: 'order_issued',
       roundId,
       orderId,
-      emailTo: participant.contactEmail,
+      emailTo: partnerRecipients(ctx.tx, participant.lotPartnerId),
       notice: renderOrderIssued({
+        framework: frameworkIdentity(ctx.tx),
         roundCode: round.code,
         lotLabel: lotLabel(lot),
         url: orderUrl(orderId),
         contactName: participant.contactName,
         partnerName: partner.name,
         orderNumber: number,
-        trainingLines: trainingLines(ctx, allocation.trainingIds),
-        totalText: `Hinnanguline kogumaksumus: ${formatEur(total)} (ühikhind ${formatEur(membership.unitPriceEur)}).`,
+        trainingLines: trainingLines(ctx, allocation.trainingIds, roundId),
+        totalText: priceLine(total, membership.unitPriceEur),
         partnerConfirmedAtText: binding ? formatDateTimeShort(binding.confirmedAt) : '—',
-        buyerConfirmedAtText: formatDateTimeShort(ctx.at),
+        buyerConfirmedAtText: formatDateTimeShort(round.confirmedAt ?? ctx.at),
         buyerContact: ctx.actor.label,
       }),
     });
@@ -1323,55 +1804,20 @@ export function confirmAllocation(ctx: Ctx, roundId: string): { orderIds: string
       recipientLotPartnerId: participant.lotPartnerId,
       type: 'allocated_elsewhere',
       roundId,
-      emailTo: participant.contactEmail,
+      emailTo: partnerRecipients(ctx.tx, participant.lotPartnerId),
       notice: renderAllocatedElsewhere({
+        framework: frameworkIdentity(ctx.tx),
         roundCode: round.code,
         lotLabel: lotLabel(lot),
         url: partnerUrl(roundId),
         contactName: participant.contactName,
-        trainingLines: trainingLines(ctx, lost),
+        trainingLines: trainingLines(ctx, lost, roundId),
         allocatedCount: mine.size,
       }),
     });
   }
 
-  // [J-06][T-06] whatever nobody took waits visibly for a decision.
-  for (const trainingId of result.leftover) {
-    ctx.tx
-      .update(trainings)
-      .set({
-        status: 'leftover',
-        currentRoundId: null,
-        leftoverFromRoundId: roundId,
-        updatedAt: ctx.at,
-      })
-      .where(eq(trainings.id, trainingId))
-      .run();
-  }
-
-  logAudit(ctx, {
-    eventType: 'round.confirmed',
-    summary: `Voor ${round.code} kinnitatud: ${orderIds.length} tellimust, jääk ${result.leftover.length} koolitust`,
-    roundId,
-    lotId: lot.id,
-    after: { orderCount: orderIds.length, leftoverCount: result.leftover.length },
-  });
-
-  notify(ctx, {
-    recipientKind: 'buyer',
-    type: 'buyer_round_confirmed',
-    roundId,
-    emailTo: teamEmail(),
-    notice: renderBuyerRoundConfirmed({
-      roundCode: round.code,
-      lotLabel: lotLabel(lot),
-      url: buyerUrl(roundId),
-      orderLines,
-      leftoverCount: result.leftover.length,
-    }),
-  });
-
-  return { orderIds, leftover: result.leftover };
+  return { orderIds };
 }
 
 /* ------------------------------------------------------------------ *
@@ -1496,8 +1942,9 @@ export function deactivateLotPartner(ctx: Ctx, lotPartnerId: string, reason: str
       recipientLotPartnerId: lotPartnerId,
       type: 'participant_excluded',
       roundId: round.id,
-      emailTo: participant.contactEmailSnapshot,
+      emailTo: partnerRecipients(ctx.tx, lotPartnerId),
       notice: renderParticipantExcluded({
+        framework: frameworkIdentity(ctx.tx),
         roundCode: round.code,
         lotLabel: lotLabel(lot),
         url: partnerUrl(round.id),
@@ -1510,7 +1957,7 @@ export function deactivateLotPartner(ctx: Ctx, lotPartnerId: string, reason: str
       recipientKind: 'buyer',
       type: 'participant_excluded',
       roundId: round.id,
-      emailTo: teamEmail(),
+      emailTo: teamRecipients(ctx.tx),
       notice: {
         title: `${partner?.name ?? 'Partner'} arvati voorust ${round.code} välja`,
         body: `Partneri osalus hankeosas ${lot.code} lõpetati, seetõttu ei arvestata tema märkeid voorus ${round.code}.`,
@@ -1518,6 +1965,10 @@ export function deactivateLotPartner(ctx: Ctx, lotPartnerId: string, reason: str
       },
     });
   }
+
+  // The membership named a sign-in; without it the contact represents nobody,
+  // unless the buyer listed them or another lot still names them [L-21].
+  syncFrameworkContacts(ctx, { partnerIds: [membership.partnerId] });
 }
 
 export function markTrainingCompleted(ctx: Ctx, trainingId: string): void {

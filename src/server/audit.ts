@@ -27,6 +27,7 @@ export type AuditEventType =
   // partner answers [K]
   | 'marks.draft_saved'
   | 'marks.confirmed'
+  | 'marks.confirm_repeated'
   | 'marks.declined_all'
   // buyer review [T]
   | 'adjustment.applied'
@@ -44,20 +45,46 @@ export type AuditEventType =
   | 'training.leftover_cancelled'
   // participants [E-01]
   | 'participant.excluded'
+  // the signable record of an ended round [L-22] — carries its SHA-256
+  | 'protocol.generated'
+  // the framework agreement itself [L-21]
+  | 'framework.updated'
   // lots and partners
+  | 'lot.created'
+  | 'lot.updated'
+  | 'lot.deactivated'
   | 'lot.config_changed'
   | 'partner.created'
   | 'partner.rank_changed'
+  | 'partner.joined_lot'
+  | 'partner.contact_changed'
   | 'partner.deactivated'
   | 'partner.activated'
+  // representatives [R-02][D-10]
+  | 'representative.created'
+  | 'representative.updated'
+  | 'representative.deactivated'
+  | 'representative.activated'
+  | 'representative.synced_from_framework'
+  | 'representative.preferences_changed'
+  // buyer team [R-01]
+  | 'team.member_added'
+  | 'team.member_updated'
+  // sign-in [L-08] — never the code itself
+  | 'login.code_requested'
+  | 'login.rate_limited'
+  | 'login.succeeded'
+  | 'login.failed'
+  | 'login.locked'
+  | 'login.signed_out'
   // imports
   | 'import.previewed'
   | 'import.trainings_imported'
   | 'import.partners_imported'
-  | 'import.discarded'
-  // test harness
-  | 'clock.advanced'
-  | 'demo.reset';
+  | 'import.representatives_imported'
+  | 'import.round_imported'
+  | 'import.framework_imported'
+  | 'import.discarded';
 
 export interface AuditInput {
   eventType: AuditEventType;
@@ -80,6 +107,8 @@ export function logAudit(ctx: Ctx, input: AuditInput): void {
       actorType: ctx.actor.kind,
       actorId: ctx.actor.id,
       actorLabel: ctx.actor.label,
+      viaUserId: ctx.actor.via?.userId ?? null,
+      viaLabel: ctx.actor.via?.label ?? null,
       eventType: input.eventType,
       summary: input.summary,
       lotId: input.lotId ?? null,

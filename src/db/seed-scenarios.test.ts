@@ -20,9 +20,9 @@ import {
 import { projectionInput } from '@/server/rounds/allocation-input';
 import { participantsOf } from '@/server/rounds/views';
 import { createHarness, type TestHarness } from '@/server/test-support';
-import { seedBaseData } from './seed';
+import { seedBaseData, settleSeedDeliveries } from './seed';
 import { seedScenarios } from './seed-scenarios';
-import { lots, notifications, orders, rounds, trainings } from './schema';
+import { emailDeliveries, lotPartners, lots, notifications, orders, rounds, trainings } from './schema';
 
 /** A Wednesday, so "2 working days ago" does not cross a weekend. */
 const NOW = Date.UTC(2026, 8, 30, 9, 0);
@@ -77,6 +77,27 @@ describe('Stsenaarium A on Lisa B', () => {
 
     const input = harness.read((db) => projectionInput(db, openRoundId, NOW));
     expect(input.trainings.map((t) => t.code).sort()).toEqual([...LISA_B_CODES]);
+  });
+
+  it('opens with the whole response window still ahead of the tester', () => {
+    /*
+     * The scenario used to be seeded two working days into its window, so a
+     * freshly reset environment always had a round about to expire — reset on a
+     * Monday and the deadline was always Tuesday. A tester needs the window,
+     * and the urgent case is one click away on the strip instead.
+     */
+    const round = harness.read((db) =>
+      db
+        .select({ publishedAt: rounds.publishedAt, deadlineAt: rounds.deadlineAt })
+        .from(rounds)
+        .where(eq(rounds.id, openRoundId))
+        .get(),
+    )!;
+    const hours = (ms: number) => ms / 3_600_000;
+
+    expect(hours(NOW - round.publishedAt!), 'avaldatud tundi tagasi').toBeLessThan(24);
+    expect(round.deadlineAt!).toBeGreaterThan(NOW);
+    expect(hours(round.deadlineAt! - NOW), 'tähtajani jäänud tunde').toBeGreaterThan(40);
   });
 
   it('seats A, B, C in the ranks Lisa B gives them', () => {
@@ -195,17 +216,21 @@ describe('ülejäänud stsenaariumid', () => {
       db.select({ id: rounds.id, code: rounds.code, status: rounds.status }).from(rounds).all(),
     );
     expect(finished.filter((r) => r.status === 'confirmed')).toHaveLength(2);
-    expect(finished.filter((r) => r.status === 'draft')).toHaveLength(1);
+    // scenario C (dated) and scenario D (the cluster) [L-28]
+    expect(finished.filter((r) => r.status === 'draft')).toHaveLength(2);
     expect(finished.filter((r) => r.status === 'open')).toHaveLength(1);
 
-    const orderRows = harness.read((db) =>
-      db.select({ id: orders.id, snapshot: orders.documentSnapshot }).from(orders).all(),
-    );
-    // Scenario 0: one order of five. Scenario B: two orders, of two each.
-    expect(orderRows.map((o) => o.snapshot.trainings.length).sort()).toEqual([2, 2, 5]);
-    for (const order of orderRows) {
-      expect(order.snapshot.totalEur).toBeGreaterThan(0);
-      expect(order.snapshot.partnerConfirmedAt).not.toBeNull();
+    // [L-25] no orders: the decision is made outside the application, so the
+    // finished rounds hold their allocation in the snapshot and the protocol.
+    expect(harness.read((db) => db.select({ id: orders.id }).from(orders).all())).toEqual([]);
+  });
+
+  it('[T-08] seeds prices per participant — every framework price is under 100 €', () => {
+    const prices = harness.read((db) => db.select({ price: lotPartners.unitPriceEur }).from(lotPartners).all());
+    expect(prices.length).toBeGreaterThan(0);
+    for (const { price } of prices) {
+      expect(price).toBeGreaterThan(5);
+      expect(price).toBeLessThan(100);
     }
   });
 
@@ -255,8 +280,7 @@ describe('ülejäänud stsenaariumid', () => {
       'confirmation_receipt',
       'decline_receipt',
       'projection_changed',
-      'order_issued',
-      'allocated_elsewhere',
+      'round_closed_partner',
     ]) {
       expect(kinds, `teavitus ${expected}`).toContain(expected);
     }
@@ -267,5 +291,21 @@ describe('ülejäänud stsenaariumid', () => {
     const b = participants.find((p) => p.rankAtPublication === 2)!;
     const projectionNotices = rows.filter((row) => row.type === 'projection_changed');
     expect(projectionNotices.map((row) => row.recipient)).toEqual([b.lotPartnerId]);
+  });
+});
+
+describe('the seed and e-mail [D-10]', () => {
+  it('queues the replayed notices’ e-mails and then records them as not sent, never leaving them queued', () => {
+    // Replayed history queued real deliveries to the sample representatives…
+    const before = harness.read((db) => db.select().from(emailDeliveries).all());
+    expect(before.length).toBeGreaterThan(20);
+    expect(before.some((d) => d.to === 'mari.mets@tehisaru-naidis.ee')).toBe(true);
+    expect(before.every((d) => d.status === 'queued')).toBe(true);
+
+    // …which the seed settles, so nothing is ever sent for reconstructed events.
+    const settled = harness.write((ctx) => settleSeedDeliveries(ctx.tx, ctx.at));
+    expect(settled).toBe(before.length);
+    const after = harness.read((db) => db.select().from(emailDeliveries).all());
+    expect(after.every((d) => d.status === 'skipped' && d.attempts === 1 && d.detail.includes('taasesitus'))).toBe(true);
   });
 });

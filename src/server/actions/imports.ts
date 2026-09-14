@@ -10,8 +10,6 @@
  */
 
 import { redirect } from 'next/navigation';
-import { loadSampleTrainings } from '@/db/seed';
-import { assertDemoMode } from '@/lib/env';
 import {
   applyTrainingsImport,
   discardImport,
@@ -19,7 +17,22 @@ import {
   readTable,
 } from '../import/trainings-import';
 import { applyPartnersImport, previewPartnersImport } from '../import/partners-import';
-import { buyerWrite, describeError, fail, fieldText, ok, type ActionOutcome } from './helpers';
+import {
+  applyRepresentativesImport,
+  previewRepresentativesImport,
+} from '../import/representatives-import';
+import { applyRoundImport, previewRoundImport } from '../import/round-import';
+import { parseXlsxSheets } from '../import/xlsx';
+import { fold } from '@/domain/import-rows';
+import {
+  adminWrite,
+  buyerWrite,
+  describeError,
+  fail,
+  fieldText,
+  ok,
+  type ActionOutcome,
+} from './helpers';
 
 const MAX_BYTES = 5 * 1024 * 1024;
 
@@ -81,26 +94,14 @@ export async function confirmTrainingsImportAction(form: FormData): Promise<Acti
 export async function discardImportAction(form: FormData): Promise<ActionOutcome> {
   const batchId = fieldText(form, 'batchId');
   try {
-    await buyerWrite((ctx) => discardImport(ctx, batchId), ['/tellija/koolitused']);
+    // The batch id comes from a form field, so the kind is named here: this
+    // form belongs to the calendar, and a hankija must not be able to cancel
+    // an admin's pending framework preview by posting its id to it [R-01].
+    await buyerWrite((ctx) => discardImport(ctx, batchId, ['trainings']), ['/tellija/koolitused']);
   } catch (error) {
     return fail(describeError(error));
   }
   redirect('/tellija/koolitused');
-}
-
-/** Demo-only: re-import the committed sample koolituskalender. */
-export async function loadSampleTrainingsAction(): Promise<ActionOutcome> {
-  try {
-    assertDemoMode();
-    const result = await buyerWrite((ctx) => loadSampleTrainings(ctx), [
-      '/tellija/koolitused',
-      '/tellija',
-    ]);
-    const { created, updated, locked } = result.summary;
-    return ok(`Näidisandmed laaditud: ${created} uut, ${updated} uuendatud, ${locked} lukus.`);
-  } catch (error) {
-    return fail(describeError(error));
-  }
 }
 
 /* ---------------- partner ranking ---------------- */
@@ -112,7 +113,7 @@ export async function previewPartnersAction(form: FormData): Promise<ActionOutco
 
   let batchId: string;
   try {
-    batchId = await buyerWrite((ctx) =>
+    batchId = await adminWrite((ctx) =>
       previewPartnersImport(ctx, {
         fileName: upload.fileName,
         fileSize: upload.size,
@@ -130,7 +131,7 @@ export async function previewPartnersAction(form: FormData): Promise<ActionOutco
 export async function confirmPartnersImportAction(form: FormData): Promise<ActionOutcome> {
   const batchId = fieldText(form, 'batchId');
   try {
-    const result = await buyerWrite((ctx) => applyPartnersImport(ctx, batchId), [
+    const result = await adminWrite((ctx) => applyPartnersImport(ctx, batchId), [
       '/tellija/partnerid',
       '/tellija/hankeosad',
     ]);
@@ -139,4 +140,109 @@ export async function confirmPartnersImportAction(form: FormData): Promise<Actio
   } catch (error) {
     return fail(describeError(error));
   }
+}
+
+/* ---------------- partner representatives ---------------- */
+
+export async function previewRepresentativesAction(form: FormData): Promise<ActionOutcome> {
+  const upload = await readUpload(form);
+  if ('error' in upload) return fail(upload.error);
+  const deactivateMissing = fieldText(form, 'deactivateMissing') === 'on';
+
+  let batchId: string;
+  try {
+    batchId = await adminWrite((ctx) =>
+      previewRepresentativesImport(ctx, {
+        fileName: upload.fileName,
+        fileSize: upload.size,
+        source: 'upload',
+        rawRows: upload.rows,
+        options: { deactivateMissing },
+      }),
+    ).then((r) => r.batchId);
+  } catch (error) {
+    return fail(describeError(error));
+  }
+  redirect(`/tellija/partnerid/esindajad/import?batch=${batchId}`);
+}
+
+export async function confirmRepresentativesImportAction(form: FormData): Promise<ActionOutcome> {
+  const batchId = fieldText(form, 'batchId');
+  try {
+    const result = await adminWrite((ctx) => applyRepresentativesImport(ctx, batchId), [
+      '/tellija/partnerid/esindajad',
+      '/tellija/partnerid',
+    ]);
+    const { created, updated, withErrors } = result.summary;
+    return ok(`Esindajad imporditud: ${created} uut, ${updated} uuendatud, ${withErrors} veaga rida.`);
+  } catch (error) {
+    return fail(describeError(error));
+  }
+}
+
+/* ---------------- one cascade round from a workbook [L-20] ---------------- */
+
+export async function previewRoundAction(form: FormData): Promise<ActionOutcome> {
+  const file = form.get('file');
+  if (!(file instanceof File) || file.size === 0) return fail('Vali fail.');
+  if (file.size > MAX_BYTES) return fail(`Fail on liiga suur (${(file.size / 1024 / 1024).toFixed(1)} MB, lubatud 5 MB).`);
+  if (!file.name.toLowerCase().endsWith('.xlsx')) {
+    return fail('Vooru skeem peab olema .xlsx töövihik kahe lehega: „Voor“ ja „Koolitused“.');
+  }
+
+  let sheets: Awaited<ReturnType<typeof parseXlsxSheets>>;
+  try {
+    sheets = await parseXlsxSheets(Buffer.from(await file.arrayBuffer()));
+  } catch {
+    return fail('Faili ei õnnestu lugeda .xlsx töövihikuna.');
+  }
+  const byName = new Map([...sheets.entries()].map(([name, sheet]) => [fold(name), sheet] as const));
+  const voor = byName.get('voor');
+  const koolitused = byName.get('koolitused');
+  if (!voor || !koolitused) {
+    return fail(
+      `Töövihikus peavad olema lehed „Voor“ ja „Koolitused“; leitud: ${[...sheets.keys()].join(', ') || 'ükski'}.`,
+    );
+  }
+
+  let batchId: string;
+  try {
+    batchId = await buyerWrite((ctx) =>
+      previewRoundImport(ctx, {
+        fileName: file.name,
+        fileSize: file.size,
+        roundRows: voor.rows,
+        trainingRows: koolitused.rows,
+      }),
+    ).then((r) => r.batchId);
+  } catch (error) {
+    return fail(describeError(error));
+  }
+  redirect(`/tellija/voorud/import?batch=${batchId}`);
+}
+
+export async function confirmRoundImportAction(form: FormData): Promise<ActionOutcome> {
+  const batchId = fieldText(form, 'batchId');
+  let roundIds: string[];
+  try {
+    roundIds = await buyerWrite((ctx) => applyRoundImport(ctx, batchId), [
+      '/tellija/voorud',
+      '/tellija',
+      '/tellija/koolitused',
+    ]).then((r) => r.roundIds);
+  } catch (error) {
+    return fail(describeError(error));
+  }
+  // One draft opens itself; several are best seen side by side in the list [L-20].
+  redirect(roundIds.length === 1 ? `/tellija/voorud/${roundIds[0]}` : '/tellija/voorud');
+}
+
+export async function discardRoundImportAction(form: FormData): Promise<ActionOutcome> {
+  const batchId = fieldText(form, 'batchId');
+  try {
+    await buyerWrite((ctx) => discardImport(ctx, batchId, ['round']), ['/tellija/voorud']);
+  } catch (error) {
+    return fail(describeError(error));
+  }
+  redirect('/tellija/voorud/uus');
 }

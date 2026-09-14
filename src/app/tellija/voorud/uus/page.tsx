@@ -9,8 +9,10 @@
 import Link from 'next/link';
 import { eq, inArray } from 'drizzle-orm';
 import { getDb } from '@/db';
+import { buyerCanWrite } from '@/server/auth/actor';
+import { ReadOnlyNote } from '@/components/read-only-note';
 import { lotPartners, lots, trainings } from '@/db/schema';
-import { formatEur, formatIsoDay } from '@/domain/format';
+import { formatEur, formatEventWhen } from '@/domain/format';
 import { TARGET_GROUPS } from '@/domain/round-statuses';
 import { WORKSHOP_TYPE_LABELS } from '@/domain/statuses';
 import { NewRoundForm } from './new-round-form';
@@ -24,6 +26,20 @@ export default async function NewRoundPage({
 }) {
   const params = await searchParams;
   const db = getDb();
+
+  if (!(await buyerCanWrite())) {
+    return (
+      <div className="space-y-4">
+        <div>
+          <Link href="/tellija/voorud" className="text-[13px] text-[var(--color-brand)]">
+            ← Voorud
+          </Link>
+          <h1 className="mt-1">Uus voor</h1>
+        </div>
+        <ReadOnlyNote what="Uue vooru koostamine" />
+      </div>
+    );
+  }
 
   const lotRows = db.select().from(lots).where(eq(lots.isActive, true)).all();
   const selectedLot =
@@ -86,6 +102,24 @@ export default async function NewRoundPage({
         ))}
       </nav>
 
+      <section className="kh-card flex flex-wrap items-center justify-between gap-3 p-4" data-testid="round-upload-offer">
+        <div>
+          <h2>Või laadi vooru skeem üles</h2>
+          <p className="mt-1 max-w-[70ch] text-[13px] text-[var(--color-muted)]">
+            Täida Exceli töövihik (leht „Voor“ + leht „Koolitused“) ja laadi üles: koolitused
+            luuakse või uuendatakse ja voor tehakse nende peale mustandina. Avaldamine jääb siia.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <a href={`/tellija/voorud/mall?hankeosa=${selectedLot.code}`} className="kh-btn">
+            Laadi alla mall ({selectedLot.code})
+          </a>
+          <Link href={`/tellija/voorud/import?hankeosa=${selectedLot.code}`} className="kh-btn">
+            Laadi skeem üles
+          </Link>
+        </div>
+      </section>
+
       <NewRoundForm
         lot={{
           id: selectedLot.id,
@@ -94,6 +128,7 @@ export default async function NewRoundPage({
           responseDeadlineWorkingDays: selectedLot.responseDeadlineWorkingDays,
           deadlineLocalTime: selectedLot.deadlineLocalTime,
           defaultVisibilityMode: selectedLot.defaultVisibilityMode,
+          defaultCapOptions: selectedLot.defaultCapOptions,
           activePartnerCount: activePartners.length,
         }}
         trainings={available.map((t) => ({
@@ -101,12 +136,15 @@ export default async function NewRoundPage({
           code: t.code,
           title: t.title,
           workshopType: WORKSHOP_TYPE_LABELS[t.workshopType],
-          eventDate: formatIsoDay(t.eventDate),
+          eventDate: formatEventWhen(t),
           county: t.county,
           targetGroup: TARGET_GROUPS[t.targetGroup],
           participantCount: t.participantCount,
           value: formatEur(t.estimatedValueEur),
           isLeftover: t.status === 'leftover',
+          dateKind: t.dateKind,
+          clusterCode: t.clusterCode,
+          groupIndex: t.groupIndex,
         }))}
       />
     </div>

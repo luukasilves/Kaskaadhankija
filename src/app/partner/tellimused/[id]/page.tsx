@@ -69,7 +69,7 @@ export default async function PartnerOrderDetail({ params }: { params: Promise<{
           tone={order.status === 'cancelled' ? 'neutral' : 'success'}
         />
         <span className="ml-auto text-[12px] text-[var(--color-muted)]">
-          Trükkimiseks kasuta brauseri prindifunktsiooni (Ctrl/Cmd + P).
+          Trükkimiseks kasutage brauseri prindifunktsiooni (Ctrl/Cmd + P).
         </span>
       </div>
 
@@ -126,7 +126,7 @@ export default async function PartnerOrderDetail({ params }: { params: Promise<{
                   <th className="kh-th">Osalejaid</th>
                   <th className="kh-th">Keel</th>
                   <th className="kh-th">Olek</th>
-                  <th className="kh-th">Ühikhind</th>
+                  <th className="kh-th">Hind osaleja kohta</th>
                 </tr>
               </thead>
               <tbody>

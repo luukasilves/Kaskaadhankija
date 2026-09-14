@@ -62,7 +62,7 @@ export function LeftoverActions({ leftovers }: { leftovers: LeftoverRow[] }) {
                     <th className="kh-th">Koolitus</th>
                     <th className="kh-th">Toimumine</th>
                     <th className="kh-th">Maakond</th>
-                    <th className="kh-th">Maksumus</th>
+                    <th className="kh-th">Tellija hinnang</th>
                     <th className="kh-th">Tühista</th>
                   </tr>
                 </thead>

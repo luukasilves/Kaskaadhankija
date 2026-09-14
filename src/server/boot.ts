@@ -47,7 +47,7 @@ export async function boot(): Promise<void> {
     const report = await seedIfEmpty();
     if (report) {
       console.log(
-        `[kaskaadhankija] näidisandmed laaditud: ${report.lots} hankeosa, ${report.partners} partneri osalust, ${report.trainings.created} koolitust`,
+        `[kaskaadhankija] näidisandmed laaditud: ${report.lots} hankeosa, ${report.teamMembers} tellija liiget seadistusest, ${report.partners} partneri osalust, ${report.representatives} esindajat, ${report.trainings.created} koolitust`,
       );
     }
   } catch (error) {

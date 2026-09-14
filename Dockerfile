@@ -26,11 +26,13 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN pnpm build
 
-# The standalone output is assembled by Next's file tracer. Three things it has
+# The standalone output is assembled by Next's file tracer. Four things it has
 # to have picked up, each of which would otherwise only fail at runtime:
 #   - the native SQLite binding for this platform,
 #   - the migrations, which boot() applies,
-#   - the sample datasets, which the seed imports.
+#   - the sample datasets, which the seed imports,
+#   - pdfkit's standard-font metrics, which the protocol PDF opens by name and
+#     the tracer therefore cannot see [L-22].
 # Assert them here, so a tracer change breaks the build instead of production.
 RUN test -n "$(find .next/standalone -name 'linux-x64.node' -path '*better-sqlite3*')" \
       || (echo 'better-sqlite3 prebuild missing from .next/standalone' && exit 1)
@@ -38,6 +40,8 @@ RUN test -f .next/standalone/drizzle/0001_append_only_triggers.sql \
       || (echo 'migrations missing from .next/standalone' && exit 1)
 RUN test -f .next/standalone/seed/naidis-koolituskalender.csv \
       || (echo 'sample datasets missing from .next/standalone' && exit 1)
+RUN test -n "$(find .next/standalone -name 'Helvetica.afm' -path '*pdfkit*')" \
+      || (echo 'pdfkit font metrics missing from .next/standalone' && exit 1)
 
 # ------------------------------------------------------------------- runtime
 FROM node:22-bookworm-slim AS runtime

@@ -1,0 +1,47 @@
+# Locked decisions — Juhend koolitajale
+#
+# Enforceable rules, applied everywhere by the monolingual edit pass. Written as
+# rules rather than word pairs, because several are phrasings or cross-cutting
+# instructions. This whole file is injected into the pass-2 prompt.
+
+- ADDRESS: teie throughout. Imperatives take the teie form — "märkige",
+  "vajutage", "avage", "kasutage" — never "märgi", "vajuta".
+
+- QUOTE UI LABELS VERBATIM, in „…“, EVEN WHERE THE LABEL ITSELF SAYS SINA.
+  `TRAINING_VIEW_STATE_LABELS.projected_to_you` is „Prognoosis sinule“ and the
+  reason suffix is „üle sinu piirmäära“, because the spec's [N-03] table wrote
+  them that way. Never paraphrase a label to repair its address: the reader has
+  to find that exact string on the screen. Where the mismatch would jar, put
+  the label in quotes and keep the surrounding sentence in teie — e.g.
+  "Veerus „Olek“ seisab „Prognoosis sinule“, kui …".
+
+- IMPORT LABELS, DO NOT RETYPE THEM. Every label that exists as a constant in
+  `src/domain/round-statuses.ts` is interpolated from there, so it cannot drift.
+  Retyping one is a defect even when the retyped string is correct today.
+
+- NUMBERS: state only the two the code pins — 10 minutit (CODE_TTL_MS) and
+  30 päeva (SESSION_TTL_MS). Never state the response window (per-lot data, and
+  [L-10] — working or calendar days — is an open legal question), the workload
+  threshold (per-lot; the seeded test value is 4, not 25), the buyer's decision
+  time ([L-09], unresolved), or the 75-participant workshop ceiling (a framework
+  property the app deliberately does not enforce, [K-06]). Say instead that the
+  deadline is on the round page and in every notice.
+
+- NEVER NAME A PARTNER in prose or in a diagram. Ranks are „koht 1“, „koht 2“,
+  „koht 3“ [N-04]. A diagram with company names invites the reader to take it
+  for real data.
+
+- THE AGREEMENT BINDS, NOT THIS GUIDE. Section 0 says so explicitly, and no
+  later section may phrase a rule as though the guide created it.
+
+- TYPOGRAPHY: Estonian quotes „…“, em dash — for the explanatory clause (the
+  corpus uses it heavily: "rangelt raamlepingu järjestuse alusel — vastamise
+  kiirus ei anna eelist"), non-breaking space before a unit where it matters.
+
+- FIRST PERSON: the buyer/system speaks as "me" only where the corpus does
+  ("Kinnitame, et võtsime teie valiku vastu"). The guide itself is impersonal:
+  it describes what the environment does, it does not promise on the buyer's
+  behalf.
+
+- EVERY FIGURE IS DROPPABLE. The prose carries the meaning; a figure only shows
+  what it looks like. No sentence may depend on a reader seeing an image.

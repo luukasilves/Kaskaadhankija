@@ -8,9 +8,9 @@
  *     buyer's upload uses. The "load from database" and "upload a table" paths
  *     therefore cannot drift, and the sample files stay the single description
  *     of the synthetic procurement.
- *  2. Scenario rounds are built by **replaying real engine calls** against a
- *     rewound virtual clock, so the audit trail, the notification log
- *     and the frozen snapshots are genuine rather than fabricated rows.
+ *  2. Scenario rounds are built by **replaying real engine calls** at
+ *     back-dated instants, so the audit trail, the notification log and the
+ *     frozen snapshots are genuine rather than fabricated rows.
  *
  * Idempotent: guarded by `app_state.seed_version`, and the imports upsert by
  * code, so running it twice changes nothing.
@@ -18,15 +18,18 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { env } from '@/lib/env';
 import { parseCsv } from '@/server/import/csv';
 import { importTrainingsFromRows } from '@/server/import/trainings-import';
-import { importPartnersFromRows } from '@/server/import/partners-import';
+import { lotSheetRow } from '@/domain/framework-definition';
+import { importFrameworkFromSheets } from '@/server/import/framework-import';
+import { addTeamMember } from '@/server/team';
 import { ensureAppState, readSeedVersion, writeSeedVersion } from '@/server/clock';
 import { NO_EVIDENCE, type Ctx } from '@/server/context';
 import { getDb } from './index';
-import { lots, users } from './schema';
+import { LOT_SEED } from './lot-seed';
+import { emailDeliveries, users } from './schema';
 
 export const SEED_VERSION = 1;
 
@@ -35,7 +38,72 @@ const SEED_DIR = join(process.cwd(), 'seed');
 export const SEED_FILES = {
   trainings: 'naidis-koolituskalender.csv',
   partners: 'naidis-partnerid.csv',
+  representatives: 'naidis-esindajad.csv',
 } as const;
+
+/**
+ * `SEED_TEAM` — `nimi,e-post[,roll];…` — the buyer team's real members, added
+ * when the seed runs, so the first boot of a fresh volume already has the
+ * people who actually sign in.
+ *
+ * These are *additional* users: the sample Mari Tamm stays exactly as she is,
+ * because the example rounds are replayed as her. Real representatives are no
+ * longer layered on here — they arrive with the framework data an admin
+ * uploads or edits [L-21]. Malformed entries are dropped with a warning rather
+ * than failing the boot: a typo in a secret must not leave the environment
+ * unusable.
+ *
+ * A seeded member is a **hankija** unless the entry asks for `admin` by name
+ * [R-01]. It used to be the other way round, so that somebody could still
+ * manage the team after a reset — `AUTO_ADMIN_ALLOWLIST` now does that job,
+ * and a fresh volume must not quietly recreate a team of administrators.
+ */
+export interface SeedTeamMember {
+  name: string;
+  email: string;
+  role: 'admin' | 'member';
+}
+
+export function parseSeedTeam(raw: string | undefined): SeedTeamMember[] {
+  if (!raw?.trim()) return [];
+  const members: SeedTeamMember[] = [];
+  for (const entry of raw.split(';')) {
+    if (!entry.trim()) continue;
+    const [name = '', email = '', role = ''] = entry.split(',').map((field) => field.trim());
+    if (!name || !email) {
+      console.warn(`[kaskaadhankija] SEED_TEAM: kirje „${entry.trim()}“ jäeti vahele`);
+      continue;
+    }
+    const folded = role.toLowerCase();
+    if (folded && folded !== 'admin' && folded !== 'hankija' && folded !== 'liige' && folded !== 'member') {
+      console.warn(`[kaskaadhankija] SEED_TEAM: tundmatu roll „${role}“ (${email}) — lisatakse hankijana`);
+    }
+    // Hankija unless the entry says `admin`: a hankija can run every round, and
+    // administering the framework is a right somebody has to be given by name.
+    members.push({ name, email, role: folded === 'admin' ? 'admin' : 'member' });
+  }
+  return members;
+}
+
+/**
+ * Add the configured team members through the same function the Meeskond screen
+ * uses, so the seed cannot bypass its checks — an address that already belongs
+ * to a partner's representative is refused here too. Returns how many landed.
+ */
+export function applySeedTeam(ctx: Ctx, raw: string | undefined): number {
+  let added = 0;
+  for (const member of parseSeedTeam(raw)) {
+    try {
+      addTeamMember(ctx, member);
+      added += 1;
+    } catch (error) {
+      console.warn(
+        `[kaskaadhankija] SEED_TEAM: ${member.email} jäi lisamata — ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+  return added;
+}
 
 /** The buyer persona the seed creates, and whose label appears in the audit. */
 export const SEED_BUYER = {
@@ -43,81 +111,14 @@ export const SEED_BUYER = {
   email: env.SEED_ADMIN_EMAIL,
 } as const;
 
-/**
- * The four lots of the framework.
- *
- * OSA-2's workload threshold is deliberately 4 rather than 25: with mock data
- * nobody would ever reach 25 trainings, and the [T-01] workload warning is one
- * of the things a tester needs to see. The screen labels it as a test value.
- */
-const LOT_SEED = [
-  {
-    code: 'OSA-1',
-    name: 'Koolitused ruumirendiga',
-    description:
-      'Töötubade läbiviimine koolitaja pakutud ruumides koos vajaliku tehnika ja ruumiteenustega.',
-    responseDeadlineWorkingDays: 3,
-    workloadThreshold: 25,
-    thresholdNote: '',
-  },
-  {
-    code: 'OSA-2',
-    name: 'Koolitused ruumirendita',
-    description:
-      'Töötubade läbiviimine tellija määratud asukohas. Koolitaja vastutab sisu ja läbiviimise eest, ruumi ei paku.',
-    responseDeadlineWorkingDays: 3,
-    workloadThreshold: 4,
-    thresholdNote: 'Näidise testväärtus — päris raamlepingus on lähtekohaks 25 koolitust.',
-  },
-  {
-    code: 'OSA-3',
-    name: 'Veebikoolitused',
-    description:
-      'Töötubade ettevalmistamine ja läbiviimine digikeskkonnas (Teams, Zoom või muu kokkulepitud platvorm).',
-    responseDeadlineWorkingDays: 2,
-    workloadThreshold: 25,
-    thresholdNote: '',
-  },
-  {
-    code: 'OSA-4',
-    name: 'Suursündmused',
-    description:
-      'Suurema osalejate arvuga sündmuste korraldamine ja läbiviimine (ettekanne, loeng, kaasloome või häkaton), sh tehniline koordineerimine, modereerimine, registreerimine ja logistika.',
-    responseDeadlineWorkingDays: 5,
-    workloadThreshold: 25,
-    thresholdNote: '',
-  },
-] as const;
-
 function readSeedFile(name: string): { rows: Array<Record<string, string>>; size: number } {
   const path = join(SEED_DIR, name);
   const content = readFileSync(path);
   return { rows: parseCsv(content.toString('utf8')).rows, size: content.byteLength };
 }
 
-/** Lots and the buyer user — the fixed scaffolding the imports need. */
-function seedLotsAndUsers(ctx: Ctx): void {
-  for (const lot of LOT_SEED) {
-    ctx.tx
-      .insert(lots)
-      .values({
-        id: crypto.randomUUID(),
-        code: lot.code,
-        name: lot.name,
-        description: lot.description,
-        responseDeadlineWorkingDays: lot.responseDeadlineWorkingDays,
-        deadlineLocalTime: '17:00',
-        reviewWorkingDays: 2,
-        workloadThreshold: lot.workloadThreshold,
-        thresholdNote: lot.thresholdNote,
-        defaultVisibilityMode: 'dynamic',
-        isActive: true,
-        createdAt: ctx.at,
-      })
-      .onConflictDoNothing()
-      .run();
-  }
-
+/** The buyer user the scenarios act as. */
+function seedBuyerUser(ctx: Ctx): void {
   ctx.tx
     .insert(users)
     .values({
@@ -134,7 +135,9 @@ function seedLotsAndUsers(ctx: Ctx): void {
 
 export interface SeedReport {
   lots: number;
+  teamMembers: number;
   partners: number;
+  representatives: number;
   trainings: { created: number; updated: number; locked: number };
 }
 
@@ -143,15 +146,34 @@ export interface SeedReport {
  * koolituskalender. Scenario rounds are layered on top by `seedScenarios`.
  */
 export function seedBaseData(ctx: Ctx): SeedReport {
-  seedLotsAndUsers(ctx);
+  seedBuyerUser(ctx);
 
+  // Before the representatives arrive: an address that appears in both lists
+  // belongs to the buyer team, and the import then refuses it rather than
+  // quietly making a colleague somebody's partner.
+  const teamMembers = applySeedTeam(ctx, env.SEED_TEAM);
+
+  // The whole framework in one call — the same function an admin's upload
+  // uses [L-21], so the sample procurement is loaded the way a real one will
+  // be: identity, the four lots, the ranking, and the extra representatives.
   const partnerFile = readSeedFile(SEED_FILES.partners);
-  const partnerResult = importPartnersFromRows(ctx, {
+  const representativeFile = readSeedFile(SEED_FILES.representatives);
+  const framework = importFrameworkFromSheets(ctx, {
     fileName: SEED_FILES.partners,
-    fileSize: partnerFile.size,
+    fileSize: partnerFile.size + representativeFile.size,
     source: 'seed',
-    rawRows: partnerFile.rows,
+    sheets: {
+      hankeosad: LOT_SEED.map(lotSheetRow),
+      partnerid: partnerFile.rows,
+      esindajad: representativeFile.rows,
+    },
   });
+  const partnerResult = { summary: framework.summary };
+  let representatives =
+    (framework.representatives?.created ?? 0) +
+    (framework.representatives?.updated ?? 0) +
+    framework.contacts.created.length +
+    framework.contacts.reactivated.length;
 
   const trainingFile = readSeedFile(SEED_FILES.trainings);
   const trainingResult = importTrainingsFromRows(ctx, {
@@ -162,8 +184,10 @@ export function seedBaseData(ctx: Ctx): SeedReport {
   });
 
   return {
-    lots: LOT_SEED.length,
+    lots: framework.lots.created.length + framework.lots.updated.length + framework.lots.unchanged.length,
+    teamMembers,
     partners: partnerResult.summary.created + partnerResult.summary.updated,
+    representatives,
     trainings: {
       created: trainingResult.summary.created,
       updated: trainingResult.summary.updated,
@@ -172,15 +196,23 @@ export function seedBaseData(ctx: Ctx): SeedReport {
   };
 }
 
-/** Re-import the committed sample koolituskalender — the demo-only button. */
-export function loadSampleTrainings(ctx: Ctx) {
-  const file = readSeedFile(SEED_FILES.trainings);
-  return importTrainingsFromRows(ctx, {
-    fileName: SEED_FILES.trainings,
-    fileSize: file.size,
-    source: 'sample',
-    rawRows: file.rows,
-  });
+/**
+ * The example rounds replay real engine calls, so they queue real e-mails.
+ * Those notices are history being reconstructed, not events happening now, and
+ * must never be sent — least of all to a real address that the framework data
+ * put in the tables. Record them as not sent, and say why.
+ */
+export function settleSeedDeliveries(tx: Ctx['tx'], at: number): number {
+  return tx
+    .update(emailDeliveries)
+    .set({
+      status: 'skipped',
+      detail: 'Näidisandmete taasesitus: e-kirja ei saadetud.',
+      attempts: 1,
+      lastAttemptAt: at,
+    })
+    .where(eq(emailDeliveries.status, 'queued'))
+    .run().changes;
 }
 
 function makeCtx(tx: Ctx['tx'], at: number): Ctx {
@@ -202,6 +234,18 @@ export async function seedIfEmpty(): Promise<(SeedReport & { openRoundId: string
   ensureAppState(db);
   if (readSeedVersion(db) >= SEED_VERSION) return null;
 
+  if (!env.SEED_SAMPLE_DATA) {
+    // A real deployment: mark the database as seeded and load nothing, so the
+    // first admin starts from an empty framework and uploads the real workbook
+    // [L-21]. The same state `scripts/prepare-empty-db.ts` produces, without
+    // needing tsx in the runtime image.
+    db.transaction((tx) => writeSeedVersion(tx, SEED_VERSION, Date.now()), { behavior: 'immediate' });
+    console.log(
+      '[kaskaadhankija] näidisandmeid ei laaditud (SEED_SAMPLE_DATA=0): andmebaas on tühi ja ootab raamhanke töövihikut',
+    );
+    return null;
+  }
+
   const { seedScenarios } = await import('./seed-scenarios');
   const now = Date.now();
 
@@ -212,6 +256,7 @@ export async function seedIfEmpty(): Promise<(SeedReport & { openRoundId: string
       // Scenario rounds are replayed as real engine calls at past instants, so
       // they must run after the trainings and the ranking exist.
       const scenarios = seedScenarios(tx, now, ctx.actor.label);
+      settleSeedDeliveries(tx, now);
       writeSeedVersion(tx, SEED_VERSION, now);
       return { ...base, openRoundId: scenarios.openRoundId };
     },
@@ -235,7 +280,7 @@ async function main(): Promise<void> {
     return;
   }
   console.log(
-    `Seemendatud: ${report.lots} hankeosa, ${report.partners} partneri osalust, ${report.trainings.created} koolitust.`,
+    `Seemendatud: ${report.lots} hankeosa, ${report.teamMembers} tellija liiget seadistusest, ${report.partners} partneri osalust, ${report.representatives} esindajat, ${report.trainings.created} koolitust.`,
   );
 }
 

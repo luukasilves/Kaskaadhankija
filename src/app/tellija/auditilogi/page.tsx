@@ -43,6 +43,7 @@ export default async function AuditPage({
       occurredAt: auditEvents.occurredAt,
       actorType: auditEvents.actorType,
       actorLabel: auditEvents.actorLabel,
+      viaLabel: auditEvents.viaLabel,
       eventType: auditEvents.eventType,
       summary: auditEvents.summary,
       roundId: auditEvents.roundId,
@@ -130,6 +131,7 @@ export default async function AuditPage({
                 <div className="mt-0.5 text-[13px]">{event.summary}</div>
                 <div className="text-[11px] text-[var(--color-muted)]">
                   {event.actorLabel}
+                  {event.viaLabel && ` · testkeskkonnas tegutses: ${event.viaLabel}`}
                   {event.ip && ` · ${event.ip}`}
                 </div>
               </summary>

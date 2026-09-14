@@ -13,9 +13,13 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { eq } from 'drizzle-orm';
 import { getDb } from '@/db';
+import { buyerCanWrite } from '@/server/auth/actor';
+import { ReadOnlyNote } from '@/components/read-only-note';
 import { lots, orders, rounds, trainings } from '@/db/schema';
-import { formatDateTimeShort, formatEur, formatIsoDay } from '@/domain/format';
-import { PARTICIPANT_OUTCOME_LABELS, ROUND_STATUS_LABELS, ROUND_STATUS_TONES } from '@/domain/round-statuses';
+import { WORKSHOP_TYPE_LABELS } from '@/domain/statuses';
+import { formatDateTimeShort, formatEur, formatEventWhen, formatEurCents } from '@/domain/format';
+import { allocationMaxPriceEur } from '@/domain/pricing';
+import { PARTICIPANT_OUTCOME_LABELS, ROUND_STATUS_LABELS, ROUND_STATUS_TONES, TARGET_GROUPS } from '@/domain/round-statuses';
 import { RankChip, StatusBadge } from '@/components/status-badge';
 import { effectiveAdjustmentRows } from '@/server/rounds/allocation-input';
 import { previewFinalAllocation } from '@/server/rounds/engine';
@@ -27,12 +31,14 @@ export const dynamic = 'force-dynamic';
 export default async function ReviewPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const db = getDb();
+  const canWrite = await buyerCanWrite();
 
   const round = db
     .select({
       id: rounds.id,
       code: rounds.code,
       status: rounds.status,
+      kind: rounds.kind,
       closedAt: rounds.closedAt,
       confirmedAt: rounds.confirmedAt,
       confirmedBy: rounds.confirmedBy,
@@ -91,9 +97,12 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
       [];
     const adjustment = adjustmentRows.find((a) => a.lotPartnerId === participant.lotPartnerId);
     const workload = workloadFor(db, participant.lotPartnerId);
-    const value = final.reduce(
-      (sum, trainingId) => sum + (trainingById.get(trainingId)?.estimatedValueEur ?? 0),
-      0,
+    // [T-08] the partner's own price per participant × max participants — not the buyer's estimate
+    const value = allocationMaxPriceEur(
+      final.map((trainingId) => ({
+        participantCount: trainingById.get(trainingId)?.participantCount ?? 0,
+        unitPriceEur: participant.unitPriceEur,
+      })),
     );
     return {
       lotPartnerId: participant.lotPartnerId,
@@ -103,13 +112,25 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
       excluded: participant.excludedAt !== null,
       markCount: latest && latest.kind === 'confirm' ? latest.marks.length : 0,
       cap: latest?.cap ?? null,
+      capKind: latest?.capKind ?? ('trainings' as const),
       proposedCount: proposed.length,
-      finalTrainings: final.map((trainingId) => ({
-        code: trainingById.get(trainingId)?.code ?? '',
-        eventDate: formatIsoDay(trainingById.get(trainingId)?.eventDate ?? ''),
-      })),
+      finalTrainings: final
+        .map((trainingId) => trainingById.get(trainingId))
+        .filter((t): t is NonNullable<typeof t> => Boolean(t))
+        .sort((a, b) => a.eventDate.localeCompare(b.eventDate) || a.code.localeCompare(b.code))
+        .map((t) => ({
+          code: t.code,
+          title: t.title,
+          eventDate: formatEventWhen(t),
+          clusterCode: t.clusterCode,
+          groupIndex: t.groupIndex,
+          workshopType: WORKSHOP_TYPE_LABELS[t.workshopType],
+          place: `${t.county}${t.locationText ? `, ${t.locationText}` : ''}`,
+          targetGroup: TARGET_GROUPS[t.targetGroup],
+          participantCount: t.participantCount,
+        })),
       finalCount: final.length,
-      valueText: formatEur(value),
+      valueText: formatEurCents(value),
       workload,
       overThreshold: workload >= round.workloadThresholdSnapshot,
       adjustment: adjustment
@@ -128,7 +149,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
       id: trainingId,
       code: training?.code ?? '',
       title: training?.title ?? '',
-      eventDate: formatIsoDay(training?.eventDate ?? ''),
+      eventDate: training ? formatEventWhen(training) : '',
       value: formatEur(training?.estimatedValueEur ?? 0),
     };
   });
@@ -149,6 +170,17 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
             label={ROUND_STATUS_LABELS[round.status]}
             tone={ROUND_STATUS_TONES[round.status]}
           />
+          {/* [L-22] The moment the allocation is confirmed there is a signable
+              record of it; this is the screen where that is done. */}
+          {isConfirmed && (
+            <Link
+              href={`/tellija/voorud/${id}/protokoll`}
+              className="kh-btn"
+              data-testid="protocol-link"
+            >
+              Vooru protokoll
+            </Link>
+          )}
         </div>
         <p className="mt-1 text-[var(--color-muted)]">
           {round.lotCode} — {round.lotName} · tähtaeg möödus{' '}
@@ -162,10 +194,14 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
         )}
       </div>
 
+      {!canWrite && <ReadOnlyNote what="Kohandused ja jaotuse kinnitamine" />}
+
       <ReviewPanel
+        canWrite={canWrite}
         roundId={id}
         lotId={round.lotId}
         lotCode={round.lotCode}
+        roundKind={round.kind}
         confirmed={isConfirmed}
         threshold={round.workloadThresholdSnapshot}
         thresholdNote={round.lotThresholdNote}

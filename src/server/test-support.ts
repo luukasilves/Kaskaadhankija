@@ -13,7 +13,7 @@ import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { join } from 'node:path';
 import * as schema from '@/db/schema';
 import { ensureAppState } from './clock';
-import { NO_EVIDENCE, type ActorRef, type Ctx, type Db, type Tx } from './context';
+import { NO_EVIDENCE, type ActorRef, type Ctx, type Db, type Evidence, type Tx } from './context';
 
 export interface TestHarness {
   db: Db;
@@ -21,8 +21,14 @@ export interface TestHarness {
   /** current virtual instant; move it with `advance` or set directly */
   now: number;
   advance(ms: number): void;
-  /** run a function inside one immediate transaction with a fresh ctx */
-  write<T>(fn: (ctx: Ctx) => T, actor?: ActorRef): T;
+  /**
+   * Run a function inside one immediate transaction with a fresh ctx.
+   *
+   * `evidence` matters for partner actions: IP and browser are written into the
+   * confirmation row [D-09], and that row is append-only, so a test cannot add
+   * them afterwards with an UPDATE — it has to supply them here.
+   */
+  write<T>(fn: (ctx: Ctx) => T, actor?: ActorRef, evidence?: Evidence): T;
   /** read-only helper */
   read<T>(fn: (db: Db) => T): T;
   close(): void;
@@ -52,10 +58,10 @@ export function createHarness(startAt = Date.UTC(2026, 8, 1, 9, 0)): TestHarness
     advance(ms: number) {
       harness.now += ms;
     },
-    write<T>(fn: (ctx: Ctx) => T, actor: ActorRef = TEST_BUYER): T {
+    write<T>(fn: (ctx: Ctx) => T, actor: ActorRef = TEST_BUYER, evidence: Evidence = NO_EVIDENCE): T {
       return db.transaction(
         (tx: Tx) => {
-          const ctx: Ctx = { tx, at: harness.now, actor, evidence: NO_EVIDENCE, outbox: [] };
+          const ctx: Ctx = { tx, at: harness.now, actor, evidence, outbox: [] };
           return fn(ctx);
         },
         { behavior: 'immediate' },
@@ -110,22 +116,31 @@ export function rawTrainingRow(over: Record<string, string> = {}): Record<string
     sihtruhm: 'KOV ametnikud',
     osalejate_arv: '20',
     keel: 'et',
-    hinnanguline_maksumus: '1450',
+    hinnanguline_maksumus: '1200',
     markused: '',
     ...over,
   };
 }
 
 /** A partner-ranking row as the CSV reader would deliver it. */
+/**
+ * One row of the ranking sheet.
+ *
+ * The address is derived from the registry code unless the caller says
+ * otherwise, because the official contact is the partner's sign-in [L-21]: one
+ * address cannot represent two companies, so a fixture that gave every row the
+ * same address would be refused — rightly — by the import it is testing.
+ */
 export function rawPartnerRow(over: Record<string, string> = {}): Record<string, string> {
+  const regCode = over.registrikood ?? '10000001';
   return {
     partner: 'Tehisaru Koolitus OÜ',
-    registrikood: '10000001',
+    registrikood: regCode,
     hankeosa: 'OSA-1',
     koht: '1',
     kontaktisik: 'Jaan Kask',
-    e_post: 'jaan.kask@tehisaru-naidis.ee',
-    uhikhind: '1450',
+    e_post: regCode === '10000001' ? 'jaan.kask@tehisaru-naidis.ee' : `kontakt.${regCode}@naidis.ee`,
+    uhikuhind: '58',
     ...over,
   };
 }
@@ -215,7 +230,7 @@ export function seedLotWithPartners(
           rank,
           contactName: `Kontakt ${rank}`,
           contactEmail: `kontakt${rank}@naidis.ee`,
-          unitPriceEur: 1000 + rank * 50,
+          unitPriceEur: 50 + rank * 5,
           createdAt: ctx.at,
         })
         .run();
@@ -241,7 +256,7 @@ export function seedLotWithPartners(
           targetGroup: 'kov',
           participantCount: 20,
           language: 'et',
-          estimatedValueEur: 1000,
+          estimatedValueEur: 1200,
           status: 'unassigned',
           createdAt: ctx.at,
           updatedAt: ctx.at,
@@ -251,6 +266,67 @@ export function seedLotWithPartners(
   });
 
   return { lotId, lotPartnerIds, partnerIds, trainingIds, trainingCodes };
+}
+
+/** Distinguishes cluster fixtures within one test, so codes never collide. */
+let clusterSeq = 0;
+
+export interface ClusterFixture {
+  clusterCode: string;
+  /** group training ids in group order */
+  trainingIds: string[];
+  codes: string[];
+}
+
+/**
+ * A cluster of `groups` identical period groups in a lot [L-28] — what the
+ * calendar import writes for one cluster row, inserted directly so an engine
+ * test needs no file.
+ */
+export function seedClusterGroups(
+  harness: TestHarness,
+  lotId: string,
+  options: { groups?: number; groupSize?: number; periodStart?: string; periodEnd?: string } = {},
+): ClusterFixture {
+  const nth = ++clusterSeq;
+  const clusterCode = `KL-2026-${String(nth).padStart(3, '0')}`;
+  const groups = options.groups ?? 10;
+  const groupSize = options.groupSize ?? 50;
+  const trainingIds: string[] = [];
+  const codes: string[] = [];
+  harness.write((ctx) => {
+    for (let i = 1; i <= groups; i++) {
+      const id = crypto.randomUUID();
+      const code = `${clusterCode}-${String(i).padStart(2, '0')}`;
+      trainingIds.push(id);
+      codes.push(code);
+      ctx.tx
+        .insert(schema.trainings)
+        .values({
+          id,
+          code,
+          lotId,
+          title: 'Töötuba 1 Harjumaa väikeettevõtjatele',
+          workshopType: 'tootuba_1',
+          eventDate: options.periodStart ?? '2026-10-01',
+          eventEnd: options.periodEnd ?? '2026-12-31',
+          dateKind: 'period',
+          clusterCode,
+          groupIndex: i,
+          county: 'Harju maakond',
+          locationText: 'Tellija määratud asukohad',
+          targetGroup: 'vaikeettevotjad',
+          participantCount: groupSize,
+          language: 'et',
+          estimatedValueEur: 0,
+          status: 'unassigned',
+          createdAt: ctx.at,
+          updatedAt: ctx.at,
+        })
+        .run();
+    }
+  });
+  return { clusterCode, trainingIds, codes };
 }
 
 export { schema };

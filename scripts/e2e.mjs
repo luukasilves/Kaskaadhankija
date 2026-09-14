@@ -1,106 +1,94 @@
 /**
- * End to end, in a real browser, from both sides.
+ * The real flow, end to end, in a browser.
  *
- * Two walks, each anchored to something written down:
+ * Three walks, each proving something the unit tests cannot:
  *
- *  1. **Lisa B to the end.** The seeded open round is the spec's worked
- *     example. C confirms the draft it was seeded with, the clock closes the
- *     round, and the buyer's review must show Lisa B.1; capping B at one must
- *     turn it into Lisa B.4, with the [T-01] workload warning visible for the
- *     partner that is at its lot threshold. Confirming issues the orders each
- *     partner then sees.
+ *  1. **A cascade from an uploaded round file to a signed protocol.** The admin
+ *     signs in, lands on the act-as screen, uploads a round workbook, publishes
+ *     it with a window of about a minute, answers as two partners through
+ *     act-as and as a third with that partner's *own* sign-in code, waits the
+ *     deadline out, reviews, caps one partner, confirms — and downloads the
+ *     protocol. Nothing is simulated: real time, real codes, real files.
  *
- *  2. **A round built from an uploaded table.** The buyer imports
- *     `scripts/fixtures/e2e-koolitused.csv`, whose last row is deliberately
- *     broken, publishes a round over the four good ones, two partners answer,
- *     the deadline passes, the buyer caps the first and confirms.
+ *  2. **What a partner may see.** The seeded open round is the spec's Lisa B
+ *     example, so the four training states and the [N-04] no-identity-leak rule
+ *     are checked there, against a round nobody has to close.
  *
- * The production posture (no strip, no personas, demo actions refused) is
- * covered by `scripts/verify-harness.mjs` and is not repeated here.
+ *  3. **An empty environment set up by hand.** A second server on a database
+ *     that was never seeded: the admin signs in through the allowlist, uploads
+ *     `naidis-raamhange.xlsx` and the calendar, and gets a working framework —
+ *     which is the proof that the seed and the admin's own path are one path.
+ *
+ * The sign-in rules themselves are `verify-auth.mjs`, the framework editing
+ * `verify-admin.mjs`, the protocol's documents `verify-protocol.mjs`.
  *
  *   pnpm e2e        (builds first)
  */
 
+import ExcelJS from 'exceljs';
 import { chromium } from 'playwright';
 import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import {
   CHROMIUM,
-  advanceToNextDeadline,
   appHtml,
   freePort,
   leakDetail,
   makeChecker,
+  openFinishedRound,
+  openOpenRound,
+  pickActAs,
+  publishWithShortDeadline,
   removeDatabase,
+  stateOf,
+  signInAs,
+  signInAsAdmin,
   startServer,
   switchTo,
   waitForHealth,
+  waitOutDeadline,
   watchPage,
 } from './lib/browser-harness.mjs';
 
 const ROOT = process.cwd();
 const SHOTS = join(ROOT, 'scripts', 'e2e-screenshots');
-const DB = join(ROOT, 'data', `e2e-${Date.now()}.db`);
-const FIXTURE = join(ROOT, 'scripts', 'fixtures', 'e2e-koolitused.csv');
-let BASE = '';
+const SEEDED_DB = join(ROOT, 'data', `e2e-${Date.now()}.db`);
+const EMPTY_DB = join(ROOT, 'data', `e2e-empty-${Date.now()}.db`);
+const SCRATCH = [];
 
+const { check, note, results, state } = makeChecker();
+
+/* Who is who in the seeded framework data. */
 const BUYER = 'Mari Tamm';
-/** OSA-2: koht 1, 2, 3 — Lisa B's A, B and C. */
-const A = 'AI Akadeemia';
-const B = 'Digioskus';
-const C = 'Tehisaru';
-/** OSA-1: koht 1 is Tehisaru, koht 3 is Nutikoolitus. */
-const OSA1_FIRST = 'Tehisaru';
-const OSA1_THIRD = 'Nutikoolitus';
-
-const LISA_B1 = { 1: ['KK-2026-201', 'KK-2026-202'], 2: ['KK-2026-203', 'KK-2026-204', 'KK-2026-206'], 3: ['KK-2026-205'] };
-const LISA_B4 = { 1: ['KK-2026-201', 'KK-2026-202'], 2: ['KK-2026-203'], 3: ['KK-2026-204', 'KK-2026-205', 'KK-2026-206'] };
-
-const { check, results, state } = makeChecker();
+/** OSA-1, in rank order. */
+const OSA1 = [
+  { name: 'Tehisaru Koolitus', email: 'jaan.kask@tehisaru-naidis.ee' },
+  { name: 'AI Akadeemia', email: 'liis.magi@ai-akadeemia-naidis.ee' },
+  { name: 'Nutikoolitus', email: 'kadri.lepik@nutikoolitus-naidis.ee' },
+];
+/**
+ * The trainings walk 1 offers. Codes of its own rather than seeded ones: the
+ * round workbook creates or updates trainings by code [L-20], so the walk does
+ * not have to know which of the sample calendar's rows are still free.
+ */
+const WALK1_CODES = ['KK-2026-150', 'KK-2026-151', 'KK-2026-152'];
+/** OSA-2's seeded open round — the spec's Lisa B. */
+const LISA_B_LOT = 'OSA-2';
 
 /* ------------------------------------------------------------------ *
- * small helpers over the application's own markup
+ * helpers over the application's own markup
  * ------------------------------------------------------------------ */
 
 /** The trainings the review page shows as this rank's final allocation. */
 async function finalCodesByRank(page, rank) {
   const codes = page.getByTestId(`final-codes-${rank}`);
   if ((await codes.count()) === 0) return [];
-  const text = await codes.textContent();
-  return text
+  return (await codes.textContent())
     .split(',')
     .map((code) => code.trim())
     .filter(Boolean)
     .sort();
-}
-
-/** Open a partner's round by lot code from the "Ootavad vastust" section. */
-async function openOpenRound(page, lotCode) {
-  await page.goto(`${BASE}/partner/voorud`);
-  await page.waitForSelector('h1');
-  const cards = page.locator('section:has(h2:text("Ootavad vastust")) li');
-  await cards.first().waitFor({ timeout: 20_000 }).catch(() => {});
-  const count = await cards.count();
-  for (let i = 0; i < count; i++) {
-    if ((await cards.nth(i).textContent()).includes(lotCode)) {
-      await cards.nth(i).locator('a[href^="/partner/voorud/"]').first().click();
-      await page.waitForSelector('table', { timeout: 20_000 });
-      return true;
-    }
-  }
-  return false;
-}
-
-/** The state badge (plus its reason) for one training row. */
-async function stateOf(page, code) {
-  const cell = page.locator('tr', { hasText: code }).first().locator('[data-testid="state-cell"]');
-  if ((await cell.count()) === 0) return '(olekuveerg puudub)';
-  const parts = await cell.evaluate((td) => ({
-    badge: td.querySelector('.kh-badge')?.textContent?.trim() ?? null,
-    reason: td.querySelector('div')?.textContent?.trim() ?? null,
-  }));
-  if (!parts.badge) return '(olek puudub)';
-  return parts.reason ? `${parts.badge} (${parts.reason})` : parts.badge;
 }
 
 async function markAndConfirm(page, codes) {
@@ -111,290 +99,591 @@ async function markAndConfirm(page, codes) {
   });
 }
 
-/** Go to the review page of the one round that is waiting for a decision. */
-async function openReview(page) {
-  await page.goto(`${BASE}/tellija/voorud`);
-  await page.waitForSelector('h1');
-  const link = page.locator('a[href$="/ulevaatus"]').first();
-  await link.waitFor({ timeout: 20_000 });
-  await link.click();
-  await page.waitForSelector('[data-testid="review-row-1"]', { timeout: 20_000 });
+/**
+ * Write a round workbook the way the downloadable template lays it out [L-20].
+ *
+ * The „Koolitused“ sheet is the calendar-import layout, so a row describes a
+ * training fully — that is what lets one file both create the trainings and
+ * put them in a round.
+ */
+async function writeRoundWorkbook(path, fields, codes) {
+  const lotCode = fields.find(([field]) => field === 'hankeosa')[1];
+  const headers = [
+    'kood',
+    'hankeosa',
+    'nimetus',
+    'formaat',
+    'kuupaev',
+    'lopp_kuupaev',
+    'maakond',
+    'asukoht',
+    'sihtruhm',
+    'osalejate_arv',
+    'keel',
+    'hinnanguline_maksumus',
+    'markused',
+  ];
+
+  const workbook = new ExcelJS.Workbook();
+  const voor = workbook.addWorksheet('Voor');
+  voor.addRow(['väli', 'väärtus']);
+  for (const [field, value] of fields) voor.addRow([field, value]);
+
+  const koolitused = workbook.addWorksheet('Koolitused');
+  koolitused.addRow(headers);
+  codes.forEach((code, index) => {
+    koolitused.addRow([
+      code,
+      lotCode,
+      `E2E koolitus ${index + 1}`,
+      'Töötuba 1',
+      // Well clear of today, so a run in any month stays in the future.
+      `${10 + index}.12.2026`,
+      '',
+      'Harju maakond',
+      'Tellija ruumid',
+      'Riigiasutused',
+      String(20 + index * 5),
+      'et',
+      '',
+      '',
+    ]);
+  });
+
+  await workbook.xlsx.writeFile(path);
+  SCRATCH.push(path);
+  return path;
+}
+
+async function uploadRound(page, base, file) {
+  await page.goto(`${base}/tellija/voorud/import`);
+  await page.waitForSelector('[data-testid="round-import-upload"]', { timeout: 20_000 });
+  await page.setInputFiles('input[type="file"]', file);
+  await page.locator('[data-testid="round-import-upload"] button').click();
+  await page.waitForSelector('[data-testid="round-import-summary"]', { timeout: 30_000 });
 }
 
 /* ------------------------------------------------------------------ *
- * walk 1 — Lisa B to the end
+ * walk 1 — upload, publish, answer, close, review, confirm, protocol
  * ------------------------------------------------------------------ */
 
-async function walkLisaB(page) {
-  /* C confirms the draft it was seeded with, which completes Lisa B's inputs. */
-  await switchTo(page, C);
-  check('C is in the seeded open OSA-2 round', await openOpenRound(page, 'OSA-2'));
-  check('C starts on the unconfirmed-draft warning', await page.getByTestId('unconfirmed-banner').isVisible());
-  await page.getByTestId('confirm-marks').locator('button').click();
-  await page.waitForFunction(() => document.body.textContent.includes('Viimane kinnitus'), null, {
-    timeout: 20_000,
-  });
-  check('confirming clears the warning', (await page.getByTestId('unconfirmed-banner').count()) === 0);
-  check('C is projected K5 [Lisa B.2]', (await stateOf(page, 'KK-2026-205')) === 'Prognoosis sinule');
-  await page.screenshot({ path: join(SHOTS, '01-lisa-b-c-confirmed.png'), fullPage: true });
+async function walkFullCascade(page, server) {
+  const base = server.base;
 
-  /* the deadline passes */
+  /* the front door: a code, then the act-as screen [L-08] */
+  await signInAsAdmin(page, server);
+  const cards = page.locator('[data-testid="act-as-card"]');
+  const cardCount = await cards.count();
+  check(
+    'the act-as screen lists the team and the framework partners',
+    cardCount >= 7,
+    `${cardCount} kaarti`,
+  );
+  const cardText = await page.locator('main').textContent();
+  check('including the seeded admin', cardText.includes(BUYER));
+  check('and the partners the framework data created', OSA1.every((p) => cardText.includes(p.name)));
+  await page.screenshot({ path: join(SHOTS, '01-act-as.png'), fullPage: true });
+
+  await pickActAs(page, BUYER);
+
+  /* a round from a workbook [L-20] */
+  const file = await writeRoundWorkbook(
+    join(ROOT, 'data', `e2e-voor-${Date.now()}.xlsx`),
+    [
+      ['hankeosa', 'OSA-1'],
+      ['nahtavus', 'dünaamiline'],
+      ['piirmaara_valikud', 'mõlemad'],
+      ['markus', 'E2E: kaskaad üleslaaditud failist'],
+    ],
+    WALK1_CODES,
+  );
+  await uploadRound(page, base, file);
+  check(
+    'the preview reports the round the file describes',
+    (await page.getByTestId('round-import-summary').textContent()).includes('OSA-1'),
+  );
+  await page.getByTestId('confirm-round-import').locator('button').click();
+  await page.waitForURL(/\/tellija\/voorud\/[0-9a-f-]+$/, { timeout: 20_000 });
+  const roundUrl = page.url();
+  const draft = await appHtml(page);
+  check('the upload yields a draft, not a published round', draft.includes('Mustand'));
+  check('the draft holds the file’s trainings', WALK1_CODES.every((code) => draft.includes(code)));
+  await page.screenshot({ path: join(SHOTS, '02-draft-from-file.png'), fullPage: true });
+
+  /* published with a real, short window [L-23] */
+  const deadlineMs = await publishWithShortDeadline(page);
+  note(`vastamistähtaeg ${new Date(deadlineMs).toISOString()} — oodatakse päris aega`);
+  check('publishing is a separate act in the application', (await appHtml(page)).includes('Avatud'));
+  await page.screenshot({ path: join(SHOTS, '03-published.png'), fullPage: true });
+
+  /* rank 1 answers through act-as, with a trainee budget [K-06] */
+  await switchTo(page, OSA1[0].name);
+  check('rank 1 receives the round', await openOpenRound(page, base, 'OSA-1'));
+  check(
+    'the round offers a choice of cap kind, as the file asked',
+    (await page.locator('input[name="capKindChoice"]').count()) === 2,
+  );
+  check('the cap is an explicit choice — none or „Kuni N“ [K-06]', (await page.locator('input[name="capChoice"]').count()) === 2);
+  check(
+    'the table offers bulk marking [K-01]',
+    (await page.getByTestId('bulk-mark').locator('button').allTextContents()).join('|') === 'Märgi kõik saadaval|Märgi kõik|Tühjenda',
+  );
+  await markAndConfirm(page, [WALK1_CODES[0], WALK1_CODES[1]]);
+  check('rank 1 is projected both of its marks', (await stateOf(page, WALK1_CODES[0])) === 'Prognoosis teile');
+  check(
+    'the page says which minute’s state it shows [E-10]',
+    /Seis \d{2}:\d{2}/.test(await page.getByTestId('state-as-of').textContent()),
+  );
+  /* [E-10] the answer lands at the top of the page, and an identical re-confirmation is a no-op */
+  const statusCard = page.getByTestId('confirmation-status');
+  check('the result card is shown after confirming', (await statusCard.textContent()).includes('Valik kinnitatud'));
+  const firstStamp = (await statusCard.textContent()).match(/Viimane kinnitus ([\d.: ]+)/)?.[1];
+  await page.getByTestId('confirm-marks').locator('button').click();
+  await page.waitForFunction(() => document.body.textContent.includes('juba samal kujul'), null, { timeout: 20_000 });
+  check(
+    'confirming the same answer again adds nothing and says so',
+    (await statusCard.textContent()).includes(`Viimane kinnitus ${firstStamp}`),
+  );
+
+  /* rank 2 answers with its own sign-in code, not through act-as [L-08] */
+  const partnerContext = await page.context().browser().newContext();
+  const partnerPage = await partnerContext.newPage();
+  watchPage(partnerPage);
+  const landing = await signInAs(partnerPage, server, OSA1[1].email);
+  check(
+    'a partner’s own address signs in straight to their own area',
+    landing.startsWith('/partner'),
+    landing,
+  );
+  check('and finds the round', await openOpenRound(partnerPage, base, 'OSA-1'));
+  check(
+    'rank 2 sees the higher rank has taken two, without being told who',
+    (await stateOf(partnerPage, WALK1_CODES[0])) === 'Eesõigusega partner on märkinud',
+    await stateOf(partnerPage, WALK1_CODES[0]),
+  );
+  const rank2Html = await appHtml(partnerPage);
+  check(
+    '[N-04] and is never told which partner that is',
+    !rank2Html.includes(OSA1[0].name) && !rank2Html.includes(OSA1[2].name),
+    leakDetail(rank2Html, [OSA1[0].name, OSA1[2].name]),
+  );
+  await markAndConfirm(partnerPage, [WALK1_CODES[1], WALK1_CODES[2]]);
+  check(
+    'a mark a higher rank already holds is marked but not projected',
+    (await stateOf(partnerPage, WALK1_CODES[1])) === 'Märgitud, prognoosis ei ole (eesõigusega partner)',
+    await stateOf(partnerPage, WALK1_CODES[1]),
+  );
+  check(
+    'the one nobody above marked is projected to rank 2',
+    (await stateOf(partnerPage, WALK1_CODES[2])) === 'Prognoosis teile',
+  );
+  await partnerPage.screenshot({ path: join(SHOTS, '04-partner-own-login.png'), fullPage: true });
+  await partnerContext.close();
+
+  /* rank 3 declines outright [K-05] */
+  await switchTo(page, OSA1[2].name);
+  check('rank 3 receives the round too', await openOpenRound(page, base, 'OSA-1'));
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByTestId('decline-all').locator('button').click();
+  await page.waitForFunction(() => document.body.textContent.includes('Loobu'), null, { timeout: 20_000 });
+
+  /* the deadline passes in real time and a page load closes the round */
   await switchTo(page, BUYER);
-  check('the clock can be moved to the next deadline', await advanceToNextDeadline(page));
-  await page.goto(`${BASE}/tellija/voorud`);
+  await waitOutDeadline(page, base, deadlineMs);
+  await page.goto(roundUrl);
   await page.waitForSelector('h1');
   check(
-    'the round closed itself when its deadline passed',
-    (await page.getByText('Suletud, ootab kinnitust').count()) > 0,
+    'the round closed itself once its deadline had passed',
+    (await appHtml(page)).includes('Suletud, ootab kinnitust'),
+    (await page.locator('main').textContent()).replace(/\s+/g, ' ').slice(0, 120),
   );
-  await page.screenshot({ path: join(SHOTS, '02-round-closed.png'), fullPage: true });
+  await page.screenshot({ path: join(SHOTS, '05-closed.png'), fullPage: true });
 
-  /* the proposal is Lisa B.1 */
-  await openReview(page);
-  for (const rank of [1, 2, 3]) {
-    const codes = await finalCodesByRank(page, rank);
-    check(`Lisa B.1 · koht ${rank}`, JSON.stringify(codes) === JSON.stringify(LISA_B1[rank]), String(codes));
-  }
-  const bRow = await page.getByTestId('review-row-2').textContent();
-  check('[T-01] the partner at its lot threshold is flagged', bRow.includes('piir täis'), bRow.replace(/\s+/g, ' ').slice(0, 160));
-  await page.screenshot({ path: join(SHOTS, '03-review-lisa-b1.png'), fullPage: true });
+  /* review, one cap, confirm [T-02][T-04] */
+  await page.goto(`${roundUrl}/ulevaatus`);
+  await page.waitForSelector('[data-testid="review-row-1"]', { timeout: 20_000 });
+  check(
+    'the proposal gives rank 1 its two marks',
+    JSON.stringify(await finalCodesByRank(page, 1)) === JSON.stringify([WALK1_CODES[0], WALK1_CODES[1]]),
+    String(await finalCodesByRank(page, 1)),
+  );
 
-  /* the buyer caps koht 2 at one — Lisa B.4 */
-  const capPanel = page.getByTestId('review-row-2').locator('details', { hasText: 'Piira jaotust' });
+  const capPanel = page.getByTestId('review-row-1').locator('details', { hasText: 'Piira jaotust' });
   await capPanel.locator('summary').click();
   await capPanel.locator('input[name="cap"]').fill('1');
-  await capPanel
-    .locator('textarea[name="justification"]')
-    .fill('Töömahu piir on täis — jaotust piiratakse selles voorus ühe koolitusega.');
+  await capPanel.locator('textarea[name="justification"]').fill('E2E: piirame esimest ühe koolitusega.');
   await capPanel.locator('button:has-text("Rakenda piirmäär")').click();
-  await page.waitForFunction(
-    () => document.body.textContent.includes('Piiratud 1'),
-    null,
-    { timeout: 20_000 },
-  );
-  for (const rank of [1, 2, 3]) {
-    const codes = await finalCodesByRank(page, rank);
-    check(`Lisa B.4 · koht ${rank}`, JSON.stringify(codes) === JSON.stringify(LISA_B4[rank]), String(codes));
-  }
+  await page.waitForFunction(() => document.body.textContent.includes('Piiratud 1'), null, {
+    timeout: 20_000,
+  });
   check(
-    'the cap is shown with the justification it required',
-    (await page.getByTestId('review-row-2').textContent()).includes('Töömahu piir on täis'),
+    'the cap moves the second training down the cascade [T-03]',
+    (await finalCodesByRank(page, 1)).length === 1 && (await finalCodesByRank(page, 2)).includes(WALK1_CODES[1]),
+    `1: ${await finalCodesByRank(page, 1)} · 2: ${await finalCodesByRank(page, 2)}`,
   );
-  await page.screenshot({ path: join(SHOTS, '04-review-lisa-b4.png'), fullPage: true });
+  await page.screenshot({ path: join(SHOTS, '06-review-capped.png'), fullPage: true });
 
-  /* confirming issues the orders */
   page.once('dialog', (dialog) => dialog.accept());
   await page.getByTestId('confirm-allocation').locator('button').click();
   await page.waitForFunction(() => document.body.textContent.includes('Kinnitatud'), null, {
     timeout: 20_000,
   });
-  await page.goto(`${BASE}/tellija/tellimused`);
-  await page.waitForSelector('h1');
-  const orderRows = await page.locator('tbody tr').count();
-  check('an order exists for each partner with trainings', orderRows >= 3, `${orderRows}`);
-  await page.screenshot({ path: join(SHOTS, '05-orders.png'), fullPage: true });
 
-  /* each partner sees their own result, and only their own */
-  await switchTo(page, C);
-  await page.goto(`${BASE}/partner/tellimused`);
-  await page.waitForSelector('h1');
-  const cOrder = page.locator('a[href^="/partner/tellimused/"]').first();
-  check('C has an order from the Lisa B round', (await cOrder.count()) > 0);
-  await cOrder.click();
-  await page.waitForSelector('article', { timeout: 20_000 });
-  const cOrderHtml = await appHtml(page);
-  check(
-    'C’s order lists the three trainings Lisa B.4 gives it',
-    LISA_B4[3].every((code) => cOrderHtml.includes(code)),
-  );
-  check(
-    'C’s order names no other partner',
-    !cOrderHtml.includes(A) && !cOrderHtml.includes(B),
-    leakDetail(cOrderHtml, [A, B]),
-  );
-  await page.screenshot({ path: join(SHOTS, '06-partner-c-order.png'), fullPage: true });
+  /* the protocol exists the moment the round is confirmed [L-22] */
+  check('the review page links to the protocol', (await page.getByTestId('protocol-link').count()) > 0);
+  await page.getByTestId('protocol-link').click();
+  await page.waitForURL(/\/protokoll$/, { timeout: 20_000 });
+  const hash = (await page.getByTestId('protocol-hash').innerText()).trim();
+  check('the protocol names its own SHA-256', /^[0-9a-f]{64}$/.test(hash), hash);
 
-  await switchTo(page, B);
-  await page.goto(`${BASE}/partner/voorud`);
-  await page.waitForSelector('h1');
-  const finished = page
-    .locator('section:has(h2:text("Lõpetatud voorud")) a[href^="/partner/voorud/"]')
-    .first();
-  const finishedHref = await finished.getAttribute('href');
-  await finished.click();
-  await page.waitForURL(`**${finishedHref}`, { timeout: 20_000 });
-  await page.waitForSelector('table', { timeout: 20_000 });
-  const bHtml = await appHtml(page);
-  check('[N-08] B is told its lost trainings went elsewhere', bHtml.includes('Määrati teisele partnerile'));
+  const [pdf] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByTestId('protocol-pdf').click(),
+  ]);
   check(
-    '[N-08] without a name and without a reason',
-    !bHtml.includes(A) && !bHtml.includes(C) && !bHtml.includes('eesõiguse alusel'),
-    leakDetail(bHtml, [A, C, 'eesõiguse alusel']),
+    'the protocol PDF downloads for this round',
+    /^vooru-protokoll-VOOR-\d{4}-\d{3}\.pdf$/.test(pdf.suggestedFilename()),
+    pdf.suggestedFilename(),
   );
-  await page.screenshot({ path: join(SHOTS, '07-partner-b-n08.png'), fullPage: true });
+  const [xlsx] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByTestId('protocol-xlsx').click(),
+  ]);
+  check(
+    'and so does the .xlsx annex',
+    /^vooru-protokoll-VOOR-\d{4}-\d{3}\.xlsx$/.test(xlsx.suggestedFilename()),
+    xlsx.suggestedFilename(),
+  );
+  await page.screenshot({ path: join(SHOTS, '07-protocol.png'), fullPage: true });
+
+  /* [L-25] the decision is made outside: the partner sees a provisional result, no order */
+  await switchTo(page, OSA1[1].name);
+  await page.goto(`${base}/partner/voorud`);
+  await page.waitForSelector('h1');
+  check('rank 2 has no Tellimused menu — orders are formalised outside the application [L-25]', (await page.locator('nav a[href="/partner/tellimused"]').count()) === 0);
+  check('rank 2 finds the finished OSA-1 round', await openFinishedRound(page, base, 'OSA-1'));
+  const resultHtml = await appHtml(page);
+  check('rank 2 sees what it is provisionally given', resultHtml.includes('ette nähtud'));
+  check('the result page names no other partner', !resultHtml.includes(OSA1[0].name) && !resultHtml.includes(OSA1[2].name), leakDetail(resultHtml, [OSA1[0].name, OSA1[2].name]));
+  await page.screenshot({ path: join(SHOTS, '08-partner-result.png'), fullPage: true });
+
+  /* [N-02] the partner's own calendar holds what the confirmed round gave it */
+  await page.goto(`${base}/partner/kalender`);
+  await page.waitForSelector('[data-testid="partner-calendar"]', { timeout: 20_000 });
+  const calendarHtml = await appHtml(page);
+  check('rank 2’s calendar lists the trainings it was allocated', calendarHtml.includes('Määratud teile'));
+  check('and names no other partner', !calendarHtml.includes(OSA1[0].name) && !calendarHtml.includes(OSA1[2].name), leakDetail(calendarHtml, [OSA1[0].name, OSA1[2].name]));
 }
 
 /* ------------------------------------------------------------------ *
- * walk 2 — a round built from an uploaded table
+ * walk 2 — what a partner may see, on the seeded Lisa B round
  * ------------------------------------------------------------------ */
 
-async function walkImportedRound(page) {
+async function walkPartnerVisibility(page, server) {
+  const base = server.base;
+
+  /* Lisa B's koht 3 has a saved but unconfirmed draft in the seed [K-03] */
+  await switchTo(page, 'Tehisaru');
+  check('koht 3 is in the seeded open OSA-2 round', await openOpenRound(page, base, LISA_B_LOT));
+  check(
+    '[K-03] an unconfirmed draft is shouted about, because it does not count',
+    await page.getByTestId('unconfirmed-banner').isVisible(),
+  );
+  const before = await appHtml(page);
+  check(
+    '[N-04] the round never names another partner',
+    !before.includes('AI Akadeemia') && !before.includes('Digioskus'),
+    leakDetail(before, ['AI Akadeemia', 'Digioskus']),
+  );
+  check(
+    '[N-04] nor how many partners there are',
+    !/\b(4|neli) partner/i.test(before),
+  );
+  await page.screenshot({ path: join(SHOTS, '09-lisa-b-draft.png'), fullPage: true });
+
+  /* confirming turns the draft into the binding answer [Lisa B.2] */
+  await page.getByTestId('confirm-marks').locator('button').click();
+  await page.waitForFunction(() => document.body.textContent.includes('Viimane kinnitus'), null, {
+    timeout: 20_000,
+  });
+  check('confirming clears the warning', (await page.getByTestId('unconfirmed-banner').count()) === 0);
+  check(
+    '[Lisa B.2] koht 3 is projected KK-2026-205',
+    (await stateOf(page, 'KK-2026-205')) === 'Prognoosis teile',
+    await stateOf(page, 'KK-2026-205'),
+  );
+  // Koht 3 marked KK-2026-201 itself, and a higher rank holds it — so the row
+  // says both, which is the state that actually needs explaining [N-03].
+  check(
+    '[Lisa B.2] its own mark on a training a higher rank holds says so',
+    (await stateOf(page, 'KK-2026-201')) === 'Märgitud, prognoosis ei ole (eesõigusega partner)',
+    await stateOf(page, 'KK-2026-201'),
+  );
+
+  /* the buyer's matrix shows the same round — by id, so there is no doubt
+     which round is being looked at [J-05][N-01] */
+  const roundId = new URL(page.url()).pathname.split('/').pop();
   await switchTo(page, BUYER);
-  await page.goto(`${BASE}/tellija/koolitused/import`);
-  await page.waitForSelector('input[type="file"]');
-  await page.setInputFiles('input[type="file"]', FIXTURE);
-  await page.locator('[data-testid="training-import-upload"] button').click();
-  await page.waitForSelector('[data-testid="confirm-import"]', { timeout: 20_000 });
-
-  const preview = await appHtml(page);
-  check('the preview counts four new rows', /4\s*<\/div>\s*<div[^>]*>Uut/.test(preview) || preview.includes('Impordi 4 rida'));
-  check('the preview counts the one broken row', (await page.getByText(/Vigased read \(1\)/).count()) > 0);
+  await page.goto(`${base}/tellija/voorud/${roundId}`);
+  await page.waitForSelector('h1', { timeout: 20_000 });
+  const matrix = await appHtml(page);
   check(
-    'the broken row is explained by its county',
-    (await page.getByText(/maakon/i).count()) > 0,
-    (await page.locator('section:has(h2:text("Vigased read"))').textContent()).replace(/\s+/g, ' ').slice(0, 200),
+    'the buyer sees every partner of the lot in the matrix [N-01]',
+    matrix.includes('AI Akadeemia') && matrix.includes('Digioskus') && matrix.includes('Tehisaru'),
+    (await page.locator('h1').textContent()),
   );
-  await page.screenshot({ path: join(SHOTS, '08-import-preview.png'), fullPage: true });
-
-  await page.getByTestId('confirm-import').locator('button').click();
-  await page.waitForSelector('a[href="/tellija/koolitused"]', { timeout: 20_000 });
-  await page.goto(`${BASE}/tellija/koolitused`);
-  await page.waitForSelector('h1');
-  const calendar = await appHtml(page);
-  check('the imported trainings are in the calendar', calendar.includes('KK-2026-901') && calendar.includes('KK-2026-904'));
-  check('the broken row was not imported', !calendar.includes('KK-2026-905'));
-
-  /* a round over the four imported trainings */
-  await page.goto(`${BASE}/tellija/voorud/uus?hankeosa=OSA-1`);
-  await page.waitForSelector('select[name="visibilityMode"]', { timeout: 20_000 });
-  for (const code of ['KK-2026-901', 'KK-2026-902', 'KK-2026-903', 'KK-2026-904']) {
-    await page.locator('tr', { hasText: code }).first().locator('input[type="checkbox"]').check();
-  }
-  await page.locator('form button:has-text("Loo mustand")').click();
-  await page.waitForSelector('[data-testid="publish-round"]', { timeout: 20_000 });
-  page.once('dialog', (dialog) => dialog.accept());
-  await page.getByTestId('publish-round').locator('button').click();
-  await page.waitForFunction(() => document.body.textContent.includes('Avatud'), null, { timeout: 20_000 });
-  check('the imported round is published to the whole lot', (await page.getByTestId('review-row-1').count()) === 0);
-  await page.screenshot({ path: join(SHOTS, '09-imported-round-published.png'), fullPage: true });
-
-  /* koht 1 takes three of the four */
-  await switchTo(page, OSA1_FIRST);
-  check('koht 1 receives the imported round', await openOpenRound(page, 'OSA-1'));
-  await markAndConfirm(page, ['KK-2026-901', 'KK-2026-902', 'KK-2026-903']);
-
-  /* koht 3 sees the effect without seeing who caused it */
-  await switchTo(page, OSA1_THIRD);
-  check('koht 3 receives the same round', await openOpenRound(page, 'OSA-1'));
-  for (const code of ['KK-2026-901', 'KK-2026-902', 'KK-2026-903']) {
-    check(`${code} shows as taken by a higher rank`, (await stateOf(page, code)) === 'Eesõigusega partner on märkinud');
-  }
-  check('the unmarked training is available', (await stateOf(page, 'KK-2026-904')) === 'Saadaval');
-  await markAndConfirm(page, ['KK-2026-903', 'KK-2026-904']);
+  // [N-01] is "everything, live": the buyer reads each partner's answer, which
+  // is the one thing the partner screens deliberately hide from each other.
   check(
-    '903 is marked but not projected, because a higher rank has it',
-    (await stateOf(page, 'KK-2026-903')) === 'Märgitud, prognoosis ei ole (eesõigusega partner)',
+    'and what each of them has answered [N-01]',
+    matrix.includes('Kinnitatud'),
+    matrix.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').match(/.{0,80}Kinnita.{0,40}/)?.[0] ?? 'ükski olek ei olnud näha',
   );
-  check('904 is projected to koht 3', (await stateOf(page, 'KK-2026-904')) === 'Prognoosis sinule');
-  const thirdHtml = await appHtml(page);
+  // [V-03] OSA-2's threshold is 4, and the round is frozen against it — a later
+  // edit of the lot cannot reach a published round, so the figure that applies
+  // is the one on the round.
   check(
-    'koht 3 is never told who holds the others',
-    !thirdHtml.includes(OSA1_FIRST) || thirdHtml.split(OSA1_FIRST).length - 1 <= 2,
-    'the partner’s own name may appear in its own header only',
+    'and the configuration the round is frozen against [V-03]',
+    (await page.getByTestId('frozen-threshold').innerText()).trim() === '4 koolitust',
+    await page.getByTestId('frozen-threshold').innerText(),
   );
-  await page.screenshot({ path: join(SHOTS, '10-imported-round-third.png'), fullPage: true });
+  await page.screenshot({ path: join(SHOTS, '10-buyer-matrix.png'), fullPage: true });
 
-  /* the deadline passes, the buyer caps koht 1 and confirms */
+  /* [L-28][K-10] the seeded cluster: ten groups under one header on the
+     calendar, one row in the buyer's matrix, a count on the partner's card */
+  await page.goto(`${base}/tellija/koolitused?hankeosa=${LISA_B_LOT}`);
+  await page.waitForSelector('h1', { timeout: 20_000 });
+  check(
+    'the calendar shows the seeded cluster as one header over its groups [L-28]',
+    (await page.getByTestId('cluster-header').count()) === 1 &&
+      (await appHtml(page)).includes('10 rühma × kuni 50 osalejat (500 kokku)'),
+  );
+  await page.goto(`${base}/tellija/voorud`);
+  await page.waitForSelector('h1', { timeout: 20_000 });
+  const clusterLink = page.locator('tr', { hasText: 'klastrivoor' }).locator('a').first();
+  check('the rounds list marks the seeded cluster draft', (await clusterLink.count()) === 1);
+  const clusterHref = await clusterLink.getAttribute('href');
+  await page.goto(`${base}${clusterHref}`);
+  await page.waitForSelector('h1', { timeout: 20_000 });
+  check(
+    'the cluster round is labelled and its matrix is one row per cluster [V-09][N-01]',
+    (await appHtml(page)).includes('Klastrivoor') && (await page.getByTestId('cluster-matrix').count()) === 1,
+  );
+  const clusterDeadline = await publishWithShortDeadline(page);
+  note(`klastrivooru vastamistähtaeg ${new Date(clusterDeadline).toISOString()}`);
+  const clusterRoundId = new URL(page.url()).pathname.split('/').pop();
+
+  /* koht 3 of OSA-2 asks for four groups — a count, not four rows [K-10] */
+  await switchTo(page, 'Tehisaru');
+  await page.goto(`${base}/partner/voorud/${clusterRoundId}`);
+  await page.waitForSelector('[data-testid="cluster-card"]', { timeout: 20_000 });
+  check(
+    'the partner sees the cluster as one card with a count field [K-10]',
+    (await page.getByTestId('cluster-card').count()) === 1 && (await page.getByTestId('cluster-count').count()) === 1,
+  );
+  await page.locator('input[aria-label="Rühmi klastris KL-2026-001"]').fill('4');
+  await page.getByTestId('confirm-marks').locator('button').click();
+  await page.waitForFunction(() => document.body.textContent.includes('Viimane kinnitus'), null, {
+    timeout: 20_000,
+  });
+  const clusterStatus = await page.getByTestId('confirmation-status').textContent();
+  check('the confirmation counts groups', clusterStatus.includes('4 rühma'), clusterStatus);
+  check(
+    'and the card projects them all, since nobody above asked',
+    (await page.getByTestId('cluster-projected').textContent()).includes('4 rühma'),
+    await page.getByTestId('cluster-projected').textContent(),
+  );
+  const cardHtml = await appHtml(page);
+  check(
+    '[N-04] the card names no other partner',
+    !cardHtml.includes('AI Akadeemia') && !cardHtml.includes('Digioskus'),
+    leakDetail(cardHtml, ['AI Akadeemia', 'Digioskus']),
+  );
+  await page.screenshot({ path: join(SHOTS, '11-cluster-card.png'), fullPage: true });
+
+  /* the buyer's matrix shows the request as a count and who would get what */
   await switchTo(page, BUYER);
-  check('the clock reaches the imported round’s deadline', await advanceToNextDeadline(page));
-  await openReview(page);
-  check('koht 1 is proposed three trainings', (await finalCodesByRank(page, 1)).length === 3);
-
-  const capPanel = page.getByTestId('review-row-1').locator('details', { hasText: 'Piira jaotust' });
-  await capPanel.locator('summary').click();
-  await capPanel.locator('input[name="cap"]').fill('2');
-  await capPanel.locator('textarea[name="justification"]').fill('Katsetame piirmäära rakendamist.');
-  await capPanel.locator('button:has-text("Rakenda piirmäär")').click();
-  await page.waitForFunction(() => document.body.textContent.includes('Piiratud 2'), null, { timeout: 20_000 });
-
+  await page.goto(`${base}/tellija/voorud/${clusterRoundId}`);
+  await page.waitForSelector('[data-testid="cluster-matrix"]', { timeout: 20_000 });
+  const clusterMatrix = await page.getByTestId('cluster-matrix').innerText();
   check(
-    'the cap moves 903 down to koht 3',
-    JSON.stringify(await finalCodesByRank(page, 1)) === JSON.stringify(['KK-2026-901', 'KK-2026-902']),
-    String(await finalCodesByRank(page, 1)),
+    'the buyer’s matrix shows the count and the projected holder of the first four groups [K-10]',
+    clusterMatrix.includes('saab 4') && clusterMatrix.includes('4 rühma (01–04)'),
+    clusterMatrix.replace(/\s+/g, ' ').slice(0, 300),
   );
-  check(
-    'koht 3 ends with both of its marks',
-    JSON.stringify(await finalCodesByRank(page, 3)) === JSON.stringify(['KK-2026-903', 'KK-2026-904']),
-    String(await finalCodesByRank(page, 3)),
-  );
-  await page.screenshot({ path: join(SHOTS, '11-imported-round-capped.png'), fullPage: true });
+  await page.screenshot({ path: join(SHOTS, '12-cluster-matrix.png'), fullPage: true });
+}
 
-  page.once('dialog', (dialog) => dialog.accept());
-  await page.getByTestId('confirm-allocation').locator('button').click();
-  await page.waitForFunction(() => document.body.textContent.includes('Kinnitatud'), null, { timeout: 20_000 });
+/* ------------------------------------------------------------------ *
+ * walk 3 — an empty environment, set up by an admin
+ * ------------------------------------------------------------------ */
 
-  await switchTo(page, OSA1_THIRD);
-  await page.goto(`${BASE}/partner/tellimused`);
-  await page.waitForSelector('h1');
-  const orderLink = page.locator('a[href^="/partner/tellimused/"]').first();
-  check('koht 3 receives an order', (await orderLink.count()) > 0);
-  await orderLink.click();
-  await page.waitForSelector('article', { timeout: 20_000 });
-  const orderHtml = await appHtml(page);
-  check(
-    'the order carries the two trainings it won',
-    orderHtml.includes('KK-2026-903') && orderHtml.includes('KK-2026-904'),
-  );
-  await page.screenshot({ path: join(SHOTS, '12-imported-round-order.png'), fullPage: true });
+/** Migrate a database and stamp the seed as done, so nothing is pre-loaded. */
+function emptyDatabase(path) {
+  removeDatabase(path);
+  const run = spawnSync('npx', ['tsx', 'scripts/prepare-empty-db.ts'], {
+    env: { ...process.env, DATABASE_PATH: path },
+    encoding: 'utf8',
+  });
+  if (run.status !== 0) {
+    console.error(run.stdout, run.stderr);
+    throw new Error('could not prepare an empty database');
+  }
+}
+
+async function walkEmptyEnvironment(browser) {
+  emptyDatabase(EMPTY_DB);
+  const port = await freePort();
+  const server = startServer({ port, databasePath: EMPTY_DB });
+  const base = server.base;
+
+  try {
+    if (!(await waitForHealth(base))) {
+      console.error(server.logs.join(''));
+      throw new Error('the empty-volume server did not become healthy');
+    }
+    const health = await (await fetch(`${base}/api/health`)).json();
+    check(
+      'an unseeded volume really is empty',
+      health.data?.lots === 0 && health.data?.partners === 0,
+      JSON.stringify(health.data),
+    );
+
+    const context = await browser.newContext({ acceptDownloads: true });
+    const page = await context.newPage();
+    watchPage(page);
+
+    /* nobody is listed, so the allowlist is the only way in [L-08] */
+    await signInAs(page, server, 'uus.admin@naidis.riigikantselei.ee');
+    await page.goto(`${base}/tellija/raamhange`);
+    await page.waitForSelector('h1', { timeout: 20_000 });
+    check(
+      'the framework screen says the data is missing rather than failing',
+      (await page.locator('main').textContent()).length > 0,
+    );
+
+    /* the framework workbook — the same file the seed loads [L-21] */
+    await page.goto(`${base}/tellija/raamhange/import`);
+    await page.waitForSelector('[data-testid="framework-upload"]', { timeout: 20_000 });
+    // The drop zone submits as soon as a file is chosen, so there is nothing
+    // left to click — clicking would race the POST already in flight.
+    await page.setInputFiles('input[type="file"]', join(ROOT, 'seed', 'naidis-raamhange.xlsx'));
+    await page.waitForURL(/\/raamhange\/import\?batch=/, { timeout: 30_000 });
+    check(
+      'the framework import can be confirmed',
+      (await page.getByTestId('framework-import-blocked').count()) === 0,
+      (await page.locator('main').textContent()).replace(/\s+/g, ' ').slice(0, 200),
+    );
+    await page.getByTestId('confirm-framework-import').locator('button').click();
+    await page.waitForSelector('[data-testid="action-ok"], h1', { timeout: 30_000 });
+
+    await page.goto(`${base}/tellija/raamhange`);
+    await page.waitForSelector('h1', { timeout: 20_000 });
+    const framework = await page.locator('main').textContent();
+    check('the four lots arrived', ['OSA-1', 'OSA-2', 'OSA-3', 'OSA-4'].every((c) => framework.includes(c)));
+    check('with the ranking and its contacts', framework.includes('Tehisaru Koolitus') && framework.includes('jaan.kask@tehisaru-naidis.ee'));
+    const after = await (await fetch(`${base}/api/health`)).json();
+    check(
+      'and the counts prove it',
+      after.data?.lots === 4 && after.data?.partners === 6,
+      JSON.stringify(after.data),
+    );
+    await page.screenshot({ path: join(SHOTS, '11-empty-framework-loaded.png'), fullPage: true });
+
+    /* the contact the file carried is now a sign-in [L-21] */
+    const partnerContext = await browser.newContext();
+    const partnerPage = await partnerContext.newPage();
+    const landing = await signInAs(partnerPage, server, 'jaan.kask@tehisaru-naidis.ee');
+    check(
+      'the framework contact can sign in as that partner',
+      landing.startsWith('/partner'),
+      landing,
+    );
+    await partnerContext.close();
+
+    /* the calendar, then a round from the sample workbook */
+    await page.goto(`${base}/tellija/koolitused/import`);
+    await page.waitForSelector('input[type="file"]', { timeout: 20_000 });
+    await page.setInputFiles('input[type="file"]', join(ROOT, 'seed', 'naidis-koolituskalender.xlsx'));
+    await page.locator('[data-testid="training-import-upload"] button').click();
+    await page.waitForSelector('[data-testid="confirm-import"]', { timeout: 30_000 });
+    await page.getByTestId('confirm-import').locator('button').click();
+    await page.waitForSelector('a[href="/tellija/koolitused"]', { timeout: 30_000 });
+
+    await uploadRound(page, base, join(ROOT, 'seed', 'naidis-voor.xlsx'));
+    check(
+      'the sample round workbook is accepted on the environment it belongs to',
+      !(await page.locator('[data-testid="confirm-round-import"] button').isDisabled()),
+      (await page.getByTestId('round-import-summary').textContent()).replace(/\s+/g, ' ').slice(0, 200),
+    );
+    await page.getByTestId('confirm-round-import').locator('button').click();
+    await page.waitForURL(/\/tellija\/voorud\/[0-9a-f-]+$/, { timeout: 20_000 });
+    check('which yields a draft round', (await appHtml(page)).includes('Mustand'));
+    await page.screenshot({ path: join(SHOTS, '12-empty-round-draft.png'), fullPage: true });
+
+    await context.close();
+  } finally {
+    server.stop();
+    removeDatabase(EMPTY_DB);
+  }
 }
 
 /* ------------------------------------------------------------------ */
+
+function seed(path) {
+  removeDatabase(path);
+  const run = spawnSync('npx', ['tsx', 'src/db/seed.ts'], {
+    env: { ...process.env, DATABASE_PATH: path },
+    encoding: 'utf8',
+  });
+  if (run.status !== 0) {
+    console.error(run.stdout, run.stderr);
+    throw new Error('seed failed');
+  }
+}
 
 async function main() {
   rmSync(SHOTS, { recursive: true, force: true });
   mkdirSync(SHOTS, { recursive: true });
   mkdirSync(join(ROOT, 'data'), { recursive: true });
 
+  seed(SEEDED_DB);
   const port = await freePort();
-  const server = startServer({ port, databasePath: DB });
-  BASE = server.base;
-
+  const server = startServer({ port, databasePath: SEEDED_DB });
   const browser = await chromium.launch({ executablePath: CHROMIUM });
-  const teardown = () => {
-    server.stop();
-    return browser.close().catch(() => {});
-  };
-
-  if (!(await waitForHealth(BASE))) {
-    console.error('Server did not start:\n' + server.logs.join(''));
-    await teardown();
-    process.exit(1);
-  }
-
-  const page = await browser.newPage({ viewport: { width: 1500, height: 1000 } });
-  const { consoleErrors, badResponses } = watchPage(page);
 
   try {
-    await page.goto(BASE);
-    await page.waitForSelector('section:has(h2:text("Tellija")) form button');
-    await page.locator('section:has(h2:text("Tellija")) form button').first().click();
-    await page.waitForURL('**/tellija', { timeout: 20_000 });
+    if (!(await waitForHealth(server.base))) {
+      console.error('Server did not start:\n' + server.logs.join(''));
+      throw new Error('server did not become healthy');
+    }
 
-    await walkLisaB(page);
-    await walkImportedRound(page);
+    const context = await browser.newContext({
+      acceptDownloads: true,
+      viewport: { width: 1500, height: 1000 },
+    });
+    const page = await context.newPage();
+    const { consoleErrors, badResponses } = watchPage(page);
+
+    await walkFullCascade(page, server);
+    await walkPartnerVisibility(page, server);
 
     check('no failed requests', badResponses.length === 0, badResponses.slice(0, 4).join(' | '));
     check('no console errors', consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' | '));
+    await context.close();
+
+    await walkEmptyEnvironment(browser);
   } finally {
-    await teardown();
+    await browser.close().catch(() => {});
+    server.stop();
+    removeDatabase(SEEDED_DB);
+    for (const file of SCRATCH) rmSync(file, { force: true });
   }
 
-  console.log('\nEnd-to-end walk\n');
-  console.log(results.join('\n'));
+  console.log('\nEnd-to-end walk\n' + results.join('\n'));
   console.log(
     `\n${state.failures === 0 ? 'ALL PASS' : `${state.failures} FAILURE(S)`} — screenshots in ${SHOTS}\n`,
   );
-  removeDatabase(DB);
   process.exit(state.failures === 0 ? 0 : 1);
 }
 

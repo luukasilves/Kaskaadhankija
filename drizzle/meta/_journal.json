@@ -15,6 +15,97 @@
       "when": 1788436072484,
       "tag": "0001_append_only_triggers",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1788799782009,
+      "tag": "0002_email_deliveries",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1788800569096,
+      "tag": "0003_partner_representatives",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1788802846763,
+      "tag": "0004_sign_in",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1788803701768,
+      "tag": "0005_cap_kinds",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1788804342957,
+      "tag": "0006_round_upload",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1789030000000,
+      "tag": "0007_acting_via",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1789037400414,
+      "tag": "0008_framework_data",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1789041019866,
+      "tag": "0009_round_protocols",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1789044619866,
+      "tag": "0010_admin_allowlist",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1789131600000,
+      "tag": "0011_listed_representatives",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1789135200000,
+      "tag": "0012_final_reminder",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1789138800000,
+      "tag": "0013_notice_preferences",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1789142400000,
+      "tag": "0014_clusters",
+      "breakpoints": true
     }
   ]
 }

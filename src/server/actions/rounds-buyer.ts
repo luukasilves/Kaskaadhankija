@@ -27,9 +27,14 @@ import {
   withdrawTraining,
   cancelOrderTraining,
 } from '../rounds/engine';
+import { generateProtocolForEndedRound } from '../rounds/protocol';
+import { assertBuyerActor } from '../auth/actor';
+import { parseEstonianInstant } from '@/domain/round-definition';
 import { runDueJobs } from '../rounds/jobs';
 import type { VisibilityMode } from '@/domain/round-statuses';
+import { isCapOptions } from '@/domain/round-statuses';
 import {
+  adminWrite,
   buyerWrite,
   describeError,
   fail,
@@ -49,14 +54,17 @@ export async function createRoundAction(form: FormData): Promise<ActionOutcome> 
   const trainingIds = fieldList(form, 'trainingIds');
   const note = fieldText(form, 'note');
   const visibilityMode = (fieldText(form, 'visibilityMode') || undefined) as VisibilityMode | undefined;
+  const rawCapOptions = fieldText(form, 'capOptions');
+  const capOptions = rawCapOptions ? (isCapOptions(rawCapOptions) ? rawCapOptions : null) : undefined;
 
   if (!lotId) return fail('Vali hankeosa.');
   if (trainingIds.length === 0) return fail('Vali vähemalt üks koolitus.');
+  if (capOptions === null) return fail('Tundmatu piirmäära valik.');
 
   let roundId: string;
   try {
     roundId = await buyerWrite(
-      (ctx) => createRound(ctx, { lotId, trainingIds, note, visibilityMode }),
+      (ctx) => createRound(ctx, { lotId, trainingIds, note, visibilityMode, capOptions }),
       [ROUNDS, DASHBOARD, '/tellija/koolitused'],
     );
   } catch (error) {
@@ -67,14 +75,23 @@ export async function createRoundAction(form: FormData): Promise<ActionOutcome> 
 
 export async function publishRoundAction(form: FormData): Promise<ActionOutcome> {
   const roundId = fieldText(form, 'roundId');
-  // Expressed in working days rather than a wall-clock date: that is the unit
-  // the framework uses, and it avoids a timezone-less datetime input.
+  // Working days is the unit the framework itself uses, so it stays the
+  // default. An absolute instant is the alternative, because a round scheme
+  // may plan one [L-20] and a test round needs a window of minutes [L-23].
   const extraWorkingDays = fieldNumber(form, 'extraWorkingDays') ?? 0;
   const visibilityMode = (fieldText(form, 'visibilityMode') || undefined) as VisibilityMode | undefined;
+  const deadlineLocal = fieldText(form, 'deadlineAt');
+  let deadlineAt: number | undefined;
+  if (deadlineLocal) {
+    // A `datetime-local` value has no zone; the person typed Tallinn time.
+    const parsed = parseEstonianInstant(deadlineLocal.replace('T', ' '), '17:00');
+    if (!parsed.ok) return fail(`Tähtaeg ei ole loetav: ${parsed.message}`);
+    deadlineAt = parsed.value;
+  }
 
   try {
     await buyerWrite(
-      (ctx) => publishRound(ctx, roundId, { extraWorkingDays, visibilityMode }),
+      (ctx) => publishRound(ctx, roundId, { extraWorkingDays, visibilityMode, deadlineAt }),
       [ROUNDS, `${ROUNDS}/${roundId}`, DASHBOARD],
     );
     return ok('Voor on avaldatud kõigile hankeosa partneritele.');
@@ -146,9 +163,34 @@ export async function cancelRoundAction(form: FormData): Promise<ActionOutcome> 
   }
 }
 
+/**
+ * Write the protocol of a round that ended before protocols existed [L-22].
+ *
+ * The only way a protocol is ever created by hand: a new round gets one
+ * automatically, inside the transaction that ends it. This exists for the
+ * rounds already in the database when the feature arrived, and it refuses a
+ * round that already has one, so a signed document cannot be replaced.
+ */
+export async function generateProtocolAction(form: FormData): Promise<ActionOutcome> {
+  const roundId = fieldText(form, 'roundId');
+  try {
+    const written = await buyerWrite((ctx) => generateProtocolForEndedRound(ctx, roundId), [
+      `${ROUNDS}/${roundId}`,
+      `${ROUNDS}/${roundId}/protokoll`,
+      '/tellija/auditilogi',
+    ]);
+    return ok(`Protokoll on koostatud (sõrmejälg ${written.hash.slice(0, 16)}).`);
+  } catch (error) {
+    return fail(describeError(error));
+  }
+}
+
 /** Close a round early is not offered; this only forces the due check. */
 export async function runDeadlineJobsAction(): Promise<ActionOutcome> {
   try {
+    // Procurement housekeeping: forcing the sweep only closes rounds whose
+    // deadline has already passed, which is a purchaser's business.
+    await assertBuyerActor();
     const report = runDueJobs();
     return ok(
       report.closed.length > 0
@@ -209,9 +251,9 @@ export async function confirmAllocationAction(form: FormData): Promise<ActionOut
       '/tellija/koolitused',
     ]);
     return ok(
-      `Jaotus kinnitatud: ${result.orderIds.length} tellimus(t) loodud${
+      `Jaotus kinnitatud: ${result.allocatedCount} koolitust ${result.partnerCount} partnerile${
         result.leftover.length > 0 ? `, jääk ${result.leftover.length} koolitust` : ''
-      }.`,
+      }. Protokoll on valmis; otsus ja tellimused vormistatakse väljaspool rakendust.`,
     );
   } catch (error) {
     return fail(describeError(error));
@@ -305,7 +347,11 @@ export async function deactivateLotPartnerAction(form: FormData): Promise<Action
   const lotId = fieldText(form, 'lotId');
   const reason = fieldText(form, 'reason');
   try {
-    await buyerWrite((ctx) => deactivateLotPartner(ctx, lotPartnerId, reason), [
+    // Administration, not procurement: this ends a framework participation, so
+    // it also removes the partner from every future round [L-21]. A purchaser
+    // who needs it mid-round asks an admin — the honest fix, if that bites,
+    // would be a round-scoped exclusion rather than widening this.
+    await adminWrite((ctx) => deactivateLotPartner(ctx, lotPartnerId, reason), [
       `/tellija/hankeosad/${lotId}`,
       '/tellija/partnerid',
     ]);

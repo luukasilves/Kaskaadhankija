@@ -7,12 +7,19 @@
 
 import Link from 'next/link';
 import { getDb } from '@/db';
+import { frameworkIdentity } from '@/server/framework';
+import { frameworkClause } from '@/domain/framework';
 import { formatDateTimeShort } from '@/domain/format';
-import { RESPONSE_STATE_LABELS, ROUND_STATUS_LABELS, ROUND_STATUS_TONES } from '@/domain/round-statuses';
+import {
+  RESPONSE_STATE_LABELS,
+  RESPONSE_STATE_TONES,
+  ROUND_STATUS_LABELS,
+  ROUND_STATUS_TONES,
+} from '@/domain/round-statuses';
 import { Countdown } from '@/components/countdown';
 import { RankChip, StatusBadge } from '@/components/status-badge';
 import { requirePartner } from '@/server/auth/actor';
-import { readClock } from '@/server/clock';
+import { currentTimeMs } from '@/server/clock';
 import { runDueJobs } from '@/server/rounds/jobs';
 import {
   latestConfirmation,
@@ -29,7 +36,7 @@ export default async function PartnerRoundsPage() {
   runDueJobs();
 
   const db = getDb();
-  const { nowMs } = readClock(db);
+  const nowMs = currentTimeMs();
   const rounds = roundsForPartner(db, actor.partnerId);
 
   const rows = rounds.map((round) => {
@@ -38,7 +45,7 @@ export default async function PartnerRoundsPage() {
       ? latestConfirmation(db, round.id, participant.lotPartnerId)
       : undefined;
     const state = participant
-      ? responseStateFor(latest, participant.draftMarks, participant.draftCap)
+      ? responseStateFor(latest, participant.draftMarks, participant.draftCap, participant.draftCapKind)
       : 'none';
     return { round, participant, latest, state };
   });
@@ -52,9 +59,9 @@ export default async function PartnerRoundsPage() {
       <div>
         <h1>Voorud</h1>
         <p className="mt-1 max-w-[80ch] text-[var(--color-muted)]">
-          Koolitustellimused raamlepingu „Eesti.ai koolitajate tellimine“ alusel. Iga voor läheb
-          korraga kõigile hankeosa partneritele ja jaotatakse rangelt raamlepingu järjestuse alusel
-          — vastamise kiirus eelist ei anna.
+          Koolitustellimused, mille alus on {frameworkClause(frameworkIdentity(db))}. Iga voor
+          läheb korraga kõigile hankeosa partneritele ja jaotatakse rangelt raamlepingu järjestuse
+          alusel — vastamise kiirus eelist ei anna.
         </p>
       </div>
 
@@ -89,13 +96,7 @@ export default async function PartnerRoundsPage() {
                     {participant && <RankChip rank={participant.rankAtPublication} />}
                     <StatusBadge
                       label={RESPONSE_STATE_LABELS[state]}
-                      tone={
-                        state === 'confirmed'
-                          ? 'success'
-                          : state === 'declined_all'
-                            ? 'neutral'
-                            : 'warning'
-                      }
+                      tone={RESPONSE_STATE_TONES[state]}
                     />
                     <span className="text-[13px] text-[var(--color-muted)]">
                       {round.lotCode} — {round.lotName}

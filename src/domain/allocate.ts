@@ -16,11 +16,30 @@
  * Rule IDs in comments refer to that document; the tests are named after them.
  */
 
-/** One training in the round. `eventDate` is an ISO day, 'YYYY-MM-DD'. */
+/** How a partner's ceiling is counted [K-06][L-17]. */
+export type CapKind = 'trainings' | 'participants';
+
+/**
+ * One training in the round. `eventDate` is an ISO day, 'YYYY-MM-DD' — for a
+ * cluster's group, the start of its period, so groups sort by period and then
+ * by their zero-padded code, which is their position in the cluster.
+ */
 export interface AllocationTraining {
   id: string;
   code: string;
   eventDate: string;
+  /**
+   * Trainees. Absent in snapshots frozen before participant caps existed; they
+   * cannot contain such a cap, so the figure only matters for display there.
+   */
+  participantCount?: number;
+  /**
+   * [K-10][L-28] Set on a cluster's group. Marks on a cluster count as a
+   * request for *that many* of its groups, filled with the first still
+   * unallocated ones; absent (not null) on a dated training, so snapshots of
+   * dated rounds serialise exactly as they did before clusters existed.
+   */
+  clusterCode?: string;
 }
 
 /** One row of the append-only `confirmations` table, as the algorithm sees it. */
@@ -30,8 +49,10 @@ export interface ConfirmationSnapshot {
   kind: 'confirm' | 'decline_all';
   /** training ids the partner marked */
   marks: string[];
-  /** "võtan vastu kuni N koolitust", or null for no limit [K-06] */
+  /** "võtan vastu kuni N koolitust" / "kuni N osalejat", or null for no limit [K-06] */
   cap: number | null;
+  /** what `cap` counts; absent means trainings (the only kind before v2.2) */
+  capKind?: CapKind;
   confirmedAt: number;
 }
 
@@ -73,10 +94,22 @@ export interface AllocationTraceStep {
   lotPartnerId: string;
   rank: number;
   outcome: ParticipantOutcome;
-  /** confirmed marks still unallocated when their turn came, in take order */
+  /**
+   * What the partner is up for when their turn comes, in take order: their
+   * confirmed marks still unallocated — and for a cluster [K-10], the first
+   * n still-unallocated groups, n being how many of its groups they marked.
+   */
   wanted: string[];
-  /** effective limit (own cap ∧ buyer cap), or null for unlimited */
+  /** [K-10] groups asked for per cluster, when the partner marked any */
+  clusterRequests?: Record<string, number>;
+  /** effective limit on the *number* of trainings (own training cap ∧ buyer cap), or null */
   limit: number | null;
+  /** the partner's own cap kind, or null without a cap of their own */
+  capKind: CapKind | null;
+  /** the partner's trainee budget, when their cap counts participants */
+  participantLimit: number | null;
+  /** trainees in the trainings taken */
+  participantsTaken: number;
   taken: string[];
   /** which confirmation was binding [K-04] */
   usedConfirmationId: number | null;
@@ -145,6 +178,10 @@ export function allocate(input: AllocationInput): AllocationResult {
   const ordered = sortTrainings(input.trainings);
   const validIds = new Set(ordered.map((t) => t.id));
   const takeOrder = ordered.map((t) => t.id);
+  const sizeOf = new Map(ordered.map((t) => [t.id, t.participantCount ?? 0] as const));
+  const clusterOf = new Map(
+    ordered.filter((t) => t.clusterCode).map((t) => [t.id, t.clusterCode as string] as const),
+  );
 
   const skipped = new Set(
     input.adjustments.filter((a) => a.kind === 'skip').map((a) => a.lotPartnerId),
@@ -171,6 +208,9 @@ export function allocate(input: AllocationInput): AllocationResult {
       outcome: 'confirmed',
       wanted: [],
       limit: null,
+      capKind: null,
+      participantLimit: null,
+      participantsTaken: 0,
       taken: [],
       usedConfirmationId: null,
     };
@@ -206,15 +246,54 @@ export function allocate(input: AllocationInput): AllocationResult {
       continue;
     }
 
+    // [K-10] A mark on a cluster's group is a request for one group of that
+    // cluster, not for that group: the groups are interchangeable, so the
+    // partner is offered the first n still unallocated. Dated trainings are
+    // wanted by identity, as before.
     const marked = new Set(marks);
-    step.wanted = takeOrder.filter((id) => marked.has(id) && unallocated.has(id));
+    const requested = new Map<string, number>();
+    for (const id of marks) {
+      const cluster = clusterOf.get(id);
+      if (cluster) requested.set(cluster, (requested.get(cluster) ?? 0) + 1);
+    }
+    const granted = new Map<string, number>();
+    step.wanted = takeOrder.filter((id) => {
+      if (!unallocated.has(id)) return false;
+      const cluster = clusterOf.get(id);
+      if (!cluster) return marked.has(id);
+      const want = requested.get(cluster) ?? 0;
+      const have = granted.get(cluster) ?? 0;
+      if (have >= want) return false;
+      granted.set(cluster, have + 1);
+      return true;
+    });
+    if (requested.size > 0) step.clusterRequests = Object.fromEntries(requested);
+
+    // The partner's own cap counts either trainings or trainees [K-06]; the
+    // buyer's cap [T-02] always counts trainings, and combines with either.
+    const ownCap = binding.cap ?? null;
+    const ownKind: CapKind = binding.capKind ?? 'trainings';
+    step.capKind = ownCap === null ? null : ownKind;
     step.limit = effectiveLimit(
-      binding.cap ?? null,
+      ownCap !== null && ownKind === 'trainings' ? ownCap : null,
       buyerCaps.get(participant.lotPartnerId) ?? null,
     );
+    step.participantLimit = ownCap !== null && ownKind === 'participants' ? ownCap : null;
 
-    const take = step.limit === null ? step.wanted : step.wanted.slice(0, Math.max(0, step.limit));
+    // Date order throughout. A count limit ends the walk; a trainee budget
+    // skips what does not fit and keeps going, so a small later training can
+    // still be taken — deterministic, and it uses the budget better [L-17].
+    const take: string[] = [];
+    let budget = step.participantLimit ?? Number.POSITIVE_INFINITY;
+    for (const id of step.wanted) {
+      if (step.limit !== null && take.length >= Math.max(0, step.limit)) break;
+      const size = sizeOf.get(id) ?? 0;
+      if (size > budget) continue;
+      take.push(id);
+      budget -= size;
+    }
     step.taken = take;
+    step.participantsTaken = take.reduce((sum, id) => sum + (sizeOf.get(id) ?? 0), 0);
     for (const id of take) {
       unallocated.delete(id);
       byTraining[id] = participant.lotPartnerId;
@@ -255,11 +334,33 @@ export interface PartnerViewRow {
   reason?: NotProjectedReason;
 }
 
+/**
+ * [K-10][N-03] One cluster as the partner sees it: counts, never partners.
+ * `held` is what higher ranks' confirmed marks take, `free` what is left to
+ * them, `requested` how many groups they marked, `projected` how many the
+ * projection gives them. The state and reason are the [N-03] four, applied to
+ * the cluster as a whole.
+ */
+export interface ClusterView {
+  clusterCode: string;
+  groupCount: number;
+  held: number;
+  free: number;
+  requested: number;
+  projected: number;
+  state: TrainingViewState;
+  reason?: NotProjectedReason;
+  /** the group ids the projection gives this partner, in group order */
+  projectedTrainingIds: string[];
+}
+
 export interface PartnerView {
   /** in (eventDate, code) order */
   rows: PartnerViewRow[];
   projectedTrainingIds: string[];
   projectedCount: number;
+  /** one entry per cluster in the round, in (period, code) order; empty in a dated round */
+  clusters: ClusterView[];
 }
 
 /**
@@ -279,7 +380,7 @@ export interface PartnerView {
 export function partnerView(
   input: AllocationInput,
   lotPartnerId: string,
-  own: { marks: string[]; cap: number | null },
+  own: { marks: string[]; cap: number | null; capKind?: CapKind },
 ): PartnerView {
   const self = input.participants.find((p) => p.lotPartnerId === lotPartnerId);
   if (!self) {
@@ -306,6 +407,7 @@ export function partnerView(
             kind: own.marks.length === 0 ? 'decline_all' : 'confirm',
             marks: own.marks,
             cap: own.cap,
+            capKind: own.capKind ?? 'trainings',
             confirmedAt: input.cutAt,
           },
         ],
@@ -315,9 +417,67 @@ export function partnerView(
 
   const result = allocate(derived);
   const mine = new Set(result.allocations.find((a) => a.lotPartnerId === lotPartnerId)?.trainingIds ?? []);
+  const ordered = sortTrainings(input.trainings);
 
-  const rows: PartnerViewRow[] = sortTrainings(input.trainings).map((training) => {
+  // [K-10] Clusters are summarised as counts. A per-group state derived from
+  // `ownMarks` would mislead here: the partner's marks are stored canonically
+  // as the first n groups, while the projection hands them the first n *free*
+  // groups — so their own projected groups would read as somebody else's.
+  const clusters: ClusterView[] = [];
+  const clusterState = new Map<string, TrainingViewState>();
+  const clusterReason = new Map<string, NotProjectedReason>();
+  const shortfallLeft = new Map<string, number>();
+  for (const training of ordered) {
+    if (!training.clusterCode || clusters.some((c) => c.clusterCode === training.clusterCode)) continue;
+    const groups = ordered.filter((t) => t.clusterCode === training.clusterCode);
+    const held = groups.filter((g) => result.byTraining[g.id] && !mine.has(g.id)).length;
+    const requested = groups.filter((g) => ownMarks.has(g.id)).length;
+    const projectedIds = groups.filter((g) => mine.has(g.id)).map((g) => g.id);
+    const free = groups.length - held;
+    let state: TrainingViewState;
+    let reason: NotProjectedReason | undefined;
+    if (requested === 0) {
+      state = free > 0 ? 'available' : 'marked_by_higher';
+    } else if (projectedIds.length >= requested) {
+      state = 'projected_to_you';
+    } else {
+      state = 'marked_not_projected';
+      // Free groups I did not get → my own cap kept them out; none → priority.
+      reason = free - projectedIds.length > 0 ? 'over_cap' : 'higher_partner';
+    }
+    clusterState.set(training.clusterCode, state);
+    if (reason) clusterReason.set(training.clusterCode, reason);
+    shortfallLeft.set(training.clusterCode, Math.max(0, requested - projectedIds.length));
+    clusters.push({
+      clusterCode: training.clusterCode,
+      groupCount: groups.length,
+      held,
+      free,
+      requested,
+      projected: projectedIds.length,
+      state,
+      reason,
+      projectedTrainingIds: projectedIds,
+    });
+  }
+
+  const rows: PartnerViewRow[] = ordered.map((training) => {
     const holder = result.byTraining[training.id];
+    if (training.clusterCode) {
+      // Groups: mine are projected; the first `shortfall` others carry the
+      // cluster's not-projected reason; the rest are held or available.
+      if (mine.has(training.id)) return { trainingId: training.id, state: 'projected_to_you' };
+      const left = shortfallLeft.get(training.clusterCode) ?? 0;
+      if (left > 0) {
+        shortfallLeft.set(training.clusterCode, left - 1);
+        return {
+          trainingId: training.id,
+          state: 'marked_not_projected',
+          reason: clusterReason.get(training.clusterCode) ?? (holder ? 'higher_partner' : 'over_cap'),
+        };
+      }
+      return { trainingId: training.id, state: holder ? 'marked_by_higher' : 'available' };
+    }
     if (!ownMarks.has(training.id)) {
       return {
         trainingId: training.id,
@@ -339,5 +499,36 @@ export function partnerView(
     .filter((r) => r.state === 'projected_to_you')
     .map((r) => r.trainingId);
 
-  return { rows, projectedTrainingIds, projectedCount: projectedTrainingIds.length };
+  return { rows, projectedTrainingIds, projectedCount: projectedTrainingIds.length, clusters };
+}
+
+/* ------------------------------------------------------------------ *
+ * canonical marks [K-10]
+ * ------------------------------------------------------------------ */
+
+/**
+ * Marks as they are stored: only ids in the round, each once, in take order —
+ * and for a cluster, *which* groups are marked is replaced by *how many*: the
+ * first n groups by position. Two answers that ask for the same number of a
+ * cluster's groups are then the same answer, so a confirmation reads as
+ * evidence ("6 rühma") and the identical-reconfirmation rule [E-10] holds.
+ * Dated trainings pass through unchanged.
+ */
+export function canonicalMarks(trainings: readonly AllocationTraining[], marks: readonly string[]): string[] {
+  const ordered = sortTrainings(trainings);
+  const marked = new Set(marks);
+  const requested = new Map<string, number>();
+  for (const t of ordered) {
+    if (t.clusterCode && marked.has(t.id)) requested.set(t.clusterCode, (requested.get(t.clusterCode) ?? 0) + 1);
+  }
+  const granted = new Map<string, number>();
+  return ordered
+    .filter((t) => {
+      if (!t.clusterCode) return marked.has(t.id);
+      const have = granted.get(t.clusterCode) ?? 0;
+      if (have >= (requested.get(t.clusterCode) ?? 0)) return false;
+      granted.set(t.clusterCode, have + 1);
+      return true;
+    })
+    .map((t) => t.id);
 }

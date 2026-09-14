@@ -11,7 +11,9 @@
  */
 
 import Link from 'next/link';
+import { HIND } from '@/domain/pricing';
 import { ActionForm, Disclosure } from '@/components/action-form';
+import { groupIndexRange, UNIT_WORDS, type RoundKind } from '@/domain/clusters';
 import { RankChip, StatusBadge } from '@/components/status-badge';
 import {
   applyAdjustmentAction,
@@ -27,8 +29,20 @@ export interface ReviewRow {
   excluded: boolean;
   markCount: number;
   cap: number | null;
+  capKind: 'trainings' | 'participants';
   proposedCount: number;
-  finalTrainings: Array<{ code: string; eventDate: string }>;
+  finalTrainings: Array<{
+    code: string;
+    title: string;
+    eventDate: string;
+    /** [L-28] set on a cluster's group, so the code list can collapse */
+    clusterCode?: string | null;
+    groupIndex?: number | null;
+    workshopType: string;
+    place: string;
+    targetGroup: string;
+    participantCount: number;
+  }>;
   finalCount: number;
   valueText: string;
   workload: number;
@@ -44,10 +58,29 @@ export interface LeftoverRef {
   value: string;
 }
 
+/** „KK-2026-101, KK-2026-102“ — or „KL-2026-001: 6 rühma (05–10)“ for a cluster's groups [K-10]. */
+function codesText(list: ReviewRow['finalTrainings']): string {
+  const parts: string[] = [];
+  const seen = new Set<string>();
+  for (const t of list) {
+    if (!t.clusterCode) {
+      parts.push(t.code);
+      continue;
+    }
+    if (seen.has(t.clusterCode)) continue;
+    seen.add(t.clusterCode);
+    const indices = list.filter((g) => g.clusterCode === t.clusterCode).map((g) => g.groupIndex ?? 0);
+    parts.push(`${t.clusterCode}: ${indices.length} rühma (${groupIndexRange(indices)})`);
+  }
+  return parts.join(', ');
+}
+
 export function ReviewPanel({
   roundId,
   lotCode,
+  roundKind = 'fixed',
   confirmed,
+  canWrite,
   threshold,
   thresholdNote,
   rows,
@@ -58,7 +91,11 @@ export function ReviewPanel({
   roundId: string;
   lotId: string;
   lotCode: string;
+  /** [V-09] the unit word: koolitust / rühma */
+  roundKind?: RoundKind;
   confirmed: boolean;
+  /** a member reads the proposal; adjusting and confirming are an admin's [R-01] */
+  canWrite: boolean;
   threshold: number;
   thresholdNote: string;
   rows: ReviewRow[];
@@ -68,6 +105,7 @@ export function ReviewPanel({
 }) {
   const adjusted = rows.filter((row) => row.adjustment !== null);
   const totalAllocated = rows.reduce((sum, row) => sum + row.finalCount, 0);
+  const unit = UNIT_WORDS[roundKind];
   const changedByAdjustment = rows.some((row) => row.finalCount !== row.proposedCount);
 
   return (
@@ -92,7 +130,7 @@ export function ReviewPanel({
                 <th className="kh-th">Märkeid</th>
                 <th className="kh-th">Ettepanekus</th>
                 <th className="kh-th">{confirmed ? 'Lõplikus' : 'Praegu'}</th>
-                <th className="kh-th">Maksumus</th>
+                <th className="kh-th">{HIND.tellimuseMax}</th>
                 <th className="kh-th">Töömaht</th>
                 {!confirmed && <th className="kh-th">Kohandus</th>}
               </tr>
@@ -128,7 +166,7 @@ export function ReviewPanel({
                     {row.markCount}
                     {row.cap !== null && (
                       <span className="ml-1 text-[12px] text-[var(--color-muted)]">
-                        (piir {row.cap})
+                        (piir {row.cap} {row.capKind === 'participants' ? 'osalejat' : unit.partitive})
                       </span>
                     )}
                   </td>
@@ -150,7 +188,7 @@ export function ReviewPanel({
                         data-testid={`final-codes-${row.rank}`}
                         className="mt-0.5 text-[11px] font-normal text-[var(--color-muted)]"
                       >
-                        {row.finalTrainings.map((t) => t.code).join(', ')}
+                        {codesText(row.finalTrainings)}
                       </div>
                     )}
                   </td>
@@ -189,14 +227,16 @@ export function ReviewPanel({
                           <p className="max-w-[22rem] text-[12px] text-[var(--color-muted)]">
                             {row.adjustment.justification}
                           </p>
-                          <ActionForm
-                            action={clearAdjustmentAction}
-                            submitLabel="Tühista kohandus"
-                            hidden={{ roundId, lotPartnerId: row.lotPartnerId }}
-                          />
+                          {canWrite && (
+                            <ActionForm
+                              action={clearAdjustmentAction}
+                              submitLabel="Tühista kohandus"
+                              hidden={{ roundId, lotPartnerId: row.lotPartnerId }}
+                            />
+                          )}
                         </div>
                       ) : (
-                        <AdjustmentControls roundId={roundId} row={row} />
+                        canWrite && <AdjustmentControls roundId={roundId} row={row} />
                       )}
                     </td>
                   )}
@@ -236,26 +276,72 @@ export function ReviewPanel({
         </section>
       )}
 
-      {!confirmed && (
+      {/* The list the decision is prepared from: who does which training, where,
+          for whom — the buyer asked for exactly this off the protocol. */}
+      {rows.some((row) => row.finalTrainings.length > 0) && (
+        <section className="kh-card" data-testid="allocation-by-partner">
+          <div className="border-b border-[var(--color-border)] px-4 py-3">
+            <h2>{confirmed ? 'Lõplik jaotus täitjate kaupa' : 'Jaotus täitjate kaupa (eelvaade)'}</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr>
+                  <th className="kh-th">Täitja</th>
+                  <th className="kh-th">Kood</th>
+                  <th className="kh-th">Koolitus</th>
+                  <th className="kh-th">Kuupäev</th>
+                  <th className="kh-th">Formaat</th>
+                  <th className="kh-th">Maakond, asukoht</th>
+                  <th className="kh-th">Sihtrühm</th>
+                  <th className="kh-th">Osalejaid</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows
+                  .filter((row) => row.finalTrainings.length > 0)
+                  .flatMap((row) =>
+                    row.finalTrainings.map((t, index) => (
+                      <tr key={`${row.lotPartnerId}-${t.code}`}>
+                        <td className="kh-td whitespace-nowrap font-semibold">
+                          {index === 0 ? `koht ${row.rank} · ${row.partnerName}` : ''}
+                        </td>
+                        <td className="kh-td whitespace-nowrap font-semibold">{t.code}</td>
+                        <td className="kh-td">{t.title}</td>
+                        <td className="kh-td whitespace-nowrap tabular-nums">{t.eventDate}</td>
+                        <td className="kh-td whitespace-nowrap">{t.workshopType}</td>
+                        <td className="kh-td text-[13px]">{t.place}</td>
+                        <td className="kh-td text-[13px]">{t.targetGroup}</td>
+                        <td className="kh-td tabular-nums">{t.participantCount}</td>
+                      </tr>
+                    )),
+                  )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {!confirmed && canWrite && (
         <section
           className="rounded-[10px] border p-4"
           style={{ borderColor: 'var(--color-brand)', background: 'var(--color-brand-soft)' }}
         >
           <h2 style={{ color: 'var(--color-brand)' }}>Kinnita jaotus</h2>
           <p className="mt-1 max-w-[80ch] text-[13px]">
-            Kinnitamine loob iga täitja kohta tellimuse. Raamlepingu järgi on tellimus käsitletav
-            hankelepinguna, mistõttu kinnitamine on <strong>pöördumatu</strong>. Partnerid saavad
-            teate oma koolitustest; need, kelle märgitud koolitus läks mujale, saavad neutraalse
-            teate ilma teise partneri nime avaldamata.
+            Kinnitamine külmutab lõpliku jaotuse ja koostab vooru protokolli; vooru osas on see{' '}
+            <strong>pöördumatu</strong>. Partneritele kinnitamisest teadet ei saadeta — otsus ja
+            tellimused vormistatakse väljaspool rakendust ning tellija võtab partneritega ise
+            ühendust. Partnerid said vooru sulgumisel kokkuvõtte oma esialgsest tulemusest.
           </p>
           <ul className="mt-2 text-[13px]">
             <li>
-              Jaotatakse <strong>{totalAllocated}</strong> koolitust{' '}
+              Jaotatakse <strong>{totalAllocated}</strong> {unit.partitive}{' '}
               {rows.filter((r) => r.finalCount > 0).length} partnerile
             </li>
             {leftovers.length > 0 && (
               <li>
-                Jääk: <strong>{leftovers.length}</strong> koolitust
+                Jääk: <strong>{leftovers.length}</strong> {unit.partitive}
               </li>
             )}
             {adjusted.length > 0 && (
@@ -268,9 +354,9 @@ export function ReviewPanel({
           <div className="mt-3">
             <ActionForm
               action={confirmAllocationAction}
-              submitLabel="Kinnita jaotus ja loo tellimused"
+              submitLabel="Kinnita jaotus"
               variant="primary"
-              confirm="Kinnitada jaotus? Tellimused on hankelepingud ja seda ei saa tagasi võtta."
+              confirm="Kinnitada jaotus? Jaotus külmutatakse ja protokoll koostatakse; seda ei saa tagasi võtta."
               hidden={{ roundId }}
               testId="confirm-allocation"
             />
@@ -290,7 +376,7 @@ export function ReviewPanel({
                   <th className="kh-th">Tellimus</th>
                   <th className="kh-th">Partner</th>
                   <th className="kh-th">Koolitusi</th>
-                  <th className="kh-th">Kogumaksumus</th>
+                  <th className="kh-th">{HIND.tellimuseMax}</th>
                 </tr>
               </thead>
               <tbody>

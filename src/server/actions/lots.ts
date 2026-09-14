@@ -11,9 +11,9 @@
 
 import { eq } from 'drizzle-orm';
 import { lots } from '@/db/schema';
-import type { VisibilityMode } from '@/domain/round-statuses';
+import { isCapOptions, type VisibilityMode } from '@/domain/round-statuses';
 import { logAudit } from '../audit';
-import { buyerWrite, describeError, fail, fieldNumber, fieldText, ok, type ActionOutcome } from './helpers';
+import { adminWrite, describeError, fail, fieldNumber, fieldText, ok, type ActionOutcome } from './helpers';
 
 export async function updateLotConfigAction(form: FormData): Promise<ActionOutcome> {
   const lotId = fieldText(form, 'lotId');
@@ -21,7 +21,12 @@ export async function updateLotConfigAction(form: FormData): Promise<ActionOutco
   const deadlineLocalTime = fieldText(form, 'deadlineLocalTime') || '17:00';
   const reviewWorkingDays = fieldNumber(form, 'reviewWorkingDays');
   const workloadThreshold = fieldNumber(form, 'workloadThreshold');
+  // [K-06][L-28] empty means no ceiling
+  const maxParticipantsPerGroup = fieldText(form, 'maxParticipantsPerGroup').trim() === '' ? null : fieldNumber(form, 'maxParticipantsPerGroup');
   const defaultVisibilityMode = fieldText(form, 'defaultVisibilityMode') as VisibilityMode;
+  const rawCapOptions = fieldText(form, 'defaultCapOptions') || 'trainings';
+  if (!isCapOptions(rawCapOptions)) return fail('Tundmatu piirmäära valik.');
+  const defaultCapOptions = rawCapOptions;
 
   if (!responseDeadlineWorkingDays || responseDeadlineWorkingDays < 1) {
     return fail('Vastamistähtaeg peab olema vähemalt üks tööpäev.');
@@ -35,9 +40,12 @@ export async function updateLotConfigAction(form: FormData): Promise<ActionOutco
   if (!/^\d{2}:\d{2}$/.test(deadlineLocalTime)) {
     return fail('Kellaaeg peab olema kujul 17:00.');
   }
+  if (maxParticipantsPerGroup !== null && (!Number.isInteger(maxParticipantsPerGroup) || maxParticipantsPerGroup < 1)) {
+    return fail('Rühma osalejate ülempiir peab olema vähemalt 1 või tühi.');
+  }
 
   try {
-    await buyerWrite(
+    await adminWrite(
       (ctx) => {
         const before = ctx.tx.select().from(lots).where(eq(lots.id, lotId)).get();
         if (!before) throw new Error('Hankeosa ei leitud.');
@@ -50,13 +58,15 @@ export async function updateLotConfigAction(form: FormData): Promise<ActionOutco
             reviewWorkingDays,
             workloadThreshold,
             defaultVisibilityMode,
+            defaultCapOptions,
+            maxParticipantsPerGroup,
           })
           .where(eq(lots.id, lotId))
           .run();
 
         logAudit(ctx, {
           eventType: 'lot.config_changed',
-          summary: `${before.code} kaskaadi seaded muudetud: ${responseDeadlineWorkingDays} tööpäeva kell ${deadlineLocalTime}, töömahu piir ${workloadThreshold}, nähtavus ${defaultVisibilityMode === 'dynamic' ? 'dünaamiline' : 'suletud'}`,
+          summary: `${before.code} kaskaadi seaded muudetud: ${responseDeadlineWorkingDays} tööpäeva kell ${deadlineLocalTime}, töömahu piir ${workloadThreshold}, nähtavus ${defaultVisibilityMode === 'dynamic' ? 'dünaamiline' : 'suletud'}, piirmäära liigid ${defaultCapOptions}, rühma ülempiir ${maxParticipantsPerGroup ?? 'puudub'}`,
           lotId,
           before: {
             responseDeadlineWorkingDays: before.responseDeadlineWorkingDays,
@@ -64,6 +74,8 @@ export async function updateLotConfigAction(form: FormData): Promise<ActionOutco
             reviewWorkingDays: before.reviewWorkingDays,
             workloadThreshold: before.workloadThreshold,
             defaultVisibilityMode: before.defaultVisibilityMode,
+            defaultCapOptions: before.defaultCapOptions,
+            maxParticipantsPerGroup: before.maxParticipantsPerGroup,
           },
           after: {
             responseDeadlineWorkingDays,
@@ -71,6 +83,8 @@ export async function updateLotConfigAction(form: FormData): Promise<ActionOutco
             reviewWorkingDays,
             workloadThreshold,
             defaultVisibilityMode,
+            defaultCapOptions,
+            maxParticipantsPerGroup,
           },
         });
       },

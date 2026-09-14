@@ -1,7 +1,11 @@
 'use client';
 
+import { HIND } from '@/domain/pricing';
+
 import { useMemo, useState } from 'react';
 import { ActionForm } from '@/components/action-form';
+import { describeGroups, type DateKind } from '@/domain/clusters';
+import { CAP_OPTIONS_LABELS, CAP_OPTIONS_VALUES, type CapOptions } from '@/domain/round-statuses';
 import { createRoundAction } from '@/server/actions/rounds-buyer';
 
 export interface TrainingOption {
@@ -15,6 +19,33 @@ export interface TrainingOption {
   participantCount: number;
   value: string;
   isLeftover: boolean;
+  /** [L-28] a cluster's group: chosen as a whole cluster, never singly */
+  dateKind: DateKind;
+  clusterCode: string | null;
+  groupIndex: number | null;
+}
+
+/** A row of the picker: a dated training, or a whole cluster of groups. */
+type PickerItem =
+  | { kind: 'training'; training: TrainingOption }
+  | { kind: 'cluster'; clusterCode: string; head: TrainingOption; groups: TrainingOption[] };
+
+function itemsOf(trainings: readonly TrainingOption[]): PickerItem[] {
+  const items: PickerItem[] = [];
+  const seen = new Set<string>();
+  for (const training of trainings) {
+    if (training.dateKind === 'period' && training.clusterCode) {
+      if (seen.has(training.clusterCode)) continue;
+      seen.add(training.clusterCode);
+      const groups = trainings
+        .filter((t) => t.clusterCode === training.clusterCode)
+        .sort((a, b) => (a.groupIndex ?? 0) - (b.groupIndex ?? 0));
+      items.push({ kind: 'cluster', clusterCode: training.clusterCode, head: groups[0]!, groups });
+    } else {
+      items.push({ kind: 'training', training });
+    }
+  }
+  return items;
 }
 
 export interface LotInfo {
@@ -24,6 +55,7 @@ export interface LotInfo {
   responseDeadlineWorkingDays: number;
   deadlineLocalTime: string;
   defaultVisibilityMode: 'dynamic' | 'sealed';
+  defaultCapOptions: CapOptions;
   activePartnerCount: number;
 }
 
@@ -37,32 +69,45 @@ export function NewRoundForm({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState('');
 
+  const items = useMemo(() => itemsOf(trainings), [trainings]);
   const visible = useMemo(() => {
     const needle = filter.trim().toLowerCase();
-    if (!needle) return trainings;
-    return trainings.filter((t) =>
-      [t.code, t.title, t.county, t.targetGroup].some((field) =>
+    if (!needle) return items;
+    return items.filter((item) => {
+      const t = item.kind === 'training' ? item.training : item.head;
+      return [t.code, t.title, t.county, t.targetGroup, item.kind === 'cluster' ? item.clusterCode : ''].some((field) =>
         field.toLowerCase().includes(needle),
-      ),
-    );
-  }, [filter, trainings]);
+      );
+    });
+  }, [filter, items]);
 
-  const toggle = (id: string) =>
+  const idsOf = (item: PickerItem) => (item.kind === 'training' ? [item.training.id] : item.groups.map((g) => g.id));
+  const isChosen = (item: PickerItem) => idsOf(item).every((id) => selected.has(id));
+
+  const toggleItem = (item: PickerItem) =>
     setSelected((current) => {
       const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      const chosen = isChosen(item);
+      for (const id of idsOf(item)) {
+        if (chosen) next.delete(id);
+        else next.add(id);
+      }
       return next;
     });
 
-  const allVisibleSelected = visible.length > 0 && visible.every((t) => selected.has(t.id));
+  const allVisibleSelected = visible.length > 0 && visible.every((item) => isChosen(item));
+
+  // [V-09] a round is of one kind; say so here rather than after the submit.
+  const chosenKinds = new Set(trainings.filter((t) => selected.has(t.id)).map((t) => t.dateKind));
+  const mixed = chosenKinds.size > 1;
+  const isClusterChoice = chosenKinds.size === 1 && chosenKinds.has('period');
 
   return (
     <ActionForm
       action={createRoundAction}
-      submitLabel={`Loo mustand (${selected.size} koolitust)`}
+      submitLabel={`Loo mustand (${selected.size} ${isClusterChoice ? 'rühma' : 'koolitust'})`}
       variant="primary"
-      disabled={selected.size === 0 || lot.activePartnerCount === 0}
+      disabled={selected.size === 0 || lot.activePartnerCount === 0 || mixed}
       hidden={{ lotId: lot.id }}
       className="space-y-4"
     >
@@ -85,6 +130,21 @@ export function NewRoundForm({
               Dünaamiline režiim näitab partnerile, kas koolituse on juba märkinud eesõigusega
               partner — ilma nime avaldamata. Suletud režiim on olemas juhuks, kui see ei sobi
               raamlepingu sõnastusega.
+            </span>
+          </label>
+          <label className="block">
+            <span className="text-[12.5px] font-semibold">Piirmäära liigid partneritele</span>
+            <select name="capOptions" defaultValue={lot.defaultCapOptions} className="kh-input mt-1" data-testid="cap-options">
+              {CAP_OPTIONS_VALUES.map((value) => (
+                <option key={value} value={value}>
+                  {CAP_OPTIONS_LABELS[value]}
+                </option>
+              ))}
+            </select>
+            <span className="mt-1 block text-[12px] text-[var(--color-muted)]">
+              Partner võib oma kinnitatud märkeid piirata koolituste arvuga või määratavate koolituste
+              osalejate koguarvuga. Osalejate eelarve puhul jäetakse mittemahtuv koolitus vahele ja
+              järgmisi proovitakse edasi. Vaikeväärtus tuleb hankeosa seadetest.
             </span>
           </label>
           <label className="block">
@@ -115,7 +175,13 @@ export function NewRoundForm({
           <h2>Vali koolitused</h2>
           <span className="text-[13px] text-[var(--color-muted)]">
             {trainings.length} jaotamata koolitust hankeosas {lot.code}
+            {items.some((item) => item.kind === 'cluster') && ' — klaster valitakse tervikuna'}
           </span>
+          {mixed && (
+            <span className="text-[12.5px] font-semibold" style={{ color: 'var(--color-danger)' }} data-testid="mixed-kind-warning">
+              Voor on ühte liiki: vali kas kindla kuupäevaga koolitused või klastrid, mitte mõlemad [V-09].
+            </span>
+          )}
           <input
             type="search"
             value={filter}
@@ -143,8 +209,12 @@ export function NewRoundForm({
                       onChange={() =>
                         setSelected((current) => {
                           const next = new Set(current);
-                          if (allVisibleSelected) visible.forEach((t) => next.delete(t.id));
-                          else visible.forEach((t) => next.add(t.id));
+                          for (const item of visible) {
+                            for (const id of idsOf(item)) {
+                              if (allVisibleSelected) next.delete(id);
+                              else next.add(id);
+                            }
+                          }
                           return next;
                         })
                       }
@@ -156,43 +226,66 @@ export function NewRoundForm({
                   <th className="kh-th">Toimumine</th>
                   <th className="kh-th">Maakond</th>
                   <th className="kh-th">Sihtrühm</th>
-                  <th className="kh-th">Osalejaid</th>
-                  <th className="kh-th">Maksumus</th>
+                  <th className="kh-th">{HIND.maxOsalejaid}</th>
+                  <th className="kh-th">{HIND.tellijaHinnang}</th>
                 </tr>
               </thead>
               <tbody>
-                {visible.map((training) => (
-                  <tr
-                    key={training.id}
-                    className="cursor-pointer hover:bg-[var(--color-surface-alt)]"
-                    onClick={() => toggle(training.id)}
-                  >
-                    <td className="kh-td">
-                      <input
-                        type="checkbox"
-                        aria-label={`Vali ${training.code}`}
-                        checked={selected.has(training.id)}
-                        onChange={() => toggle(training.id)}
-                        onClick={(event) => event.stopPropagation()}
-                      />
-                    </td>
-                    <td className="kh-td font-semibold whitespace-nowrap">
-                      {training.code}
-                      {training.isLeftover && (
-                        <span className="ml-1.5 text-[11px] font-normal text-[var(--color-danger)]">
-                          jääk
-                        </span>
-                      )}
-                    </td>
-                    <td className="kh-td">{training.title}</td>
-                    <td className="kh-td text-[13px] whitespace-nowrap">{training.workshopType}</td>
-                    <td className="kh-td whitespace-nowrap tabular-nums">{training.eventDate}</td>
-                    <td className="kh-td text-[13px] whitespace-nowrap">{training.county}</td>
-                    <td className="kh-td text-[13px] whitespace-nowrap">{training.targetGroup}</td>
-                    <td className="kh-td tabular-nums">{training.participantCount}</td>
-                    <td className="kh-td whitespace-nowrap tabular-nums">{training.value}</td>
-                  </tr>
-                ))}
+                {visible.map((item) => {
+                  const training = item.kind === 'training' ? item.training : item.head;
+                  const code = item.kind === 'cluster' ? item.clusterCode : training.code;
+                  const chosen = isChosen(item);
+                  return (
+                    <tr
+                      key={code}
+                      className="cursor-pointer hover:bg-[var(--color-surface-alt)]"
+                      onClick={() => toggleItem(item)}
+                      data-testid={item.kind === 'cluster' ? 'cluster-option' : undefined}
+                    >
+                      <td className="kh-td">
+                        <input
+                          type="checkbox"
+                          aria-label={`Vali ${code}`}
+                          checked={chosen}
+                          onChange={() => toggleItem(item)}
+                          onClick={(event) => event.stopPropagation()}
+                        />
+                      </td>
+                      <td className="kh-td font-semibold whitespace-nowrap">
+                        {code}
+                        {item.kind === 'cluster' && (
+                          <span className="ml-1.5 text-[11px] font-normal text-[var(--color-muted)]">klaster</span>
+                        )}
+                        {training.isLeftover && (
+                          <span className="ml-1.5 text-[11px] font-normal text-[var(--color-danger)]">
+                            jääk
+                          </span>
+                        )}
+                      </td>
+                      <td className="kh-td">
+                        {training.title}
+                        {item.kind === 'cluster' && (
+                          <div className="text-[12px] text-[var(--color-muted)]">
+                            {describeGroups(
+                              item.groups.map((g) => ({ groupIndex: g.groupIndex ?? 0, participantCount: g.participantCount })),
+                              [],
+                            )}
+                          </div>
+                        )}
+                      </td>
+                      <td className="kh-td text-[13px] whitespace-nowrap">{training.workshopType}</td>
+                      <td className="kh-td whitespace-nowrap tabular-nums">{training.eventDate}</td>
+                      <td className="kh-td text-[13px] whitespace-nowrap">{training.county}</td>
+                      <td className="kh-td text-[13px] whitespace-nowrap">{training.targetGroup}</td>
+                      <td className="kh-td tabular-nums">
+                        {item.kind === 'cluster'
+                          ? item.groups.reduce((sum, g) => sum + g.participantCount, 0)
+                          : training.participantCount}
+                      </td>
+                      <td className="kh-td whitespace-nowrap tabular-nums">{training.value}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

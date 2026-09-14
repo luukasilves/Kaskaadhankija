@@ -2,6 +2,7 @@
 
 import { ActionButton, ActionForm } from '@/components/action-form';
 import { RankChip, StatusBadge } from '@/components/status-badge';
+import { CAP_OPTIONS_LABELS, CAP_OPTIONS_VALUES, type CapOptions } from '@/domain/round-statuses';
 import { updateLotConfigAction } from '@/server/actions/lots';
 import { deactivateLotPartnerAction } from '@/server/actions/rounds-buyer';
 
@@ -18,6 +19,9 @@ export function LotConfigForm({
     workloadThreshold: number;
     thresholdNote: string;
     defaultVisibilityMode: 'dynamic' | 'sealed';
+    defaultCapOptions: CapOptions;
+    /** [K-06][L-28] the framework's ceiling on one group; null = none */
+    maxParticipantsPerGroup: number | null;
   };
   openRoundCodes: string[];
 }) {
@@ -102,6 +106,24 @@ export function LotConfigForm({
           </span>
         </label>
 
+        <label className="block">
+          <span className="text-[12.5px] font-semibold">Rühma osalejate ülempiir</span>
+          <input
+            type="number"
+            name="maxParticipantsPerGroup"
+            min={1}
+            max={2000}
+            defaultValue={lot.maxParticipantsPerGroup ?? ''}
+            placeholder="piiri ei ole"
+            className="kh-input mt-1"
+            data-testid="max-participants-per-group"
+          />
+          <span className="mt-1 block text-[12px] text-[var(--color-muted)]">
+            Raamlepingu ülempiir ühele töötoale (nt 75). Kindla kuupäevaga koolitus üle piiri saab
+            impordil hoiatuse; klastri rühm üle piiri lükatakse tagasi.
+          </span>
+        </label>
+
         <label className="block sm:col-span-2">
           <span className="text-[12.5px] font-semibold">Vaikimisi nähtavusrežiim</span>
           <select
@@ -119,6 +141,22 @@ export function LotConfigForm({
             sõnastusega saaks lahendada ilma koodi muutmata.
           </span>
         </label>
+
+        <label className="block sm:col-span-2 lg:col-span-3">
+          <span className="text-[12.5px] font-semibold">Vaikimisi piirmäära liigid uues voorus</span>
+          <select name="defaultCapOptions" defaultValue={lot.defaultCapOptions} className="kh-input mt-1">
+            {CAP_OPTIONS_VALUES.map((value) => (
+              <option key={value} value={value}>
+                {CAP_OPTIONS_LABELS[value]}
+              </option>
+            ))}
+          </select>
+          <span className="mt-1 block text-[12px] text-[var(--color-muted)]">
+            Mida partner võib oma märgetele ülempiiriks seada: koolituste arvu, määratavate
+            koolituste osalejate koguarvu, kummagi omal valikul või mitte midagi. Igal voorul saab
+            valikut loomisel muuta.
+          </span>
+        </label>
       </div>
     </ActionForm>
   );
@@ -128,9 +166,12 @@ export function PartnerRows({
   lotId,
   threshold,
   rows,
+  canWrite,
 }: {
   lotId: string;
   threshold: number;
+  /** a member reads the ranking; ending a participation is an admin's act */
+  canWrite: boolean;
   rows: Array<{
     lotPartnerId: string;
     rank: number;
@@ -175,7 +216,7 @@ export function PartnerRows({
             )}
           </td>
           <td className="kh-td">
-            {row.isActive && (
+            {row.isActive && canWrite && (
               <ActionButton
                 action={deactivateLotPartnerAction}
                 label="Lõpeta osalus"

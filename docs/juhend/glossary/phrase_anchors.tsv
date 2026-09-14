@@ -1,0 +1,18 @@
+concept	ET_authentic	note_source
+rank order decides, not speed	Koolitused jaotatakse rangelt raamlepingu järjestuse alusel — vastamise kiirus ei anna eelist.	round-templates.ts renderRoundPublished; voorud/page.tsx lede
+only confirmed marks count	Tähtajal loevad ainult kinnitatud märked.	voorud/page.tsx:133; marking-form.tsx unconfirmed-banner
+unconfirmed at the deadline is discarded	Tähtajaks kinnitamata valikut ei arvestata — loevad ainult kinnitatud märked.	round-templates.ts renderDeadlineReminder
+silence is a decline	Kui te tähtajaks ei kinnita, loetakse see loobumiseks.	round-templates.ts renderRoundPublished
+silence is a decline (on screen)	Tähtajaks vastamata jätmine loetakse loobumiseks.	voorud/page.tsx:138; no-response-banner
+the projection is provisional	Prognoos on esialgne ja võib muutuda kuni tähtajani.	round-templates.ts renderRoundPublished, renderProjectionChanged
+a confirmed mark binds	Kinnitatud märge on siduv: kui koolitus teile määratakse, olete kohustatud selle raamlepingu tingimustel läbi viima.	marking-form.tsx:282-289
+the last confirmation wins	Siduv on viimane kinnitus enne tähtaega.	round-templates.ts renderConfirmationReceipt; voorud/[id]/page.tsx history
+you may revise until the deadline	Saate oma valikut muuta ja uuesti kinnitada kuni <tähtaeg>.	round-templates.ts renderConfirmationReceipt
+please mark and confirm	Palume märkida koolitused, mida olete valmis läbi viima, ja oma valik kinnitada hiljemalt <tähtaeg>.	round-templates.ts renderRoundPublished
+lost to another partner, neutrally	määrati teisele partnerile	round-templates.ts renderAllocatedElsewhere; N-08
+the order is the contract	Raamlepingu järgi on tellimus käsitletav hankelepinguna.	tellimused/page.tsx lede; T-05
+the buyer will decide	Tellija kinnitab jaotust eeldatavasti <aeg>.	voorud/page.tsx; voorud/[id]/page.tsx closed banner
+the ceiling protects you	Ülempiir kaitseb teid liigse mahu eest — piirmäära sees jaotatakse koolitused toimumiskuupäeva järjekorras.	marking-form.tsx:282-289
+a mark without a projection is a fallback	märge ilma prognoosita on varuvariant, mis hakkab kehtima, kui eesõigusega partner loobub	marking-form.tsx:163-168
+declining costs nothing	see ei mõjuta teie kohta raamlepingu järjestuses	voorud/[id]/page.tsx no-response-banner
+print it yourself	Trükkimiseks kasutage brauseri prindifunktsiooni (Ctrl/Cmd + P).	tellimused/[id]/page.tsx:72 — the app says "kasuta"; the guide uses teie

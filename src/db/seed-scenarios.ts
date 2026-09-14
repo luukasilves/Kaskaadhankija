@@ -1,12 +1,14 @@
 /**
  * Scenario rounds for the mock database.
  *
- * Built by **replaying real engine calls against a rewound virtual clock**, so
- * the audit trail, the notification log and the frozen snapshots a tester sees
- * are genuine rather than fabricated rows. Each step gets its own `Ctx` with
- * its own `at` and its own actor label — publishing happens weeks ago as the
- * buyer, a confirmation happens hours later as that partner's contact — while
- * they all share one transaction, so a broken scenario seeds nothing at all.
+ * Built by **replaying real engine calls at back-dated instants**, so the audit
+ * trail, the notification log and the frozen snapshots a tester sees are
+ * genuine rather than fabricated rows. Each step gets its own `Ctx` with its
+ * own `at` and its own actor label — publishing happened fifteen working days
+ * ago as the buyer, a confirmation hours later as that partner's contact —
+ * while they all share one transaction, so a broken scenario seeds nothing at
+ * all. Nothing here reads a clock: every instant is derived from the seed's own
+ * `now`, which is why removing the virtual clock [L-23] left it untouched.
  *
  * The four scenarios exist to make specific rules reachable without any setup:
  *
@@ -15,7 +17,7 @@
  *  - **B** a finished round that left a training unallocated, so the [T-06]
  *    jääk decision is waiting on the buyer's töölaud;
  *  - **A** an **open** round that reproduces Lisa B of the spec exactly, so a
- *    tester can walk the worked example from three partner personas — with the
+ *    tester can walk the worked example as three partners — with the
  *    third holding an unconfirmed draft, which is where the [K-03] trap lives;
  *  - **C** a draft, so "publish a round" can be tried without building one.
  *
@@ -278,7 +280,21 @@ function scenarioLisaB(tx: Tx, cast: Cast, now: number, buyerLabel: string): str
     'KK-2026-206',
   ]);
 
-  const publishedAt = subWorkingDays(new Date(now), 2, '10:00').getTime();
+  /*
+   * Published a few hours ago rather than two working days ago, so that after a
+   * reset the tester finds the **whole** response window ahead of them.
+   *
+   * Seeded two working days in, the round was always about to expire however
+   * often the sample data was reset: reset on a Monday and the deadline was
+   * always Tuesday, with a day left. That is a fine way to show urgency and a
+   * poor way to run a session where several people need time to mark and
+   * confirm — and the urgent state is one click away anyway, on the strip's
+   * "Järgmise tähtajani".
+   *
+   * The partners' answers compress into those hours accordingly. Their order is
+   * what Lisa B depends on, not the gaps between them.
+   */
+  const publishedAt = now - 4 * H;
   const roundId = createRound(buyerCtx(tx, publishedAt - H, buyerLabel), {
     lotId,
     trainingIds: [k1!, k2!, k3!, k4!, k5!, k6!],
@@ -290,14 +306,14 @@ function scenarioLisaB(tx: Tx, cast: Cast, now: number, buyerLabel: string): str
   const aId = cast.partnerId(REG.aiAkadeemia);
 
   // A answers first with three marks and no cap.
-  confirmMarks(partnerCtx(tx, publishedAt + 4 * H, aLabel), roundId, aId, {
+  confirmMarks(partnerCtx(tx, publishedAt + H, aLabel), roundId, aId, {
     marks: [k1!, k2!, k3!],
     cap: null,
   });
 
   // B answers next, and is at that moment projected K4 and K6.
   confirmMarks(
-    partnerCtx(tx, publishedAt + 6 * H, cast.contactLabel(REG.digioskus, 'OSA-2')),
+    partnerCtx(tx, publishedAt + 2 * H, cast.contactLabel(REG.digioskus, 'OSA-2')),
     roundId,
     cast.partnerId(REG.digioskus),
     { marks: [k2!, k3!, k4!, k6!], cap: null },
@@ -306,13 +322,13 @@ function scenarioLisaB(tx: Tx, cast: Cast, now: number, buyerLabel: string): str
   // A then revises to the Lisa B position — four marks, capped at two. This
   // releases K3, which moves B's projection from two to three and produces a
   // genuine [D-04] projection notice in the log, addressed to B.
-  confirmMarks(partnerCtx(tx, publishedAt + 22 * H, aLabel), roundId, aId, {
+  confirmMarks(partnerCtx(tx, publishedAt + 3 * H, aLabel), roundId, aId, {
     marks: [k1!, k2!, k3!, k5!],
     cap: 2,
   });
 
   saveDraftMarks(
-    partnerCtx(tx, publishedAt + 27 * H, cast.contactLabel(REG.tehisaru, 'OSA-2')),
+    partnerCtx(tx, publishedAt + 3.5 * H, cast.contactLabel(REG.tehisaru, 'OSA-2')),
     roundId,
     cast.partnerId(REG.tehisaru),
     { marks: [k1!, k3!, k4!, k5!, k6!], cap: null },
@@ -338,6 +354,24 @@ function scenarioDraft(tx: Tx, cast: Cast, now: number, buyerLabel: string): voi
   });
 }
 
+/**
+ * Scenario D — a **cluster** round as a draft [L-28][V-09]: the seed calendar's
+ * KL-2026-001 (500 entrepreneurs in Harju county, October–December, ten groups
+ * of fifty), so the buyer can publish a volume order and the partners can try
+ * „võtan kuni n rühma“ without building one first. Never published here: the
+ * groups are interchangeable only once partners answer, and that is the thing
+ * to try live.
+ */
+function scenarioClusterDraft(tx: Tx, cast: Cast, now: number, buyerLabel: string): void {
+  const lotId = cast.lotId('OSA-2');
+  const groupIds = cast.trainingIds(Array.from({ length: 10 }, (_, i) => `KL-2026-001-${String(i + 1).padStart(2, '0')}`));
+  createRound(buyerCtx(tx, now - H, buyerLabel), {
+    lotId,
+    trainingIds: groupIds,
+    note: 'Mahuline tellimus: 500 väikeettevõtjat Harjumaal okt–dets, 10 rühma × 50. Partner kinnitab rühmade arvu.',
+  });
+}
+
 /* ------------------------------------------------------------------ *
  * entry point
  * ------------------------------------------------------------------ */
@@ -354,6 +388,7 @@ export function seedScenarios(tx: Tx, now: number, buyerLabel: string): Scenario
   scenarioLeftover(tx, cast, now, buyerLabel);
   const openRoundId = scenarioLisaB(tx, cast, now, buyerLabel);
   scenarioDraft(tx, cast, now, buyerLabel);
+  scenarioClusterDraft(tx, cast, now, buyerLabel);
 
   return { openRoundId };
 }

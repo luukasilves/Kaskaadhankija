@@ -14,12 +14,13 @@
  */
 
 import { eq, inArray } from 'drizzle-orm';
-import { importBatches, lots, trainings, type ImportSummary } from '@/db/schema';
+import { importBatches, lots, trainings, type ImportKind, type ImportSummary } from '@/db/schema';
 import { countRows, parseTrainingRows, type ParsedRow, type RowDiagnostic, type TrainingRow } from '@/domain/import-rows';
 import { isTrainingImportable } from '@/domain/round-statuses';
 import { tallinnIsoDay } from '@/domain/format';
 import { logAudit } from '../audit';
 import type { Ctx } from '../context';
+import { reconcileClusterRows } from './cluster-rows';
 import { parseCsv } from './csv';
 import { parseXlsx } from './xlsx';
 
@@ -56,6 +57,17 @@ function knownLotCodes(ctx: Ctx): string[] {
     .map((r) => r.code);
 }
 
+/** [K-06][L-21] each lot's ceiling on one group, for the parser's warnings and refusals. */
+export function lotGroupCeilings(ctx: Ctx): Record<string, number | null> {
+  return Object.fromEntries(
+    ctx.tx
+      .select({ code: lots.code, ceiling: lots.maxParticipantsPerGroup })
+      .from(lots)
+      .all()
+      .map((r) => [r.code, r.ceiling] as const),
+  );
+}
+
 /** Read an uploaded file into raw rows, choosing the reader by extension. */
 export async function readTable(
   fileName: string,
@@ -87,15 +99,27 @@ export function previewTrainingsImport(
 ): PreviewResult {
   const lotCodes = knownLotCodes(ctx);
   const raws = input.rawRows.slice(0, MAX_ROWS);
-  const { rows, fileErrors } = parseTrainingRows(raws, {
+  const parsed = parseTrainingRows(raws, {
     knownLotCodes: lotCodes,
     todayIso: tallinnIsoDay(ctx.at),
+    maxParticipantsPerGroup: lotGroupCeilings(ctx),
   });
+  const fileErrors = [...parsed.fileErrors];
 
   if (input.rawRows.length > MAX_ROWS) {
     fileErrors.push({
       message: `Failis on ${input.rawRows.length} rida; imporditakse esimesed ${MAX_ROWS}.`,
     });
+  }
+
+  // [L-28] A cluster row becomes its group rows here — checked against the
+  // groups the database already holds. The cap counts the expanded rows.
+  let rows = reconcileClusterRows(ctx, parsed.rows);
+  if (rows.length > MAX_ROWS) {
+    fileErrors.push({
+      message: `Failis on klastrite rühmadega kokku ${rows.length} rida; korraga imporditakse kuni ${MAX_ROWS}. Jaga fail kaheks.`,
+    });
+    rows = [];
   }
 
   const counts = countRows(rows);
@@ -148,7 +172,7 @@ export function previewTrainingsImport(
 }
 
 /** Mark rows whose training exists but is no longer importable. */
-function annotateLockState(ctx: Ctx, stored: StoredRow[], summary: ImportSummary): void {
+export function annotateLockState(ctx: Ctx, stored: StoredRow[], summary: ImportSummary): void {
   const codes = stored.map((r) => r.value?.code).filter((c): c is string => Boolean(c));
   if (codes.length === 0) return;
 
@@ -197,7 +221,34 @@ export function applyTrainingsImport(ctx: Ctx, batchId: string): ApplyResult {
 
   const payload = batch.rowsJson as { rows: StoredRow[]; fileErrors: RowDiagnostic[] };
   const rows = payload.rows;
+  const summary = applyTrainingRows(ctx, rows, batchId);
 
+  ctx.tx
+    .update(importBatches)
+    .set({
+      status: 'imported',
+      importedAt: ctx.at,
+      rowsJson: { rows, fileErrors: payload.fileErrors },
+      summary,
+    })
+    .where(eq(importBatches.id, batchId))
+    .run();
+
+  logAudit(ctx, {
+    eventType: 'import.trainings_imported',
+    summary: `Koolituskalender imporditud failist ${batch.fileName}: ${summary.created} uut, ${summary.updated} uuendatud, ${summary.locked} lukus, ${summary.withErrors} veaga`,
+    after: { batchId, fileName: batch.fileName, source: batch.source, summary },
+  });
+
+  return { summary, rows };
+}
+
+/**
+ * Write validated rows: create by code, update where the training is still
+ * importable, refuse to touch one that is in a round or allocated [V-04].
+ * Shared with the round upload, so a training enters the system one way only.
+ */
+export function applyTrainingRows(ctx: Ctx, rows: StoredRow[], batchId: string): ImportSummary {
   const lotIdByCode = new Map(
     ctx.tx
       .select({ id: lots.id, code: lots.code })
@@ -241,6 +292,10 @@ export function applyTrainingsImport(ctx: Ctx, batchId: string): ApplyResult {
       workshopType: row.value.workshopType,
       eventDate: row.value.eventDate,
       eventEnd: row.value.eventEnd,
+      // [L-28] a group of a cluster, or a dated training
+      dateKind: row.value.dateKind,
+      clusterCode: row.value.clusterCode,
+      groupIndex: row.value.groupIndex,
       county: row.value.county,
       locationText: row.value.locationText,
       targetGroup: row.value.targetGroup,
@@ -283,24 +338,7 @@ export function applyTrainingsImport(ctx: Ctx, batchId: string): ApplyResult {
     summary.updated += 1;
   }
 
-  ctx.tx
-    .update(importBatches)
-    .set({
-      status: 'imported',
-      importedAt: ctx.at,
-      rowsJson: { rows, fileErrors: payload.fileErrors },
-      summary,
-    })
-    .where(eq(importBatches.id, batchId))
-    .run();
-
-  logAudit(ctx, {
-    eventType: 'import.trainings_imported',
-    summary: `Koolituskalender imporditud failist ${batch.fileName}: ${summary.created} uut, ${summary.updated} uuendatud, ${summary.locked} lukus, ${summary.withErrors} veaga`,
-    after: { batchId, fileName: batch.fileName, source: batch.source, summary },
-  });
-
-  return { summary, rows };
+  return summary;
 }
 
 /** Convenience for the seed and the sample-data button: preview then apply. */
@@ -318,9 +356,21 @@ export function importTrainingsFromRows(
   return { ...applied, batchId: preview.batchId, fileErrors: preview.fileErrors };
 }
 
-export function discardImport(ctx: Ctx, batchId: string): void {
+/**
+ * Throw away an unconfirmed preview.
+ *
+ * `expected` is the kinds of batch the caller is entitled to discard, and it is
+ * not optional: the batch id arrives in a form field, and the two buyer roles
+ * do not have the same rights over the same batches [R-01]. A hankija discards
+ * their own calendar and round previews; the framework's preview is an admin's,
+ * and without this check a hankija could cancel one by posting its id to the
+ * calendar's form. Nothing of the framework would change — but an admin
+ * mid-upload would find their work gone with no explanation.
+ */
+export function discardImport(ctx: Ctx, batchId: string, expected: readonly ImportKind[]): void {
   const batch = ctx.tx.select().from(importBatches).where(eq(importBatches.id, batchId)).get();
   if (!batch || batch.status !== 'previewed') return;
+  if (!expected.includes(batch.kind)) throw new Error('See import ei kuulu siia vaatesse.');
   ctx.tx
     .update(importBatches)
     .set({ status: 'discarded' })

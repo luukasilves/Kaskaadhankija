@@ -13,15 +13,23 @@ import { and, desc, eq, inArray } from 'drizzle-orm';
 import { getDb } from '@/db';
 import { notifications, orders, rounds } from '@/db/schema';
 import { formatDateTimeShort } from '@/domain/format';
-import { NOTIFICATION_TYPE_LABELS } from '@/domain/round-statuses';
+import {
+  EMAIL_DELIVERY_STATUS_LABELS,
+  INFORMATIONAL_NOTICES_TEXT,
+  NOTIFICATION_TYPE_LABELS,
+} from '@/domain/round-statuses';
 import { StatusBadge } from '@/components/status-badge';
 import { requirePartner } from '@/server/auth/actor';
-import { hasSmtp } from '@/lib/env';
+import { describeMailMode } from '@/server/mail';
+import { informationalMailOn } from '@/server/notice-preferences';
+import { frameworkRecipients } from '@/server/recipients';
+import { deliveriesFor } from '@/server/notify';
+import { InformationalMailToggle } from './notice-preferences-form';
 
 export const dynamic = 'force-dynamic';
 
 /** Types worth pulling the eye to: something is expected of the partner. */
-const ACTIONABLE = new Set(['round_published', 'reminder_24h', 'round_changed', 'order_issued']);
+const ACTIONABLE = new Set(['round_published', 'reminder_24h', 'reminder_final', 'round_changed', 'round_closed_partner', 'order_issued']);
 
 export default async function PartnerNotificationsPage() {
   const actor = await requirePartner();
@@ -37,8 +45,6 @@ export default async function PartnerNotificationsPage() {
             type: notifications.type,
             title: notifications.title,
             body: notifications.body,
-            emailTo: notifications.emailTo,
-            emailStatus: notifications.emailStatus,
             roundId: notifications.roundId,
             roundCode: rounds.code,
             orderId: notifications.orderId,
@@ -58,18 +64,48 @@ export default async function PartnerNotificationsPage() {
           .limit(200)
           .all();
 
+  // What happened to each e-mail copy — the partner's own addresses only, since
+  // the rows are already filtered to this company's notices [D-10].
+  const deliveries = deliveriesFor(
+    db,
+    rows.map((r) => r.id),
+  );
+  const informationalOn = informationalMailOn(db, actor);
+
   return (
     <div className="space-y-4">
       <div>
         <h1>Teavitused</h1>
         <p className="mt-1 max-w-[80ch] text-[var(--color-muted)]">
           Kõik teated, mille süsteem on teile koostanud — vooru avaldamised, kinnituste kviitungid,
-          prognoosi muutused ja tellimused.
-          {hasSmtp
-            ? ' SMTP on seadistatud, seega need saadeti ka e-postiga.'
-            : ' SMTP ei ole seadistatud, seega e-kirju ei saadetud — see logi on ainus kanal.'}
+          prognoosi muutused ja tellimused. {describeMailMode(frameworkRecipients(db).length)}
         </p>
       </div>
+
+      {/* [L-27] The person's own switch. Formal notices are not on it. */}
+      <section className="kh-card p-4" data-testid="notice-preferences">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="max-w-[80ch]">
+            <h2>Teavituste seaded</h2>
+            <p className="mt-1 text-[13px] text-[var(--color-muted)]">
+              Formaalsed teated — vooru avaldamine, muudatused, meeldetuletus ja vooru lõppemine —
+              tulevad e-postiga alati. <strong>Teabekirjad</strong> ({INFORMATIONAL_NOTICES_TEXT}) on
+              teie enda valik; siia logisse jäävad need igal juhul.
+            </p>
+            {informationalOn === null ? (
+              <p className="mt-2 text-[13px] text-[var(--color-muted)]">
+                Seadistus on isiklik: teise osalejana tegutsedes seda ei muudeta.
+              </p>
+            ) : (
+              <p className="mt-2 text-[13px]">
+                {actor.contactEmail}: teabekirjad e-postiga on{' '}
+                <strong>{informationalOn ? 'sisse lülitatud' : 'välja lülitatud'}</strong>.
+              </p>
+            )}
+          </div>
+          {informationalOn !== null && <InformationalMailToggle on={informationalOn} />}
+        </div>
+      </section>
 
       {rows.length === 0 ? (
         <p className="kh-card p-6 text-[var(--color-muted)]">Teateid veel ei ole.</p>
@@ -94,16 +130,11 @@ export default async function PartnerNotificationsPage() {
                       tone={actionable ? 'info' : 'neutral'}
                     />
                     {row.roundCode && <span>· {row.roundCode}</span>}
-                    {row.emailTo && (
-                      <span>
-                        · {row.emailTo}{' '}
-                        {row.emailStatus === 'sent'
-                          ? '(saadetud)'
-                          : row.emailStatus === 'failed'
-                            ? '(saatmine ebaõnnestus)'
-                            : '(e-kirja ei saadetud)'}
+                    {(deliveries.get(row.id) ?? []).map((mail) => (
+                      <span key={mail.id} title={mail.detail || undefined}>
+                        · {mail.to} ({EMAIL_DELIVERY_STATUS_LABELS[mail.status] ?? mail.status})
                       </span>
-                    )}
+                    ))}
                   </div>
                 </summary>
                 <pre className="mt-3 overflow-x-auto text-[13px] whitespace-pre-wrap">

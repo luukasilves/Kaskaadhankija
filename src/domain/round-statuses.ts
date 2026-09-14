@@ -6,7 +6,8 @@
  * means. Mirrors sections M, V and N of `docs/kaskaadi-ariloogika.md`.
  */
 
-import type { NotProjectedReason, TrainingViewState } from './allocate';
+import type { NotificationType } from '@/db/schema';
+import type { CapKind, NotProjectedReason, TrainingViewState } from './allocate';
 
 /* ------------------------------------------------------------------ *
  * voor [V-02]
@@ -86,6 +87,27 @@ export function isTrainingImportable(status: TrainingStatus): boolean {
  * partneri vastus
  * ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ *
+ * tellija rollid [R-01]
+ * ------------------------------------------------------------------ */
+
+/**
+ * The two buyer roles.
+ *
+ * `member` is the **purchaser**: they run the whole mini-procurement — rounds,
+ * uploads, publishing, review, adjustments, confirmation, protocols — and see
+ * every screen an admin sees. What they do not do is change the framework
+ * agreement's own data or the team, and they cannot act as another participant.
+ * `admin` is a purchaser who also administers those.
+ *
+ * The stored value stays `member` because that is what the row is — a member of
+ * the buyer team rather than an administrator of it; this map is the word people
+ * read.
+ */
+export const BUYER_ROLE_LABELS = { admin: 'Admin', member: 'Hankija' } as const;
+
+export type BuyerRole = keyof typeof BUYER_ROLE_LABELS;
+
 export type ParticipantOutcomeAtClose =
   | 'confirmed'
   | 'declined_all'
@@ -100,6 +122,51 @@ export const PARTICIPANT_OUTCOME_LABELS: Record<ParticipantOutcomeAtClose, strin
 };
 
 export type ResponseState = 'none' | 'draft_only' | 'confirmed' | 'declined_all' | 'unconfirmed_changes';
+
+/* ------------------------------------------------------------------ *
+ * piirmäära liigid [K-06][L-17]
+ * ------------------------------------------------------------------ */
+
+/** Which cap kinds the buyer offers the partners in a round. */
+export type CapOptions = 'none' | 'trainings' | 'participants' | 'both';
+
+export const CAP_OPTIONS_VALUES: readonly CapOptions[] = ['none', 'trainings', 'participants', 'both'];
+
+export const CAP_OPTIONS_LABELS: Record<CapOptions, string> = {
+  none: 'Piirmäära ei kasutata',
+  trainings: 'Koolituste arv („kuni N koolitust“)',
+  participants: 'Osalejate arv kokku („kuni N osalejat“)',
+  both: 'Partner valib: koolituste arv või osalejate arv',
+};
+
+/** The unit word after a cap value. */
+export const CAP_KIND_LABELS: Record<CapKind, string> = {
+  trainings: 'koolitust',
+  participants: 'osalejat',
+};
+
+export function allowedCapKinds(options: CapOptions): CapKind[] {
+  switch (options) {
+    case 'none':
+      return [];
+    case 'trainings':
+      return ['trainings'];
+    case 'participants':
+      return ['participants'];
+    default:
+      return ['trainings', 'participants'];
+  }
+}
+
+export function isCapOptions(value: string): value is CapOptions {
+  return (CAP_OPTIONS_VALUES as readonly string[]).includes(value);
+}
+
+/** "3 koolitust", "120 osalejat", or "—". */
+export function capLabel(cap: number | null | undefined, kind: CapKind | null | undefined): string {
+  if (cap === null || cap === undefined) return '—';
+  return `${cap} ${CAP_KIND_LABELS[kind ?? 'trainings']}`;
+}
 
 /** Wording for the partner's own status while the round is open. [K-03] */
 export const RESPONSE_STATE_LABELS: Record<ResponseState, string> = {
@@ -117,16 +184,16 @@ export const RESPONSE_STATE_LABELS: Record<ResponseState, string> = {
 export const TRAINING_VIEW_STATE_LABELS: Record<TrainingViewState, string> = {
   available: 'Saadaval',
   marked_by_higher: 'Eesõigusega partner on märkinud',
-  projected_to_you: 'Prognoosis sinule',
+  projected_to_you: 'Prognoosis teile',
   marked_not_projected: 'Märgitud, prognoosis ei ole',
 };
 
 const NOT_PROJECTED_REASON_LABELS: Record<NotProjectedReason, string> = {
   higher_partner: 'eesõigusega partner',
-  over_cap: 'üle sinu piirmäära',
+  over_cap: 'üle teie piirmäära',
 };
 
-/** Full label including the reason suffix, e.g. "Märgitud, prognoosis ei ole (üle sinu piirmäära)". */
+/** Full label including the reason suffix, e.g. "Märgitud, prognoosis ei ole (üle teie piirmäära)". */
 export function viewStateLabel(state: TrainingViewState, reason?: NotProjectedReason): string {
   const base = TRAINING_VIEW_STATE_LABELS[state];
   return reason ? `${base} (${NOT_PROJECTED_REASON_LABELS[reason]})` : base;
@@ -173,6 +240,15 @@ export const VIEW_STATE_TONES: Record<TrainingViewState, StatusTone> = {
   marked_by_higher: 'warning',
   projected_to_you: 'success',
   marked_not_projected: 'warning',
+};
+
+/** Only a confirmation is calm; everything else needs the partner's attention [K-03]. */
+export const RESPONSE_STATE_TONES: Record<ResponseState, StatusTone> = {
+  none: 'warning',
+  draft_only: 'warning',
+  confirmed: 'success',
+  declined_all: 'neutral',
+  unconfirmed_changes: 'warning',
 };
 
 /* ------------------------------------------------------------------ *
@@ -238,12 +314,61 @@ export const NOTIFICATION_TYPE_LABELS: Record<string, string> = {
   decline_receipt: 'Loobumise kviitung',
   projection_changed: 'Prognoos muutus',
   reminder_24h: 'Meeldetuletus',
+  reminder_final: 'Lõppkokkuvõte',
   round_changed: 'Vooru muudatus',
   round_cancelled: 'Voor tühistatud',
   participant_excluded: 'Partner arvati välja',
+  round_closed_partner: 'Voor lõppes',
   order_issued: 'Tellimus väljastatud',
   allocated_elsewhere: 'Määrati teisele partnerile',
   buyer_round_closed: 'Voor sulgus',
   buyer_round_confirmed: 'Jaotus kinnitatud',
   late_action_rejected: 'Hilinenud toiming',
+};
+
+export type NoticeCategory = 'formal' | 'informational';
+
+/**
+ * Which notices always go out by e-mail, and which a representative may switch
+ * off for themselves [D-10][L-27]. A `Record` over the whole type union, so a
+ * new notice type does not compile until somebody has decided which it is.
+ *
+ * Formal: the round's existence, its changes, the reminder and its end — a
+ * partner who never opens the application must still learn these. Informational:
+ * what the partner did themselves or can read on the page at any time.
+ */
+export const NOTICE_CATEGORY: Record<NotificationType, NoticeCategory> = {
+  round_published: 'formal',
+  confirmation_receipt: 'informational',
+  decline_receipt: 'informational',
+  projection_changed: 'informational',
+  reminder_24h: 'formal',
+  reminder_final: 'informational',
+  round_changed: 'formal',
+  round_cancelled: 'formal',
+  participant_excluded: 'formal',
+  round_closed_partner: 'formal',
+  order_issued: 'formal',
+  allocated_elsewhere: 'formal',
+  buyer_round_closed: 'formal',
+  buyer_round_confirmed: 'formal',
+  late_action_rejected: 'formal',
+};
+
+/** The informational notices, named for a reader [L-27]. */
+export const INFORMATIONAL_NOTICES_TEXT = 'kinnituste ja loobumiste kviitungid, prognoosi muutused ja lõppkokkuvõte';
+
+/** A partner representative's role [R-02]. */
+export const REPRESENTATIVE_ROLE_LABELS: Record<string, string> = {
+  esindaja: 'Lepinguline esindaja',
+  asendaja: 'Asendaja',
+};
+
+/** What happened to one e-mail, per recipient [D-10]. */
+export const EMAIL_DELIVERY_STATUS_LABELS: Record<string, string> = {
+  queued: 'ootel',
+  sent: 'saadetud',
+  failed: 'saatmine ebaõnnestus',
+  suppressed: 'ei saadetud — saaja ei ole lubatud saajate hulgas',
+  skipped: 'e-kirja ei saadetud',
 };

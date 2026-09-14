@@ -6,11 +6,15 @@
  * "upload a table" cannot diverge.
  */
 
+import { Fragment } from 'react';
 import Link from 'next/link';
+import { HIND } from '@/domain/pricing';
 import { eq } from 'drizzle-orm';
 import { getDb } from '@/db';
+import { buyerCanWrite } from '@/server/auth/actor';
 import { lots, partners, lotPartners, trainings } from '@/db/schema';
-import { formatEur, formatIsoDay } from '@/domain/format';
+import { describeGroups } from '@/domain/clusters';
+import { formatEur, formatEventWhen, formatMonthLabel, formatPeriod, monthKey } from '@/domain/format';
 import {
   TARGET_GROUPS,
   TRAINING_STATUS_LABELS,
@@ -19,8 +23,6 @@ import {
 } from '@/domain/round-statuses';
 import { LANGUAGE_LABELS, WORKSHOP_TYPE_LABELS } from '@/domain/statuses';
 import { StatusBadge } from '@/components/status-badge';
-import { isDemoMode } from '@/lib/env';
-import { SampleDataButton } from './sample-data-button';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,10 +38,11 @@ const STATUS_ORDER: TrainingStatus[] = [
 export default async function TrainingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ olek?: string; hankeosa?: string }>;
+  searchParams: Promise<{ olek?: string; hankeosa?: string; taitja?: string }>;
 }) {
   const params = await searchParams;
   const db = getDb();
+  const canWrite = await buyerCanWrite();
 
   const rows = db
     .select({
@@ -48,6 +51,10 @@ export default async function TrainingsPage({
       title: trainings.title,
       workshopType: trainings.workshopType,
       eventDate: trainings.eventDate,
+      eventEnd: trainings.eventEnd,
+      dateKind: trainings.dateKind,
+      clusterCode: trainings.clusterCode,
+      groupIndex: trainings.groupIndex,
       county: trainings.county,
       targetGroup: trainings.targetGroup,
       participantCount: trainings.participantCount,
@@ -61,19 +68,35 @@ export default async function TrainingsPage({
     .innerJoin(lots, eq(lots.id, trainings.lotId))
     .all();
 
-  const holderNames = new Map(
-    db
-      .select({ lotPartnerId: lotPartners.id, name: partners.name })
-      .from(lotPartners)
-      .innerJoin(partners, eq(partners.id, lotPartners.partnerId))
-      .all()
-      .map((r) => [r.lotPartnerId, r.name] as const),
-  );
+  const holders = db
+    .select({ lotPartnerId: lotPartners.id, partnerId: partners.id, name: partners.name })
+    .from(lotPartners)
+    .innerJoin(partners, eq(partners.id, lotPartners.partnerId))
+    .all();
+  const holderNames = new Map(holders.map((r) => [r.lotPartnerId, r.name] as const));
+  const holderPartner = new Map(holders.map((r) => [r.lotPartnerId, r.partnerId] as const));
 
   const filtered = rows
     .filter((row) => !params.olek || row.status === params.olek)
     .filter((row) => !params.hankeosa || row.lotCode === params.hankeosa)
+    .filter(
+      (row) =>
+        !params.taitja ||
+        (row.allocatedLotPartnerId !== null && holderPartner.get(row.allocatedLotPartnerId) === params.taitja),
+    )
     .sort((a, b) => a.eventDate.localeCompare(b.eventDate) || a.code.localeCompare(b.code));
+
+  // The partners who hold anything, for the „Täitja“ filter [N-01].
+  const holdingPartners = [
+    ...new Map(
+      rows
+        .filter((row) => row.allocatedLotPartnerId !== null)
+        .map((row) => {
+          const partnerId = holderPartner.get(row.allocatedLotPartnerId!) ?? '';
+          return [partnerId, holderNames.get(row.allocatedLotPartnerId!) ?? ''] as const;
+        }),
+    ).entries(),
+  ].sort((a, b) => a[1].localeCompare(b[1]));
 
   const counts = new Map<string, number>();
   for (const row of rows) counts.set(row.status, (counts.get(row.status) ?? 0) + 1);
@@ -89,10 +112,11 @@ export default async function TrainingsPage({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {isDemoMode && <SampleDataButton />}
-          <Link href="/tellija/koolitused/import" className="kh-btn kh-btn-primary">
-            Impordi tabel
-          </Link>
+          {canWrite && (
+            <Link href="/tellija/koolitused/import" className="kh-btn kh-btn-primary">
+              Impordi tabel
+            </Link>
+          )}
         </div>
       </div>
 
@@ -121,6 +145,21 @@ export default async function TrainingsPage({
             {code}
           </Link>
         ))}
+        {holdingPartners.length > 0 && (
+          <>
+            <span className="mx-1 text-[var(--color-muted)]">· Täitja:</span>
+            {holdingPartners.map(([partnerId, name]) => (
+              <Link
+                key={partnerId}
+                href={`/tellija/koolitused?taitja=${partnerId}`}
+                className="kh-btn"
+                style={params.taitja === partnerId ? { background: 'var(--color-brand)', borderColor: 'var(--color-brand)', color: '#fff' } : undefined}
+              >
+                {name}
+              </Link>
+            ))}
+          </>
+        )}
       </div>
 
       {filtered.length === 0 ? (
@@ -143,16 +182,41 @@ export default async function TrainingsPage({
                 <th className="kh-th">Toimumine</th>
                 <th className="kh-th">Maakond</th>
                 <th className="kh-th">Sihtrühm</th>
-                <th className="kh-th">Osalejaid</th>
+                <th className="kh-th">{HIND.maxOsalejaid}</th>
                 <th className="kh-th">Keel</th>
-                <th className="kh-th">Maksumus</th>
+                <th className="kh-th">{HIND.tellijaHinnang}</th>
                 <th className="kh-th">Olek</th>
                 <th className="kh-th">Täitja</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((row) => (
-                <tr key={row.id}>
+              {filtered.map((row, index) => (
+                <Fragment key={row.id}>
+                  {(index === 0 || monthKey(filtered[index - 1]!.eventDate) !== monthKey(row.eventDate)) && (
+                    <tr>
+                      <td
+                        colSpan={12}
+                        className="kh-td bg-[var(--color-surface-alt)] text-[12px] font-semibold uppercase tracking-wide text-[var(--color-muted)]"
+                      >
+                        {formatMonthLabel(row.eventDate)}
+                      </td>
+                    </tr>
+                  )}
+                  {/* [L-28] a cluster's groups sit under one header row */}
+                  {row.clusterCode && (index === 0 || filtered[index - 1]!.clusterCode !== row.clusterCode) && (
+                    <tr data-testid="cluster-header">
+                      <td colSpan={12} className="kh-td text-[12.5px] font-semibold">
+                        Klaster {row.clusterCode} · {row.title} · {formatPeriod(row.eventDate, row.eventEnd)} ·{' '}
+                        {describeGroups(
+                          filtered
+                            .filter((r) => r.clusterCode === row.clusterCode)
+                            .map((r) => ({ groupIndex: r.groupIndex ?? 0, participantCount: r.participantCount })),
+                          [],
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                <tr>
                   <td className="kh-td font-semibold whitespace-nowrap">{row.code}</td>
                   <td className="kh-td">{row.title}</td>
                   <td className="kh-td whitespace-nowrap">{row.lotCode}</td>
@@ -160,7 +224,7 @@ export default async function TrainingsPage({
                     {WORKSHOP_TYPE_LABELS[row.workshopType]}
                   </td>
                   <td className="kh-td whitespace-nowrap tabular-nums">
-                    {formatIsoDay(row.eventDate)}
+                    {formatEventWhen(row)}
                   </td>
                   <td className="kh-td text-[13px] whitespace-nowrap">{row.county}</td>
                   <td className="kh-td text-[13px] whitespace-nowrap">
@@ -171,7 +235,7 @@ export default async function TrainingsPage({
                     {LANGUAGE_LABELS[row.language]}
                   </td>
                   <td className="kh-td whitespace-nowrap tabular-nums">
-                    {formatEur(row.estimatedValueEur)}
+                    {row.estimatedValueEur > 0 ? formatEur(row.estimatedValueEur) : '—'}
                   </td>
                   <td className="kh-td whitespace-nowrap">
                     <StatusBadge
@@ -185,6 +249,7 @@ export default async function TrainingsPage({
                       : '—'}
                   </td>
                 </tr>
+                </Fragment>
               ))}
             </tbody>
           </table>

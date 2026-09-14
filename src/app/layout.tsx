@@ -1,5 +1,4 @@
 import type { Metadata } from 'next';
-import { TestStrip } from '@/components/test-strip';
 import { bootOnce } from '@/server/boot';
 import './globals.css';
 
@@ -19,11 +18,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 
   return (
     <html lang="et">
-      <body>
-        {/* The test harness sits above the application, never inside it. */}
-        <TestStrip />
-        {children}
-      </body>
+      <body>{children}</body>
     </html>
   );
 }

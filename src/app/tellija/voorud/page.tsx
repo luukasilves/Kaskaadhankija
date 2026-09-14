@@ -3,12 +3,13 @@
 import Link from 'next/link';
 import { desc, eq } from 'drizzle-orm';
 import { getDb } from '@/db';
-import { lots, roundTrainings, rounds } from '@/db/schema';
+import { lots, roundTrainings, rounds, roundProtocols } from '@/db/schema';
 import { formatDateTimeShort } from '@/domain/format';
 import { ROUND_STATUS_LABELS, ROUND_STATUS_TONES } from '@/domain/round-statuses';
 import { Countdown } from '@/components/countdown';
 import { StatusBadge } from '@/components/status-badge';
-import { readClock } from '@/server/clock';
+import { currentTimeMs } from '@/server/clock';
+import { buyerCanWrite } from '@/server/auth/actor';
 import { runDueJobs } from '@/server/rounds/jobs';
 
 export const dynamic = 'force-dynamic';
@@ -16,13 +17,15 @@ export const dynamic = 'force-dynamic';
 export default async function RoundsList() {
   runDueJobs();
   const db = getDb();
-  const { nowMs } = readClock(db);
+  const canWrite = await buyerCanWrite();
+  const nowMs = currentTimeMs();
 
   const rows = db
     .select({
       id: rounds.id,
       code: rounds.code,
       status: rounds.status,
+      kind: rounds.kind,
       lotCode: lots.code,
       lotName: lots.name,
       visibilityMode: rounds.visibilityMode,
@@ -35,6 +38,12 @@ export default async function RoundsList() {
     .innerJoin(lots, eq(lots.id, rounds.lotId))
     .orderBy(desc(rounds.createdAt))
     .all();
+
+  // [L-22] Which rounds already have their signable record — one lookup, so
+  // the list can say so without a query per row.
+  const withProtocol = new Set(
+    db.select({ roundId: roundProtocols.roundId }).from(roundProtocols).all().map((r) => r.roundId),
+  );
 
   const trainingCounts = new Map<string, number>();
   for (const link of db.select({ roundId: roundTrainings.roundId }).from(roundTrainings).all()) {
@@ -50,9 +59,11 @@ export default async function RoundsList() {
             Iga voor läheb korraga kõigile oma hankeosa aktiivsetele partneritele.
           </p>
         </div>
-        <Link href="/tellija/voorud/uus" className="kh-btn kh-btn-primary">
-          Uus voor
-        </Link>
+        {canWrite && (
+          <Link href="/tellija/voorud/uus" className="kh-btn kh-btn-primary">
+            Uus voor
+          </Link>
+        )}
       </div>
 
       {rows.length === 0 ? (
@@ -69,6 +80,7 @@ export default async function RoundsList() {
                 <th className="kh-th">Avaldatud</th>
                 <th className="kh-th">Tähtaeg</th>
                 <th className="kh-th">Nähtavus</th>
+                <th className="kh-th">Protokoll</th>
               </tr>
             </thead>
             <tbody>
@@ -95,7 +107,12 @@ export default async function RoundsList() {
                       tone={ROUND_STATUS_TONES[round.status]}
                     />
                   </td>
-                  <td className="kh-td tabular-nums">{trainingCounts.get(round.id) ?? 0}</td>
+                  <td className="kh-td tabular-nums">
+                    {trainingCounts.get(round.id) ?? 0}
+                    {round.kind === 'cluster' && (
+                      <span className="ml-1 text-[11px] text-[var(--color-muted)]">rühma · klastrivoor</span>
+                    )}
+                  </td>
                   <td className="kh-td text-[13px] whitespace-nowrap tabular-nums">
                     {round.publishedAt ? formatDateTimeShort(round.publishedAt) : '—'}
                   </td>
@@ -116,6 +133,15 @@ export default async function RoundsList() {
                   </td>
                   <td className="kh-td text-[13px] whitespace-nowrap">
                     {round.visibilityMode === 'dynamic' ? 'Dünaamiline' : 'Suletud'}
+                  </td>
+                  <td className="kh-td text-[13px] whitespace-nowrap">
+                    {withProtocol.has(round.id) ? (
+                      <Link href={`/tellija/voorud/${round.id}/protokoll`} className="text-[var(--color-brand)]">
+                        Protokoll
+                      </Link>
+                    ) : (
+                      '—'
+                    )}
                   </td>
                 </tr>
               ))}

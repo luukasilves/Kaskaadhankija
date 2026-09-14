@@ -52,6 +52,7 @@ export function ActionForm<T>({
   hidden,
   onDone,
   testId,
+  submitTitle,
 }: {
   action: ServerAction<T>;
   children?: React.ReactNode;
@@ -64,6 +65,8 @@ export function ActionForm<T>({
   hidden?: Record<string, string | number | undefined>;
   onDone?: (outcome: ActionOutcome<T>) => void;
   testId?: string;
+  /** tooltip for a button whose label is an arrow or an icon */
+  submitTitle?: string;
 }) {
   const [outcome, formAction, pending] = useActionState<ActionOutcome<T> | null, FormData>(
     async (_previous, formData) => action(formData),
@@ -102,7 +105,13 @@ export function ActionForm<T>({
         ),
       )}
       {children}
-      <button type="submit" className={variantClass} disabled={pending || disabled}>
+      <button
+        type="submit"
+        className={variantClass}
+        disabled={pending || disabled}
+        aria-busy={pending || undefined}
+        title={submitTitle}
+      >
         {pending ? 'Töötleb…' : submitLabel}
       </button>
       <OutcomeMessage outcome={outcome} />
@@ -129,6 +138,7 @@ export function ActionButton<T>({
   extraFields,
   disabled,
   testId,
+  title,
 }: {
   action: ServerAction<T>;
   label: string;
@@ -142,12 +152,19 @@ export function ActionButton<T>({
   extraFields?: React.ReactNode;
   disabled?: boolean;
   testId?: string;
+  title?: string;
 }) {
   const [open, setOpen] = useState(!reasonLabel);
 
   if (reasonLabel && !open) {
     return (
-      <button type="button" className="kh-btn" onClick={() => setOpen(true)} data-testid={testId}>
+      <button
+        type="button"
+        className="kh-btn"
+        onClick={() => setOpen(true)}
+        data-testid={testId}
+        title={title}
+      >
         {label}
       </button>
     );
@@ -162,6 +179,7 @@ export function ActionButton<T>({
       hidden={hidden}
       disabled={disabled}
       testId={testId}
+      submitTitle={title}
       className="space-y-2"
     >
       {extraFields}

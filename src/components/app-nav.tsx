@@ -3,6 +3,7 @@
  */
 
 import Link from 'next/link';
+import { logoutAction } from '@/server/actions/auth';
 
 export interface NavItem {
   href: string;
@@ -44,7 +45,14 @@ export function AppNav({
             </Link>
           ))}
         </nav>
-        <div className="ml-auto text-[12px] text-[var(--color-muted)]">{actor}</div>
+        <div className="ml-auto flex items-center gap-3 text-[12px] text-[var(--color-muted)]">
+          <span>{actor}</span>
+          <form action={logoutAction}>
+            <button type="submit" className="kh-btn text-xs" data-testid="sign-out">
+              Logi välja
+            </button>
+          </form>
+        </div>
       </div>
     </header>
   );

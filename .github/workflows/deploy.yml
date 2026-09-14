@@ -2,28 +2,34 @@ name: Deploy to Fly.io
 
 # Deploys the test environment: one machine, one SQLite file on a volume.
 #
+#   main → kaskaadhankija-v3   (https://kaskaadhankija-v3.fly.dev)
+#
+# The app name and APP_BASE_URL come from fly.toml; the `app` input of a manual
+# run overrides the name, for a clash or a throwaway copy. Until September 2026
+# a second app, `kaskaadhankija`, ran the accepted v2 (the persona picker) side
+# by side with the v3 line so the team could compare them; the v3 line is now
+# the only one and that app is retired — nothing deploys to it any more, and
+# the operator deletes it with `flyctl apps destroy kaskaadhankija`.
+#
 # Requires a single repository secret, FLY_API_TOKEN, scoped to the account or
 # the organisation — not an app-scoped deploy token, because the bootstrap job
 # may have to create the app itself.
-#
-# On the branch trigger: `workflow_dispatch` is only offered for workflows that
-# already exist on the default branch, so until this is merged the push trigger
-# is the only way to run it. Drop `claude/parallel-cascade-spec` from the list
-# once it is on main.
 
 on:
   workflow_dispatch:
     inputs:
       app:
-        description: 'Fly app name (must be globally unique)'
+        description: 'Fly app name (must be globally unique); empty takes fly.toml'
         required: false
         default: ''
   push:
-    branches: [main, claude/parallel-cascade-spec]
+    branches:
+      - main
 
 concurrency:
-  # One deploy at a time: two concurrent runs would fight over one machine.
-  group: fly-deploy
+  # One deploy at a time per app: two concurrent runs would fight over one
+  # machine. The default here must match `app` in fly.toml.
+  group: fly-deploy-${{ inputs.app || 'kaskaadhankija-v3' }}
   cancel-in-progress: false
 
 env:
@@ -63,7 +69,7 @@ jobs:
         id: resolve
         run: |
           # The input wins, so a name clash can be worked around without a
-          # commit; otherwise fly.toml is the single source of truth.
+          # commit. Otherwise the app named in fly.toml is deployed.
           APP='${{ inputs.app }}'
           if [ -z "$APP" ]; then
             APP=$(sed -n 's/^app *= *"\(.*\)"/\1/p' fly.toml | head -1)
@@ -73,6 +79,7 @@ jobs:
             exit 1
           fi
           echo "app=$APP" >> "$GITHUB_OUTPUT"
+          echo "Branch $GITHUB_REF_NAME → app $APP."
 
           # Most accounts have an org called "personal"; a token scoped to a
           # named organisation does not, so fall back to whatever is listed.
@@ -128,6 +135,70 @@ jobs:
 
       - uses: superfly/flyctl-actions/setup-flyctl@master
 
+      # The mail relay and the sign-in secrets. Only secrets that are set in
+      # GitHub are pushed, so an unset one never blanks a value already on Fly.
+      # `--stage` stores them for the deploy below instead of triggering a
+      # release of their own.
+      - name: Push mail and sign-in secrets
+        env:
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          # Who may receive real mail *besides* the framework's own contacts
+          # [L-19]. Every active representative and lot contact is derived from
+          # the uploaded framework data, so this covers only the people the
+          # framework does not contain: the buyer's own team.
+          EMAIL_ALLOWED_RECIPIENTS: ${{ secrets.EMAIL_ALLOWED_RECIPIENTS || '@riigikantselei.ee' }}
+          TEAM_NOTIFICATIONS_EMAIL: ${{ secrets.TEAM_NOTIFICATIONS_EMAIL }}
+          # `nimi,e-post[,roll];…` — the buyer team's own members, added when the
+          # seed runs, alongside the sample Mari Tamm rather than replacing her.
+          # Partner representatives are not seeded from a secret: they arrive
+          # with the framework workbook an admin uploads [L-21].
+          SEED_TEAM: ${{ secrets.SEED_TEAM }}
+          # Who may sign in as a buyer **admin** without being listed first
+          # [L-08]. A named list, not a domain: anyone it admits can publish
+          # rounds and confirm allocations irreversibly. Everyone else is added
+          # on *Meeskond* by an admin and starts as a hankija [R-01].
+          #
+          # Set the secret to override — more addresses, a `@domain` for a
+          # throwaway environment, or a single space to require a named list for
+          # everybody. Keep at least one address that can receive mail here: it
+          # is how the first admin gets in on a fresh volume.
+          AUTO_ADMIN_ALLOWLIST: ${{ secrets.AUTO_ADMIN_ALLOWLIST || 'luukas.ilves@riigikantselei.ee' }}
+        run: |
+          APP='${{ needs.bootstrap.outputs.app }}'
+          ARGS=()
+          for NAME in SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASS EMAIL_FROM EMAIL_ALLOWED_RECIPIENTS TEAM_NOTIFICATIONS_EMAIL SEED_TEAM AUTO_ADMIN_ALLOWLIST; do
+            VALUE="${!NAME}"
+            if [ -n "$VALUE" ]; then
+              ARGS+=("$NAME=$VALUE")
+              echo "setting $NAME"
+            fi
+          done
+          # Signs one-time sign-in codes and sessions. Generated once and never
+          # rotated by a deploy — rotating it would sign everyone out.
+          if ! flyctl secrets list --app "$APP" 2>/dev/null | grep -qw AUTH_SECRET; then
+            ARGS+=("AUTH_SECRET=$(openssl rand -hex 32)")
+            echo "generating AUTH_SECRET"
+          fi
+          if [ "${#ARGS[@]}" -gt 0 ]; then
+            flyctl secrets set --app "$APP" --stage "${ARGS[@]}"
+          else
+            echo "No secrets to push."
+          fi
+          # The retired domain rule. The application no longer reads this name,
+          # so leaving it would change nothing today — but it would sit in
+          # `flyctl secrets list` looking like access somebody still has, and a
+          # revert would silently switch the wide rule back on. Guarded, and
+          # never allowed to fail the deploy: this is tidying, not a gate.
+          if flyctl secrets list --app "$APP" 2>/dev/null | grep -qw AUTO_ADMIN_EMAIL_DOMAINS; then
+            echo "unsetting the retired AUTO_ADMIN_EMAIL_DOMAINS"
+            flyctl secrets unset --app "$APP" --stage AUTO_ADMIN_EMAIL_DOMAINS \
+              || echo "could not unset AUTO_ADMIN_EMAIL_DOMAINS — remove it by hand"
+          fi
+
       - name: Deploy
         run: |
           APP='${{ needs.bootstrap.outputs.app }}'
@@ -135,10 +206,13 @@ jobs:
           #                needs no Docker of its own.
           # --ha=false:    exactly one machine. Two would mean two SQLite files
           #                on two volumes behind one hostname.
+          # --env:         notification and sign-in links must point at the app
+          #                being deployed, whatever fly.toml says.
           flyctl deploy \
             --app "$APP" \
             --remote-only \
             --ha=false \
+            --env "APP_BASE_URL=https://$APP.fly.dev" \
             --wait-timeout 600
 
   # ------------------------------------------------------------------ #
@@ -196,31 +270,70 @@ jobs:
           cat health.json
           jq -e '.ok == true' health.json > /dev/null \
             || { echo "::error::$BASE/api/health did not report ok."; exit 1; }
+          # The links in every notification are built from this; a machine
+          # still pointing at another hostname would send people to the wrong app.
+          jq -e --arg base "$BASE" '.baseUrl == $base' health.json > /dev/null \
+            || { echo "::error::APP_BASE_URL is $(jq -r .baseUrl health.json), expected $BASE."; exit 1; }
+          echo "Mail transport: $(jq -r .mail health.json)"
 
-          curl -fsS --max-time 20 "$BASE/" > home.html
-          grep -q 'TESTKESKKOND' home.html \
-            || { echo '::error::The opening screen is not the test environment.'; exit 1; }
+          # The sign-in is the front door, so `/` redirects there.
+          HOME_CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$BASE/")
+          HOME_LOCATION=$(curl -sI --max-time 20 "$BASE/" | tr -d '\r' | sed -n 's/^[Ll]ocation: //p')
+          case "$HOME_CODE" in
+            30*) : ;;
+            *) echo "::error::/ returned $HOME_CODE; the front door must redirect to the sign-in."; exit 1 ;;
+          esac
+          case "$HOME_LOCATION" in
+            */sisene) : ;;
+            *) echo "::error::/ redirects to '$HOME_LOCATION', expected /sisene."; exit 1 ;;
+          esac
+          echo "/ returned $HOME_CODE to $HOME_LOCATION, as the front door should."
 
-          # Each persona card posts its key; six partners and one buyer.
-          PARTNERS=$(grep -o 'value="partner:[0-9a-f-]*"' home.html | sort -u | wc -l)
-          BUYERS=$(grep -o 'value="buyer:[0-9a-f-]*"' home.html | sort -u | wc -l)
-          if [ "$PARTNERS" -ne 6 ] || [ "$BUYERS" -ne 1 ]; then
-            echo "::error::Expected 6 partner personas and 1 buyer, found $PARTNERS and $BUYERS — the sample data did not seed."
-            exit 1
+          # The sign-in itself, and the proof that the admin allowlist reached
+          # the machine — a secret that silently failed to arrive would
+          # otherwise look exactly like "nobody can log in", with no visible
+          # cause anywhere in the interface. The page publishes the **count**
+          # and not the entries: a named person's address does not belong on a
+          # public page, and the count is all this gate needs.
+          curl -fsS --max-time 20 "$BASE/sisene" > signin.html
+          grep -q 'data-testid="sign-in-form"' signin.html \
+            || { echo '::error::/sisene does not serve the sign-in form.'; exit 1; }
+          grep -q 'TESTKESKKOND' signin.html \
+            || { echo '::error::/sisene does not name itself the test environment.'; exit 1; }
+          ALLOWLIST_SIZE=$(sed -n 's/.*data-admin-allowlist="\([^"]*\)".*/\1/p' signin.html | head -1)
+          case "$ALLOWLIST_SIZE" in
+            ''|0) echo '::error::AUTO_ADMIN_ALLOWLIST did not reach the machine — the first admin could not sign in, and a demotion would leave nobody able to administer the team.'; exit 1 ;;
+          esac
+          echo "Sign-in serving, admin allowlist configured: $ALLOWLIST_SIZE entry/entries."
+
+          # The bidder guide, and its figures. It is the only public page
+          # here, and the one thing a bidder reads before they can sign in —
+          # so a 404 on it, or on an image inside it, is a deploy failure.
+          # The figures are static imports emitted to /_next/static/media,
+          # which ship only because the Dockerfile copies .next/static.
+          curl -fsS --max-time 20 "$BASE/juhend" > juhend.html \
+            || { echo '::error::/juhend does not serve — bidders have no instructions.'; exit 1; }
+          grep -q 'data-testid="juhend"' juhend.html \
+            || { echo '::error::/juhend served something, but not the guide.'; exit 1; }
+          FIGURE=$(sed -n 's/.*<img[^>]*src="\(\/_next\/static\/media\/[^"]*\)".*/\1/p' juhend.html | head -1)
+          if [ -z "$FIGURE" ]; then
+            echo '::error::/juhend carries no figures — the static image imports did not ship.'; exit 1
           fi
-          echo "Six partner personas and the buyer are offered."
+          curl -fsS --max-time 20 -o figure.bin "$BASE$FIGURE" \
+            || { echo "::error::a guide figure 404s: $FIGURE"; exit 1; }
+          echo "Guide serving, first figure $(wc -c < figure.bin) B: $FIGURE"
 
-          # The seeded Lisa B round must be waiting for a response.
-          grep -q 'VOOR-' home.html \
-            || { echo '::error::No seeded round on the opening screen.'; exit 1; }
+          # How much framework data is there. On a fresh volume these are 0
+          # until the first upload, so this reports rather than fails.
+          echo "Framework data: $(jq -c .data health.json)"
 
-          # Without a persona chosen, the buyer area must not be reachable.
+          # The buyer area must not be reachable without an identity.
           CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$BASE/tellija")
           if [ "$CODE" = "200" ]; then
-            echo '::error::/tellija served without a persona.'
+            echo '::error::/tellija served without signing in.'
             exit 1
           fi
-          echo "/tellija returned $CODE, as it should without a persona."
+          echo "/tellija returned $CODE, as it should without signing in."
           echo "Deployed and serving: $BASE"
 
       - name: Summary
@@ -229,7 +342,7 @@ jobs:
           {
             echo "### Kaskaadhankija is deployed"
             echo
-            echo "**https://$APP.fly.dev**"
+            echo "**https://$APP.fly.dev** (from \`$GITHUB_REF_NAME\`)"
             echo
             echo "One machine in \`$FLY_REGION\`, SQLite on the \`$VOLUME_NAME\` volume."
             echo "The seeded round \`VOOR-2026-003\` is Lisa B of the specification."

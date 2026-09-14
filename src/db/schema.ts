@@ -34,15 +34,48 @@ import type {
   TargetGroup,
   TrainingStatus,
   VisibilityMode,
+  CapOptions,
 } from '../domain/round-statuses';
 import type { County, OrderLanguage, WorkshopType } from '../domain/statuses';
-import type { AllocationInput, AllocationResult } from '../domain/allocate';
+import type { DateKind, RoundKind } from '../domain/clusters';
+import type { AllocationInput, AllocationResult, CapKind } from '../domain/allocate';
 
 const uuid = () => text().$defaultFn(() => crypto.randomUUID());
 
 /** Every "enum" column gets a CHECK so bad data cannot enter outside the app. */
 const oneOf = (column: string, values: readonly string[]) =>
   check(`${column}_check`, sql.raw(`${column} in (${values.map((v) => `'${v}'`).join(', ')})`));
+
+/* ------------------------------------------------------------------ *
+ * the framework procurement itself [L-21]
+ * ------------------------------------------------------------------ */
+
+/**
+ * Which framework agreement this environment runs. One row.
+ *
+ * It used to be a string in six files ("Raamleping „Eesti.ai koolitajate
+ * tellimine“, riigihanke viitenumber 10567384"), which was fine until the same
+ * tool had to serve a second framework — and until the end-of-round protocol
+ * needed to print it as data rather than as a hard-coded sentence. The row is
+ * inserted by the migration, not the seed: a live database has already seeded
+ * and never will again.
+ */
+export const frameworkSettings = sqliteTable(
+  'framework_settings',
+  {
+    id: integer().primaryKey(),
+    title: text().notNull(),
+    /** riigihanke viitenumber, e.g. 10567384 */
+    procurementReference: text('procurement_reference').notNull(),
+    /** the agreement's own number, when the buyer uses one */
+    agreementReference: text('agreement_reference').notNull().default(''),
+    buyerName: text('buyer_name').notNull(),
+    /** ISO day, or null when open-ended */
+    validUntil: text('valid_until'),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (t) => [check('framework_settings_single_row', sql`${t.id} = 1`)],
+);
 
 /* ------------------------------------------------------------------ *
  * users (buyer team)
@@ -86,8 +119,19 @@ export const lots = sqliteTable(
       .$type<VisibilityMode>()
       .notNull()
       .default('dynamic'),
+    /**
+     * [K-06][L-17] which cap kinds a new round offers by default. Validated in
+     * code rather than by a CHECK: adding a constraint would rebuild the table.
+     */
+    defaultCapOptions: text('default_cap_options').$type<CapOptions>().notNull().default('trainings'),
     /** set when the threshold is a deliberately low test value */
     thresholdNote: text('threshold_note').notNull().default(''),
+    /**
+     * [K-06][L-21][L-28] The framework's ceiling on one group (a workshop of
+     * 75 in the real agreement). Null means no ceiling. A dated training above
+     * it draws a warning on import; a cluster group above it is refused.
+     */
+    maxParticipantsPerGroup: integer('max_participants_per_group'),
     isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
     createdAt: integer('created_at').notNull(),
   },
@@ -149,6 +193,69 @@ export const lotPartners = sqliteTable(
   ],
 );
 
+/**
+ * The people who may act for a partner company: its contractual representatives
+ * and their deputies, from the list the buyer uploads. They receive the formal
+ * notices [D-10] and they are who can sign in for the company [R-02]. Scoped to
+ * the company, not to a lot; the lot membership keeps the framework-agreement
+ * contact as evidence and as the fallback recipient.
+ */
+export const partnerRepresentatives = sqliteTable(
+  'partner_representatives',
+  {
+    id: uuid().primaryKey(),
+    partnerId: text('partner_id')
+      .notNull()
+      .references(() => partners.id),
+    name: text().notNull(),
+    /** lowercased; unique among active representatives */
+    email: text().notNull(),
+    role: text().$type<RepresentativeRole>().notNull().default('esindaja'),
+    /**
+     * Where this row came from — information only, never a decision [L-18]:
+     * `framework` rows were created by the contact sync, `upload` rows by the
+     * Esindajad sheet, `manual` rows on the screen. Until v2.6 the sync retired
+     * only its own rows, which left a replaced contact signed in whenever the
+     * sheet had once listed them; activity is now decided by the two facts
+     * below, and this column just says who typed the row first.
+     */
+    source: text().$type<RepresentativeSource>().notNull().default('upload'),
+    /**
+     * The buyer named this person in their own right — on the Esindajad sheet,
+     * with „Lisa esindaja“ or by switching the row back on — while they were
+     * **not** a lot's current contact [L-21]. A row is active iff it is listed
+     * or its address is the current contact of one of the company's active
+     * memberships (derived, see `currentContacts`); a current contact can
+     * never acquire the listing, so a contact change retires them unless the
+     * buyer lists them afterwards. `!isActive ⇒ !isListed`.
+     */
+    isListed: integer('is_listed', { mode: 'boolean' }).notNull().default(false),
+    /**
+     * Whether this person wants the *informational* notices by e-mail — receipts,
+     * projection changes, the final summary [D-10][L-27]. Formal notices go out
+     * regardless; the in-app log always has everything.
+     */
+    notifyInformational: integer('notify_informational', { mode: 'boolean' }).notNull().default(true),
+    phone: text().notNull().default(''),
+    isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+    deactivatedAt: integer('deactivated_at'),
+    importBatchId: text('import_batch_id'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (t) => [
+    // One person signs in as one company: an address is active for at most one.
+    uniqueIndex('partner_representatives_email_active_unique')
+      .on(t.email)
+      .where(sql`is_active = 1`),
+    index('partner_representatives_partner_idx').on(t.partnerId),
+    oneOf('role', ['esindaja', 'asendaja']),
+  ],
+);
+
+export type RepresentativeRole = 'esindaja' | 'asendaja';
+export type RepresentativeSource = 'framework' | 'upload' | 'manual';
+
 /* ------------------------------------------------------------------ *
  * trainings (koolituskalender)
  * ------------------------------------------------------------------ */
@@ -164,9 +271,19 @@ export const trainings = sqliteTable(
       .references(() => lots.id),
     title: text().notNull(),
     workshopType: text('workshop_type').$type<WorkshopType>().notNull(),
-    /** ISO day, 'YYYY-MM-DD' */
+    /** ISO day, 'YYYY-MM-DD' — for a cluster's group, the start of its period */
     eventDate: text('event_date').notNull(),
     eventEnd: text('event_end'),
+    /**
+     * [L-28] 'fixed' for a dated training; 'period' for one group of a cluster,
+     * whose `eventDate`/`eventEnd` are then the period it is delivered in.
+     * Validated in code rather than by a CHECK, like `default_cap_options`.
+     */
+    dateKind: text('date_kind').$type<DateKind>().notNull().default('fixed'),
+    /** [L-28] the cluster this group belongs to (KL-2026-001), or null */
+    clusterCode: text('cluster_code'),
+    /** [L-28] 1-based position in the cluster; the code ends in it (…-07) */
+    groupIndex: integer('group_index'),
     county: text().$type<County>().notNull(),
     locationText: text('location_text').notNull().default(''),
     /** the programme's "vertikaal" */
@@ -197,6 +314,7 @@ export const trainings = sqliteTable(
     index('trainings_lot_idx').on(t.lotId),
     index('trainings_round_idx').on(t.currentRoundId),
     index('trainings_allocated_idx').on(t.allocatedLotPartnerId),
+    index('trainings_cluster_idx').on(t.clusterCode),
     oneOf('status', [
       'unassigned',
       'in_round',
@@ -232,7 +350,25 @@ export const rounds = sqliteTable(
       .notNull()
       .references(() => lots.id),
     status: text().$type<RoundStatus>().notNull().default('draft'),
+    /**
+     * [V-09] Dated trainings or clusters, never both. Set by the first training
+     * added to the draft — the one choke point drafts, imports and the jääk
+     * re-issue all pass through — and never changed afterwards.
+     */
+    kind: text('kind').$type<RoundKind>().notNull().default('fixed'),
     visibilityMode: text('visibility_mode').$type<VisibilityMode>().notNull().default('dynamic'),
+    /** [K-06][L-17] the cap kinds partners may use in this round; fixed at creation */
+    capOptions: text('cap_options').$type<CapOptions>().notNull().default('trainings'),
+    /** [L-20] from an uploaded scheme: working days to offer beyond the lot default, at publication */
+    plannedExtraWorkingDays: integer('planned_extra_working_days').notNull().default(0),
+    /**
+     * The window the scheme file asked for [L-20]. A plan, not the fact: the
+     * publish form prefills it and the engine still enforces the lot's floor
+     * from the actual publication instant, so a plan that slipped is offered
+     * the floor instead. The protocol prints planned beside actual.
+     */
+    plannedPublishAt: integer('planned_publish_at'),
+    plannedDeadlineAt: integer('planned_deadline_at'),
     /** [V-03] config frozen at publication, so later lot edits cannot change a live round */
     workloadThresholdSnapshot: integer('workload_threshold_snapshot').notNull().default(25),
     responseWorkingDaysSnapshot: integer('response_working_days_snapshot').notNull().default(3),
@@ -315,6 +451,7 @@ export const roundParticipants = sqliteTable(
     /** [K-02] the partner's editable draft; only confirmations bind */
     draftMarks: text('draft_marks', { mode: 'json' }).$type<string[]>().notNull().default(sql`'[]'`),
     draftCap: integer('draft_cap'),
+    draftCapKind: text('draft_cap_kind').$type<CapKind>().notNull().default('trainings'),
     draftUpdatedAt: integer('draft_updated_at'),
     /** [E-01] deactivated mid-round */
     excludedAt: integer('excluded_at'),
@@ -326,6 +463,8 @@ export const roundParticipants = sqliteTable(
     lastProjectionNotifiedAt: integer('last_projection_notified_at'),
     /** [D-05] */
     reminderSentAt: integer('reminder_sent_at'),
+    /** [D-11] set when the final summary was sent — or deliberately skipped */
+    finalReminderSentAt: integer('final_reminder_sent_at'),
     createdAt: integer('created_at').notNull(),
   },
   (t) => [
@@ -354,8 +493,10 @@ export const confirmations = sqliteTable(
       .references(() => lotPartners.id),
     kind: text().$type<'confirm' | 'decline_all'>().notNull(),
     marks: text({ mode: 'json' }).$type<string[]>().notNull(),
-    /** [K-06] "võtan vastu kuni N koolitust" */
+    /** [K-06] "võtan vastu kuni N koolitust" / "kuni N osalejat" */
     cap: integer(),
+    /** what `cap` counts [L-17]; a plain column so the append-only triggers survive the migration */
+    capKind: text('cap_kind').$type<CapKind>().notNull().default('trainings'),
     confirmedAt: integer('confirmed_at').notNull(),
     actorLabel: text('actor_label').notNull(),
     contactEmail: text('contact_email').notNull().default(''),
@@ -510,6 +651,13 @@ export const auditEvents = sqliteTable(
     actorType: text('actor_type').$type<'buyer' | 'partner' | 'system' | 'tester'>().notNull(),
     actorId: text('actor_id'),
     actorLabel: text('actor_label').notNull(),
+    /**
+     * The signed-in admin behind an act-as choice in the test environment: the
+     * event belongs to the participant above, but the trail must be able to
+     * show whose hands were on it [L-08]. Null for an ordinary action.
+     */
+    viaUserId: text('via_user_id'),
+    viaLabel: text('via_label'),
     eventType: text('event_type').notNull(),
     /** Estonian one-liner shown in the audit table */
     summary: text().notNull(),
@@ -539,9 +687,11 @@ export type NotificationType =
   | 'decline_receipt'
   | 'projection_changed'
   | 'reminder_24h'
+  | 'reminder_final'
   | 'round_changed'
   | 'round_cancelled'
   | 'participant_excluded'
+  | 'round_closed_partner'
   | 'order_issued'
   | 'allocated_elsewhere'
   | 'buyer_round_closed'
@@ -549,8 +699,9 @@ export type NotificationType =
   | 'late_action_rejected';
 
 /**
- * In-app notification log — the primary channel in the test deployment. SMTP is
- * attempted only when configured; `emailStatus` records what happened.
+ * In-app notification log — the primary channel, and the record of what each
+ * recipient was told. What happened to the e-mail copies lives per recipient in
+ * `email_deliveries`.
  */
 export const notifications = sqliteTable(
   'notifications',
@@ -566,26 +717,52 @@ export const notifications = sqliteTable(
     body: text().notNull(),
     bodyHtml: text('body_html').notNull().default(''),
     readAt: integer('read_at'),
-    emailTo: text('email_to').notNull().default(''),
-    emailStatus: text('email_status')
-      .$type<'skipped' | 'sent' | 'failed'>()
-      .notNull()
-      .default('skipped'),
-    emailError: text('email_error').notNull().default(''),
-    emailSentAt: integer('email_sent_at'),
   },
   (t) => [
     index('notifications_recipient_idx').on(t.recipientKind, t.recipientLotPartnerId),
     index('notifications_round_idx').on(t.roundId),
     index('notifications_created_idx').on(t.createdAt),
     oneOf('recipient_kind', ['buyer', 'partner']),
-    oneOf('email_status', ['skipped', 'sent', 'failed']),
+  ],
+);
+
+export type EmailDeliveryStatus = 'queued' | 'sent' | 'failed' | 'suppressed' | 'skipped';
+
+/**
+ * One e-mail to one recipient of one notification [D-10]. Created as `queued`
+ * inside the notifying transaction; the outcome of each attempt is written back
+ * afterwards, on wall-clock time. `suppressed` is the test environment's
+ * allowlist refusing an address; `skipped` is the absence of a transport.
+ */
+export const emailDeliveries = sqliteTable(
+  'email_deliveries',
+  {
+    id: uuid().primaryKey(),
+    notificationId: text('notification_id')
+      .notNull()
+      .references(() => notifications.id),
+    to: text().notNull(),
+    status: text().$type<EmailDeliveryStatus>().notNull().default('queued'),
+    attempts: integer().notNull().default(0),
+    /** the server's response, the error, or the rule that stopped it */
+    detail: text().notNull().default(''),
+    lastAttemptAt: integer('last_attempt_at'),
+    sentAt: integer('sent_at'),
+    messageId: text('message_id').notNull().default(''),
+    createdAt: integer('created_at').notNull(),
+  },
+  (t) => [
+    index('email_deliveries_notification_idx').on(t.notificationId),
+    index('email_deliveries_status_idx').on(t.status),
+    oneOf('status', ['queued', 'sent', 'failed', 'suppressed', 'skipped']),
   ],
 );
 
 /* ------------------------------------------------------------------ *
  * imports
  * ------------------------------------------------------------------ */
+
+export type ImportKind = 'trainings' | 'partners' | 'representatives' | 'round' | 'framework';
 
 export interface ImportSummary {
   total: number;
@@ -605,7 +782,7 @@ export const importBatches = sqliteTable(
   'import_batches',
   {
     id: uuid().primaryKey(),
-    kind: text().$type<'trainings' | 'partners'>().notNull(),
+    kind: text().$type<ImportKind>().notNull(),
     fileName: text('file_name').notNull(),
     fileSize: integer('file_size').notNull().default(0),
     source: text().$type<'upload' | 'seed' | 'sample'>().notNull().default('upload'),
@@ -621,9 +798,64 @@ export const importBatches = sqliteTable(
   },
   (t) => [
     index('import_batches_kind_idx').on(t.kind, t.status),
-    oneOf('kind', ['trainings', 'partners']),
+    oneOf('kind', ['trainings', 'partners', 'representatives', 'round', 'framework']),
     oneOf('source', ['upload', 'seed', 'sample']),
     oneOf('status', ['previewed', 'imported', 'discarded']),
+  ],
+);
+
+/* ------------------------------------------------------------------ *
+ * sign-in [R-01][R-02][L-08] — wall-clock time throughout: these rows are
+ * real-world security state, not procurement state, so the virtual test clock
+ * never touches them.
+ * ------------------------------------------------------------------ */
+
+/**
+ * A one-time sign-in code. Only its HMAC is stored: a six-digit code would be
+ * trivial to brute-force offline from a leaked database.
+ */
+export const loginCodes = sqliteTable(
+  'login_codes',
+  {
+    id: uuid().primaryKey(),
+    /** lowercased */
+    email: text().notNull(),
+    codeHash: text('code_hash').notNull(),
+    createdAt: integer('created_at').notNull(),
+    expiresAt: integer('expires_at').notNull(),
+    attempts: integer().notNull().default(0),
+    /** set on success, and when the attempt limit burns the code */
+    consumedAt: integer('consumed_at'),
+    requestIp: text('request_ip').notNull().default(''),
+  },
+  (t) => [
+    index('login_codes_email_idx').on(t.email, t.createdAt),
+    index('login_codes_ip_idx').on(t.requestIp, t.createdAt),
+  ],
+);
+
+export type SessionSubjectKind = 'buyer' | 'representative';
+
+/** A signed-in person. The token lives only in the cookie; its hash here. */
+export const sessions = sqliteTable(
+  'sessions',
+  {
+    id: uuid().primaryKey(),
+    tokenHash: text('token_hash').notNull(),
+    subjectKind: text('subject_kind').$type<SessionSubjectKind>().notNull(),
+    /** users.id or partner_representatives.id */
+    subjectId: text('subject_id').notNull(),
+    createdAt: integer('created_at').notNull(),
+    expiresAt: integer('expires_at').notNull(),
+    lastSeenAt: integer('last_seen_at').notNull(),
+    ip: text().notNull().default(''),
+    ua: text().notNull().default(''),
+    revokedAt: integer('revoked_at'),
+  },
+  (t) => [
+    uniqueIndex('sessions_token_unique').on(t.tokenHash),
+    index('sessions_subject_idx').on(t.subjectKind, t.subjectId),
+    oneOf('subject_kind', ['buyer', 'representative']),
   ],
 );
 
@@ -632,13 +864,16 @@ export const importBatches = sqliteTable(
  * ------------------------------------------------------------------ */
 
 /**
- * Single-row table holding the virtual clock offset. Every engine `now()` reads
- * it, so one transaction sees one consistent instant. Always 0 in production.
+ * Single-row bookkeeping: which seed has run, and when the deadline jobs last
+ * did. `clock_offset_ms` held the virtual clock the test harness could wind
+ * forward; the harness is gone and time is real [L-23], so the column is dead.
+ * It stays because dropping a column rebuilds the table for nothing.
  */
 export const appState = sqliteTable(
   'app_state',
   {
     id: integer().primaryKey(),
+    /** unused since v2.3 — see above */
     clockOffsetMs: integer('clock_offset_ms').notNull().default(0),
     seedVersion: integer('seed_version').notNull().default(0),
     seededAt: integer('seeded_at'),
@@ -669,4 +904,44 @@ export const roundSequences = sqliteTable(
     lastSeq: integer('last_seq').notNull().default(0),
   },
   (t) => [primaryKey({ columns: [t.year] })],
+);
+
+/* ------------------------------------------------------------------ *
+ * vooru protokoll [L-22]
+ * ------------------------------------------------------------------ */
+
+/**
+ * One protocol per ended round: the whole document as canonical JSON, plus the
+ * SHA-256 of exactly that text.
+ *
+ * The content, not a rendering, is what is stored — the PDF and the .xlsx annex
+ * are drawn from it on demand, so the fingerprint printed on paper always names
+ * the data and never the renderer that happened to draw it. The write is audited
+ * with the hash, which is what makes tampering detectable; that is also why
+ * there are deliberately no append-only triggers here (a test environment must
+ * be able to delete a row to replay the legacy-round path).
+ */
+export const roundProtocols = sqliteTable(
+  'round_protocols',
+  {
+    id: uuid().primaryKey(),
+    roundId: text('round_id')
+      .notNull()
+      .references(() => rounds.id),
+    kind: text().$type<'confirmed' | 'cancelled'>().notNull(),
+    /** `PROTOCOL_SCHEMA_VERSION` at the time of writing */
+    version: integer().notNull().default(1),
+    /** canonical JSON of `RoundProtocolData` — the hashed text, byte for byte */
+    contentJson: text('content_json').notNull(),
+    /** sha256 hex of `content_json` */
+    contentHash: text('content_hash').notNull(),
+    /** the allocation algorithm behind the numbers, when there was one */
+    algorithmVersion: integer('algorithm_version'),
+    generatedAt: integer('generated_at').notNull(),
+    generatedBy: text('generated_by').notNull(),
+  },
+  (t) => [
+    uniqueIndex('round_protocols_round_unique').on(t.roundId),
+    oneOf('kind', ['confirmed', 'cancelled']),
+  ],
 );

@@ -9,10 +9,12 @@
 import Link from 'next/link';
 import { eq } from 'drizzle-orm';
 import { getDb } from '@/db';
+import { buyerIsAdmin } from '@/server/auth/actor';
+import { ReadOnlyNote } from '@/components/read-only-note';
 import { importBatches, lots } from '@/db/schema';
 import { PARTNER_COLUMNS } from '@/domain/import-rows';
 import { formatDateTimeShort } from '@/domain/format';
-import type { StoredPartnerRow } from '@/server/import/partners-import';
+import type { PartnerBatchPayload } from '@/server/import/partners-import';
 import { PartnerImportPreview, PartnerImportUploadForm } from './partner-import-forms';
 
 export const dynamic = 'force-dynamic';
@@ -24,6 +26,20 @@ export default async function PartnersImportPage({
 }) {
   const { batch } = await searchParams;
   const db = getDb();
+
+  if (!(await buyerIsAdmin())) {
+    return (
+      <div className="space-y-4">
+        <div>
+          <Link href="/tellija/partnerid" className="text-[13px] text-[var(--color-brand)]">
+            ← Partnerid
+          </Link>
+          <h1 className="mt-1">Raamlepingu järjestuse import</h1>
+        </div>
+        <ReadOnlyNote what="Järjestuse import" />
+      </div>
+    );
+  }
   const lotCodes = db.select({ code: lots.code }).from(lots).all().map((l) => l.code);
 
   const stored = batch
@@ -31,10 +47,8 @@ export default async function PartnersImportPage({
     : undefined;
 
   if (stored && stored.kind === 'partners') {
-    const payload = stored.rowsJson as {
-      rows: StoredPartnerRow[];
-      fileErrors: Array<{ field?: string; message: string }>;
-    };
+    const payload = stored.rowsJson as PartnerBatchPayload;
+    const options = (stored.options ?? {}) as { deactivateMissing?: boolean };
     return (
       <div className="space-y-4">
         <div>
@@ -64,6 +78,9 @@ export default async function PartnersImportPage({
             note: row.note,
             action: row.action,
           }))}
+          wouldDeactivate={payload.wouldDeactivate ?? []}
+          openRoundCount={payload.openRoundCount ?? 0}
+          deactivateMissing={Boolean(options.deactivateMissing)}
         />
       </div>
     );
@@ -102,7 +119,7 @@ export default async function PartnersImportPage({
                 ['koht', 'järjekoht hankeosas, 1 = eesõigus; peab olema hankeosa piires unikaalne'],
                 ['kontaktisik', 'nimi, 2–80 tähemärki'],
                 ['e_post', 'kontaktisiku e-post, kuhu vooruteated lähevad'],
-                ['uhikhind', 'raamlepingu ühikhind, nt 1450 või 1 450,00'],
+                ['uhikuhind', 'raamlepingu hind ühe osaleja kohta, eurodes, nt 58 või 60,50'],
               ].map(([column, note]) => (
                 <tr key={column}>
                   <td className="kh-td font-mono text-[12.5px] whitespace-nowrap">{column}</td>

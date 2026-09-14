@@ -8,29 +8,35 @@
  * decline on behalf of anyone else — the client never supplies that identity.
  */
 
-import { confirmMarks, declineAll, saveDraftMarks } from '../rounds/engine';
-import { buyerWrite, describeError, fail, fieldList, fieldNumber, fieldText, ok, partnerWrite, type ActionOutcome } from './helpers';
+import { redirect } from 'next/navigation';
+import type { CapKind } from '@/domain/allocate';
+import { confirmMarks, declineAll, saveDraftMarks, type MarksInput } from '../rounds/engine';
+import { adminWrite, describeError, fail, fieldList, fieldNumber, fieldText, ok, partnerWrite, type ActionOutcome } from './helpers';
 
 const ROUNDS = '/partner/voorud';
 
-/** A cap of 0 is meaningful ("nothing this round"); an empty field is "no cap". */
-function readCap(form: FormData): number | null {
+/**
+ * A cap of 0 is meaningful ("nothing this round"); an empty field is "no cap".
+ * The kind says what it counts [K-06]; the engine checks it against the round.
+ */
+function readCap(form: FormData): Pick<MarksInput, 'cap' | 'capKind'> {
+  const capKind: CapKind = fieldText(form, 'capKind') === 'participants' ? 'participants' : 'trainings';
   const raw = fieldText(form, 'cap');
-  if (!raw) return null;
+  if (!raw) return { cap: null, capKind };
   const value = fieldNumber(form, 'cap');
-  if (value === null || value < 0) return null;
-  return Math.floor(value);
+  if (value === null || value < 0) return { cap: null, capKind };
+  return { cap: Math.floor(value), capKind };
 }
 
 /** [K-02] Save the working draft. Binds nothing. */
 export async function saveDraftAction(form: FormData): Promise<ActionOutcome<number>> {
   const roundId = fieldText(form, 'roundId');
   const marks = fieldList(form, 'marks');
-  const cap = readCap(form);
+  const { cap, capKind } = readCap(form);
 
   try {
     const result = await partnerWrite(
-      (ctx, actor) => saveDraftMarks(ctx, roundId, actor.partnerId, { marks, cap }),
+      (ctx, actor) => saveDraftMarks(ctx, roundId, actor.partnerId, { marks, cap, capKind }),
       [`${ROUNDS}/${roundId}`, ROUNDS],
     );
     if (!result.ok) return fail(result.message);
@@ -43,43 +49,49 @@ export async function saveDraftAction(form: FormData): Promise<ActionOutcome<num
   }
 }
 
-/** [K-02][K-05] Confirm — the partner's binding answer. */
+/**
+ * [K-02][K-05] Confirm — the partner's binding answer.
+ *
+ * On success this **redirects** to the round page's result card rather than
+ * reporting inline: on a phone the button sits below a long table and the
+ * inline message was out of view, so testers pressed again [E-10]. The
+ * redirect also serves a plain POST without JavaScript. `redirect()` throws,
+ * so it must stay outside the `try` — the catch would turn it into an error.
+ */
 export async function confirmMarksAction(form: FormData): Promise<ActionOutcome<number>> {
   const roundId = fieldText(form, 'roundId');
   const marks = fieldList(form, 'marks');
-  const cap = readCap(form);
+  const { cap, capKind } = readCap(form);
 
+  let result: Awaited<ReturnType<typeof confirmMarks>>;
   try {
-    const result = await partnerWrite(
-      (ctx, actor) => confirmMarks(ctx, roundId, actor.partnerId, { marks, cap }),
+    result = await partnerWrite(
+      (ctx, actor) => confirmMarks(ctx, roundId, actor.partnerId, { marks, cap, capKind }),
       [`${ROUNDS}/${roundId}`, ROUNDS, '/partner/teavitused'],
-    );
-    if (!result.ok) return fail(result.message);
-    return ok(
-      marks.length === 0
-        ? 'Registreerisime, et loobute vooru koolitustest.'
-        : `Valik kinnitatud: ${marks.length} koolitust. Praeguse seisuga prognoosis ${result.projectedCount}.`,
-      result.projectedCount,
     );
   } catch (error) {
     return fail(describeError(error));
   }
+  if (!result.ok) return fail(result.message);
+  const outcome = result.unchanged ? 'sama' : marks.length === 0 ? 'loobutud' : 'kinnitatud';
+  redirect(`${ROUNDS}/${roundId}?vastus=${outcome}#kinnitus`);
 }
 
 /** [K-07] An explicit decline, recorded distinctly from silence. */
 export async function declineAllAction(form: FormData): Promise<ActionOutcome<number>> {
   const roundId = fieldText(form, 'roundId');
+  let result: Awaited<ReturnType<typeof declineAll>>;
   try {
-    const result = await partnerWrite((ctx, actor) => declineAll(ctx, roundId, actor.partnerId), [
+    result = await partnerWrite((ctx, actor) => declineAll(ctx, roundId, actor.partnerId), [
       `${ROUNDS}/${roundId}`,
       ROUNDS,
       '/partner/teavitused',
     ]);
-    if (!result.ok) return fail(result.message);
-    return ok('Loobumine registreeritud. Saate otsust muuta kuni tähtajani.');
   } catch (error) {
     return fail(describeError(error));
   }
+  if (!result.ok) return fail(result.message);
+  redirect(`${ROUNDS}/${roundId}?vastus=${result.unchanged ? 'sama' : 'loobutud'}#kinnitus`);
 }
 
 /** Mark a notification read — available to both sides. */
@@ -89,7 +101,10 @@ export async function markNotificationReadAction(form: FormData): Promise<Action
   const { notifications } = await import('@/db/schema');
   const { eq } = await import('drizzle-orm');
 
-  const write = asBuyer ? buyerWrite : partnerWrite;
+  // `asBuyer` is only ever reached through act-as, which is an admin power
+  // [L-08]; keeping this on the admin seam means there is no second door to
+  // answering on a partner's behalf.
+  const write = asBuyer ? adminWrite : partnerWrite;
   try {
     await write(
       (ctx) => {

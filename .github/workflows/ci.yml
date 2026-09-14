@@ -36,7 +36,7 @@ jobs:
         env:
           NEXT_TELEMETRY_DISABLED: '1'
 
-      # The three things the Dockerfile asserts at image-build time. Checking
+      # The four things the Dockerfile asserts at image-build time. Checking
       # them here too means a tracer regression is caught by CI rather than by a
       # failing deploy.
       - name: The standalone output carries what it needs at runtime
@@ -47,3 +47,5 @@ jobs:
             || { echo 'migrations missing from .next/standalone'; exit 1; }
           test -f .next/standalone/seed/naidis-koolituskalender.csv \
             || { echo 'sample datasets missing from .next/standalone'; exit 1; }
+          test -n "$(find .next/standalone -name 'Helvetica.afm' -path '*pdfkit*')" \
+            || { echo 'pdfkit font metrics missing from .next/standalone'; exit 1; }

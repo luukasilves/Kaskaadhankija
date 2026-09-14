@@ -18,8 +18,10 @@ import {
   trainings,
 } from '@/db/schema';
 import type { ResponseState } from '@/domain/round-statuses';
-import type { AllocationTraining, ConfirmationSnapshot } from '@/domain/allocate';
+import type { CapKind, AllocationTraining, ConfirmationSnapshot } from '@/domain/allocate';
+import type { DateKind, GroupLike } from '@/domain/clusters';
 import type { Db, Tx } from '../context';
+import type { WorkshopType } from '@/domain/statuses';
 
 type Reader = Tx | Db;
 
@@ -60,6 +62,7 @@ export function confirmationSnapshotsByPartner(
       kind: row.kind,
       marks: row.marks,
       cap: row.cap,
+      capKind: row.capKind,
       confirmedAt: row.confirmedAt,
     });
     grouped.set(row.lotPartnerId, list);
@@ -67,14 +70,53 @@ export function confirmationSnapshotsByPartner(
   return grouped;
 }
 
-/** Non-withdrawn trainings of a round, in the shape `allocate` expects. [V-04] */
+/**
+ * Non-withdrawn trainings of a round, in the shape `allocate` expects. [V-04]
+ *
+ * A cluster's group carries its cluster code [K-10]; a dated training carries
+ * no key at all, so the input frozen for a dated round is byte-identical to
+ * what it was before clusters existed.
+ */
 export function roundTrainingList(tx: Reader, roundId: string): AllocationTraining[] {
   return tx
-    .select({ id: trainings.id, code: trainings.code, eventDate: trainings.eventDate })
+    .select({
+      id: trainings.id,
+      code: trainings.code,
+      eventDate: trainings.eventDate,
+      participantCount: trainings.participantCount,
+      clusterCode: trainings.clusterCode,
+    })
+    .from(roundTrainings)
+    .innerJoin(trainings, eq(trainings.id, roundTrainings.trainingId))
+    .where(and(eq(roundTrainings.roundId, roundId), isNull(roundTrainings.withdrawnAt)))
+    .all()
+    .map(({ clusterCode, ...row }) => (clusterCode ? { ...row, clusterCode } : row));
+}
+
+/**
+ * A round's clusters and their non-withdrawn groups, by cluster code — the
+ * whole a partner's share is described against („6 rühma (05–10)“) [L-28].
+ */
+export function roundClusterGroups(tx: Reader, roundId: string): Map<string, GroupLike[]> {
+  const groups = new Map<string, GroupLike[]>();
+  const rows = tx
+    .select({
+      clusterCode: trainings.clusterCode,
+      groupIndex: trainings.groupIndex,
+      participantCount: trainings.participantCount,
+    })
     .from(roundTrainings)
     .innerJoin(trainings, eq(trainings.id, roundTrainings.trainingId))
     .where(and(eq(roundTrainings.roundId, roundId), isNull(roundTrainings.withdrawnAt)))
     .all();
+  for (const row of rows) {
+    if (!row.clusterCode) continue;
+    const list = groups.get(row.clusterCode) ?? [];
+    list.push({ groupIndex: row.groupIndex ?? 0, participantCount: row.participantCount });
+    groups.set(row.clusterCode, list);
+  }
+  for (const list of groups.values()) list.sort((a, b) => a.groupIndex - b.groupIndex);
+  return groups;
 }
 
 /**
@@ -85,9 +127,12 @@ export function roundTrainingList(tx: Reader, roundId: string): AllocationTraini
  * confirmation is a trap unless it is made obvious.
  */
 export function responseStateFor(
-  latest: { kind: 'confirm' | 'decline_all'; marks: string[]; cap: number | null } | undefined,
+  latest:
+    | { kind: 'confirm' | 'decline_all'; marks: string[]; cap: number | null; capKind?: CapKind }
+    | undefined,
   draftMarks: string[],
   draftCap: number | null,
+  draftCapKind: CapKind = 'trainings',
 ): ResponseState {
   const draftSorted = [...draftMarks].sort();
 
@@ -98,7 +143,10 @@ export function responseStateFor(
   const sameMarks =
     confirmedSorted.length === draftSorted.length &&
     confirmedSorted.every((id, index) => id === draftSorted[index]);
-  const sameCap = (latest.cap ?? null) === (draftCap ?? null);
+  // The kind only matters while there is a cap to count.
+  const sameCap =
+    (latest.cap ?? null) === (draftCap ?? null) &&
+    ((draftCap ?? null) === null || (latest.capKind ?? 'trainings') === draftCapKind);
 
   if (!sameMarks || !sameCap) return 'unconfirmed_changes';
   return latest.kind === 'decline_all' ? 'declined_all' : 'confirmed';
@@ -112,12 +160,16 @@ export interface ParticipantRow {
   partnerName: string;
   contactName: string;
   contactEmail: string;
+  /** the partner's framework price per participant in this lot [T-08] */
+  unitPriceEur: number;
   excludedAt: number | null;
   excludedReason: string;
   draftMarks: string[];
   draftCap: number | null;
+  draftCapKind: CapKind;
   outcomeAtClose: string | null;
   reminderSentAt: number | null;
+  finalReminderSentAt: number | null;
   lastProjectionCount: number | null;
   lastProjectionNotifiedAt: number | null;
 }
@@ -133,12 +185,15 @@ export function participantsOf(tx: Reader, roundId: string): ParticipantRow[] {
       partnerName: partners.name,
       contactName: roundParticipants.contactNameSnapshot,
       contactEmail: roundParticipants.contactEmailSnapshot,
+      unitPriceEur: lotPartners.unitPriceEur,
       excludedAt: roundParticipants.excludedAt,
       excludedReason: roundParticipants.excludedReason,
       draftMarks: roundParticipants.draftMarks,
       draftCap: roundParticipants.draftCap,
+      draftCapKind: roundParticipants.draftCapKind,
       outcomeAtClose: roundParticipants.outcomeAtClose,
       reminderSentAt: roundParticipants.reminderSentAt,
+      finalReminderSentAt: roundParticipants.finalReminderSentAt,
       lastProjectionCount: roundParticipants.lastProjectionCount,
       lastProjectionNotifiedAt: roundParticipants.lastProjectionNotifiedAt,
     })
@@ -195,6 +250,128 @@ export function roundsForPartner(tx: Reader, partnerId: string) {
     .where(and(inArray(rounds.lotId, lotIds), inArray(rounds.status, ['open', 'closed', 'confirmed'])))
     .all()
     .sort((a, b) => (b.publishedAt ?? 0) - (a.publishedAt ?? 0));
+}
+
+/** One line of a partner's calendar [N-02]. */
+export interface CalendarEntry {
+  trainingId: string;
+  code: string;
+  title: string;
+  eventDate: string;
+  eventEnd: string | null;
+  /** [L-28] a cluster's group has a period, not a day */
+  dateKind: DateKind;
+  clusterCode: string | null;
+  workshopType: WorkshopType;
+  county: string;
+  locationText: string;
+  participantCount: number;
+  lotCode: string;
+  /**
+   * `allocated` — the buyer confirmed the round and this training is theirs;
+   * `completed` — held and marked done; `confirmed` — their binding confirmation
+   * in a round still open or awaiting the buyer's decision. A confirmed mark is
+   * not an order [L-25]; the calendar says so.
+   */
+  kind: 'allocated' | 'completed' | 'confirmed';
+  roundId: string | null;
+  roundCode: string | null;
+}
+
+/**
+ * Everything a company has on its calendar: the trainings allocated to it, and
+ * the trainings it has confirmed in rounds not yet decided [N-02].
+ *
+ * The same two reads the round page and `workloadFor` make, put side by side,
+ * because a partner confirming an online round had no way of seeing that the
+ * physical round the week after was already theirs. Once a round is confirmed
+ * its allocation is the truth and its confirmations are history, so a
+ * confirmed round contributes allocated trainings only.
+ */
+export function partnerCalendar(tx: Reader, partnerId: string): CalendarEntry[] {
+  const memberships = tx
+    .select({ id: lotPartners.id })
+    .from(lotPartners)
+    .where(eq(lotPartners.partnerId, partnerId))
+    .all()
+    .map((m) => m.id);
+  if (memberships.length === 0) return [];
+
+  const base = {
+    trainingId: trainings.id,
+    code: trainings.code,
+    title: trainings.title,
+    eventDate: trainings.eventDate,
+    eventEnd: trainings.eventEnd,
+    dateKind: trainings.dateKind,
+    clusterCode: trainings.clusterCode,
+    workshopType: trainings.workshopType,
+    county: trainings.county,
+    locationText: trainings.locationText,
+    participantCount: trainings.participantCount,
+    lotCode: lots.code,
+  };
+
+  const held: CalendarEntry[] = tx
+    .select({ ...base, status: trainings.status })
+    .from(trainings)
+    .innerJoin(lots, eq(lots.id, trainings.lotId))
+    .where(
+      and(inArray(trainings.allocatedLotPartnerId, memberships), inArray(trainings.status, ['allocated', 'completed'])),
+    )
+    .all()
+    .map(({ status, ...row }) => ({
+      ...row,
+      kind: status === 'completed' ? 'completed' : 'allocated',
+      roundId: null,
+      roundCode: null,
+    }));
+
+  const pending: CalendarEntry[] = [];
+  for (const round of roundsForPartner(tx, partnerId)) {
+    if (round.status !== 'open' && round.status !== 'closed') continue;
+    const participant = participantForPartner(tx, round.id, partnerId);
+    if (!participant || participant.excludedAt !== null) continue;
+    const latest = latestConfirmation(tx, round.id, participant.lotPartnerId);
+    if (!latest || latest.kind !== 'confirm' || latest.marks.length === 0) continue;
+    const inRound = new Set(roundTrainingList(tx, round.id).map((t) => t.id));
+    const marked = latest.marks.filter((id) => inRound.has(id));
+    if (marked.length === 0) continue;
+    const rows = tx
+      .select(base)
+      .from(trainings)
+      .innerJoin(lots, eq(lots.id, trainings.lotId))
+      .where(inArray(trainings.id, marked))
+      .all();
+    for (const row of rows) {
+      pending.push({ ...row, kind: 'confirmed', roundId: round.id, roundCode: round.code });
+    }
+  }
+
+  return [...held, ...pending].sort(
+    (a, b) => a.eventDate.localeCompare(b.eventDate) || a.code.localeCompare(b.code),
+  );
+}
+
+/**
+ * The calendar by day — what the marking table shows beside a training on a
+ * date the partner already has something [N-02]. Pass `exceptRoundId` so a
+ * round's own trainings do not warn about each other.
+ */
+export function commitmentsByDay(
+  entries: readonly CalendarEntry[],
+  exceptRoundId: string | null = null,
+): Map<string, string[]> {
+  const byDay = new Map<string, string[]>();
+  for (const entry of entries) {
+    if (exceptRoundId !== null && entry.roundId === exceptRoundId) continue;
+    // A group's period is not a day the company is booked on [L-28].
+    if (entry.dateKind === 'period') continue;
+    const list = byDay.get(entry.eventDate) ?? [];
+    if (!list.includes(entry.code)) list.push(entry.code);
+    byDay.set(entry.eventDate, list);
+  }
+  return byDay;
 }
 
 /**

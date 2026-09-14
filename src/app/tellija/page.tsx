@@ -9,8 +9,10 @@
 import Link from 'next/link';
 import { eq, inArray } from 'drizzle-orm';
 import { getDb } from '@/db';
+import { frameworkIdentity } from '@/server/framework';
+import { frameworkTitleLine } from '@/domain/framework';
 import { lots, rounds, trainings } from '@/db/schema';
-import { formatDateTimeShort, formatEur, formatIsoDay } from '@/domain/format';
+import { formatDateTimeShort, formatEur, formatEventWhen } from '@/domain/format';
 import {
   ROUND_STATUS_LABELS,
   ROUND_STATUS_TONES,
@@ -18,9 +20,11 @@ import {
 } from '@/domain/round-statuses';
 import { Countdown } from '@/components/countdown';
 import { StatusBadge } from '@/components/status-badge';
-import { readClock } from '@/server/clock';
+import { currentTimeMs } from '@/server/clock';
 import { runDueJobs } from '@/server/rounds/jobs';
 import { LeftoverActions } from './leftover-actions';
+import { buyerCanWrite } from '@/server/auth/actor';
+import { ReadOnlyNote } from '@/components/read-only-note';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,7 +34,8 @@ export default async function BuyerDashboard() {
   runDueJobs();
 
   const db = getDb();
-  const { nowMs } = readClock(db);
+  const canWrite = await buyerCanWrite();
+  const nowMs = currentTimeMs();
 
   const allRounds = db
     .select({
@@ -62,6 +67,8 @@ export default async function BuyerDashboard() {
       code: trainings.code,
       title: trainings.title,
       eventDate: trainings.eventDate,
+      eventEnd: trainings.eventEnd,
+      dateKind: trainings.dateKind,
       county: trainings.county,
       estimatedValueEur: trainings.estimatedValueEur,
       lotId: trainings.lotId,
@@ -97,7 +104,7 @@ export default async function BuyerDashboard() {
       <div>
         <h1>Töölaud</h1>
         <p className="mt-1 text-[var(--color-muted)]">
-          Raamleping „Eesti.ai koolitajate tellimine“ · riigihanke viitenumber 10567384
+          {frameworkTitleLine(frameworkIdentity(db))}
         </p>
       </div>
 
@@ -153,11 +160,16 @@ export default async function BuyerDashboard() {
         <h2 className="mb-3">Avatud voorud</h2>
         {open.length === 0 ? (
           <p className="kh-card p-4 text-[var(--color-muted)]">
-            Avatud voore ei ole.{' '}
-            <Link href="/tellija/voorud/uus" className="text-[var(--color-brand)]">
-              Loo uus voor
-            </Link>
-            .
+            Avatud voore ei ole.
+            {canWrite && (
+              <>
+                {' '}
+                <Link href="/tellija/voorud/uus" className="text-[var(--color-brand)]">
+                  Loo uus voor
+                </Link>
+                .
+              </>
+            )}
           </p>
         ) : (
           <div className="kh-card overflow-x-auto">
@@ -214,18 +226,22 @@ export default async function BuyerDashboard() {
             Neid koolitusi ei võtnud ükski partner vastu. Vali uus voor kõigile partneritele, või
             tühista koolitus põhjendusega.
           </p>
-          <LeftoverActions
-            leftovers={leftovers.map((l) => ({
-              id: l.id,
-              code: l.code,
-              title: l.title,
-              eventDate: formatIsoDay(l.eventDate),
-              county: l.county,
-              value: formatEur(l.estimatedValueEur),
-              lotId: l.lotId,
-              lotCode: l.lotCode,
-            }))}
-          />
+          {canWrite ? (
+            <LeftoverActions
+              leftovers={leftovers.map((l) => ({
+                id: l.id,
+                code: l.code,
+                title: l.title,
+                eventDate: formatEventWhen(l),
+                county: l.county,
+                value: formatEur(l.estimatedValueEur),
+                lotId: l.lotId,
+                lotCode: l.lotCode,
+              }))}
+            />
+          ) : (
+            <ReadOnlyNote what="Jäägi otsused" />
+          )}
         </section>
       )}
 

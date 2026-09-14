@@ -25,19 +25,40 @@ export interface TrainingRef {
   eventDate?: string;
 }
 
+/** „viiest minutist“ / „20 sekundist“ — the floor as the sentence needs it. */
+function floorText(seconds: number): string {
+  if (seconds < 60) return `${seconds} sekundist`;
+  const minutes = Math.round(seconds / 60);
+  return minutes === 5 ? 'viiest minutist' : `${minutes} minutist`;
+}
+
 export function DraftRoundPanel({
   roundId,
   lotResponseDays,
   lotDeadlineTime,
   visibilityMode,
+  plannedExtraWorkingDays = 0,
+  plannedDeadlineLocal = null,
+  testFloorSeconds,
   trainings,
 }: {
   roundId: string;
   lotResponseDays: number;
   lotDeadlineTime: string;
   visibilityMode: 'dynamic' | 'sealed';
+  /** from an uploaded scheme [L-20]; offered as the default, still the buyer's call */
+  plannedExtraWorkingDays?: number;
+  /** the scheme's own deadline, as a value for a datetime-local input */
+  plannedDeadlineLocal?: string | null;
+  /**
+   * In the test environment the deadline floor is a few minutes rather than the
+   * lot's working-day window [L-23]; the number comes from the server because
+   * the browser suites shorten it. Undefined means production rules.
+   */
+  testFloorSeconds?: number;
   trainings: TrainingRef[];
 }) {
+  const extraChoices = [...new Set([0, 1, 2, 5, plannedExtraWorkingDays])].sort((a, b) => a - b);
   return (
     <div className="space-y-4">
       <div
@@ -63,16 +84,45 @@ export function DraftRoundPanel({
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block">
               <span className="text-[12.5px] font-semibold">Vastamistähtaeg</span>
-              <select name="extraWorkingDays" defaultValue="0" className="kh-input mt-1">
-                <option value="0">
-                  Hankeosa vaikimisi — {lotResponseDays} tööpäeva, kell {lotDeadlineTime}
-                </option>
-                <option value="1">{lotResponseDays + 1} tööpäeva (+1)</option>
-                <option value="2">{lotResponseDays + 2} tööpäeva (+2)</option>
-                <option value="5">{lotResponseDays + 5} tööpäeva (+5)</option>
+              <select
+                name="extraWorkingDays"
+                defaultValue={String(plannedExtraWorkingDays)}
+                className="kh-input mt-1"
+                data-testid="extra-working-days"
+              >
+                {extraChoices.map((extra) =>
+                  extra === 0 ? (
+                    <option key={extra} value="0">
+                      Hankeosa vaikimisi — {lotResponseDays} tööpäeva, kell {lotDeadlineTime}
+                    </option>
+                  ) : (
+                    <option key={extra} value={String(extra)}>
+                      {lotResponseDays + extra} tööpäeva (+{extra})
+                      {extra === plannedExtraWorkingDays ? ' — skeemis ette nähtud' : ''}
+                    </option>
+                  ),
+                )}
               </select>
               <span className="mt-1 block text-[12px] text-[var(--color-muted)]">
                 Tähtaega saab hiljem ainult pikendada.
+              </span>
+            </label>
+            <label className="block">
+              <span className="text-[12.5px] font-semibold">Või kindel tähtaeg</span>
+              <input
+                type="datetime-local"
+                name="deadlineAt"
+                defaultValue={plannedDeadlineLocal ?? ''}
+                className="kh-input mt-1 w-full"
+                data-testid="deadline-at"
+              />
+              <span className="mt-1 block text-[12px] text-[var(--color-muted)]">
+                {plannedDeadlineLocal
+                  ? 'Skeemifailis kavandatud tähtaeg. Tühjenda, et kasutada tööpäevade valikut.'
+                  : 'Täidetuna kehtib see tööpäevade valiku asemel.'}
+                {testFloorSeconds !== undefined
+                  ? ` Testkeskkonnas piisab ${floorText(testFloorSeconds)} tulevikus, nii et kaskaadi saab läbi mängida.`
+                  : ` Vähemalt hankeosa ${lotResponseDays} tööpäeva.`}
               </span>
             </label>
             <label className="block">
