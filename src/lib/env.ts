@@ -16,6 +16,12 @@ const booleanish = z
   .optional()
   .transform((v) => v === '1' || v?.toLowerCase() === 'true');
 
+/** On unless explicitly switched off with `0` or `false`. */
+const booleanishDefaultOn = z
+  .string()
+  .optional()
+  .transform((v) => !(v === '0' || v?.toLowerCase() === 'false'));
+
 const schema = z.object({
   DATABASE_PATH: z.string().default('./data/kaskaadhankija.db'),
   /** this is the test environment: act-as picker, badge, mail allowlist, short deadlines */
@@ -28,6 +34,12 @@ const schema = z.object({
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
   SMTP_SECURE: booleanish,
+  /**
+   * Require STARTTLS on a port-587 connection: a relay that does not offer it
+   * is refused rather than spoken to in plain text. Not needed with
+   * SMTP_SECURE (implicit TLS on 465), where the connection is TLS from the start.
+   */
+  SMTP_REQUIRE_TLS: booleanish,
   EMAIL_FROM: z.string().default('Kaskaadhankija <tellimused@example.ee>'),
   TEAM_NOTIFICATIONS_EMAIL: z.string().optional(),
   /**
@@ -63,6 +75,14 @@ const schema = z.object({
    * seeded from a secret any more — they come with the framework data [L-21].
    */
   SEED_TEAM: z.string().optional(),
+  /**
+   * Whether an empty database is filled with the fictional sample data on the
+   * first boot. On by default — the test environments and the suites rely on
+   * it. A real deployment sets `0`: the database is then marked as seeded and
+   * left empty, so the first admin (AUTO_ADMIN_ALLOWLIST) starts from an empty
+   * framework and uploads the real workbook [L-21][L-23].
+   */
+  SEED_SAMPLE_DATA: booleanishDefaultOn,
   /**
    * How far in the future a test round's response deadline must be, in
    * seconds. Only read in DEMO_MODE, where the point is that a whole cascade

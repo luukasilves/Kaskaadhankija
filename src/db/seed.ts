@@ -234,6 +234,18 @@ export async function seedIfEmpty(): Promise<(SeedReport & { openRoundId: string
   ensureAppState(db);
   if (readSeedVersion(db) >= SEED_VERSION) return null;
 
+  if (!env.SEED_SAMPLE_DATA) {
+    // A real deployment: mark the database as seeded and load nothing, so the
+    // first admin starts from an empty framework and uploads the real workbook
+    // [L-21]. The same state `scripts/prepare-empty-db.ts` produces, without
+    // needing tsx in the runtime image.
+    db.transaction((tx) => writeSeedVersion(tx, SEED_VERSION, Date.now()), { behavior: 'immediate' });
+    console.log(
+      '[kaskaadhankija] näidisandmeid ei laaditud (SEED_SAMPLE_DATA=0): andmebaas on tühi ja ootab raamhanke töövihikut',
+    );
+    return null;
+  }
+
   const { seedScenarios } = await import('./seed-scenarios');
   const now = Date.now();
 

@@ -101,6 +101,7 @@ function getTransporter(): Transporter {
       host: env.SMTP_HOST,
       port: env.SMTP_PORT,
       secure: env.SMTP_SECURE,
+      requireTLS: env.SMTP_REQUIRE_TLS,
       auth: env.SMTP_USER ? { user: env.SMTP_USER, pass: env.SMTP_PASS } : undefined,
       connectionTimeout: env.SMTP_TIMEOUT_MS,
       greetingTimeout: env.SMTP_TIMEOUT_MS,
