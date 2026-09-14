@@ -38,6 +38,21 @@ boot, operations (health, logs, backup, upgrades), security, go-live checklist.
 A changelog for the review team: v2.5 → v2.7 by area, what to check before the next
 play-through, and the decisions the team still owes.
 
+## Independent review and Estonia CFR assessment — 14 September 2026
+
+An independent assessment by **OpenAI Codex using GPT-6 Astra (`gpt-6-astra`)**,
+reviewing commit `65d2792b01f5f6d90691443af4ce11d260551fd0`. English, with the
+original Estonian CFR rules retained in the matrix. This records the project at
+the review date; it does not assert that findings have since been resolved.
+
+- [Independent review](reviews/2026-09-14/independent-review.md): project state,
+  reproduced findings, government handover gaps and recommended acceptance sequence.
+- [CFR workbook](reviews/2026-09-14/cfr-matrix.xlsx) and
+  [CSV matrix](reviews/2026-09-14/cfr-matrix.csv): all 67 requirements, original
+  source levels, evidence, next actions and proposed accountable roles.
+- [Evidence summary](reviews/2026-09-14/evidence-summary.md): execution results,
+  independent reproductions and the limits of the assessment.
+
 ## `juhend/` — the bidder guide's working files
 
 The guide itself is a page in the application (`/juhend`, content in
