@@ -21,6 +21,23 @@ Section **Lisa A** maps verbatim quotes from the specialists' meeting to the rul
 they justify; **Lisa B** is a worked example that doubles as an acceptance test
 for the allocation algorithm and the four partner-facing display states.
 
+## `tehniline-ulevaade.md` — how the system works (Estonian, English summary)
+
+Architecture, data model, round lifecycle, identity, mail, documents, audit trail and
+evidence, personal data and retention, configuration, quality control, limits. For the
+technical teams that will host and integrate the application.
+
+## `juurutamine.md` — deployment guide (Estonian, English summary)
+
+Requirements on one page, recommended topology for a private or hybrid cloud, image
+build, production configuration and secrets, step-by-step mail-server wiring, first
+boot, operations (health, logs, backup, upgrades), security, go-live checklist.
+
+## `uuendused-2026-09-13.md` — what changed after the first play-through (Estonian)
+
+A changelog for the review team: v2.5 → v2.7 by area, what to check before the next
+play-through, and the decisions the team still owes.
+
 ## `juhend/` — the bidder guide's working files
 
 The guide itself is a page in the application (`/juhend`, content in

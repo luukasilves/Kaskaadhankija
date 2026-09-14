@@ -22,6 +22,9 @@ specialists edit it directly.
 |---|---|
 | **[`docs/kaskaadi-ariloogika.md`](docs/kaskaadi-ariloogika.md)** | The business logic: 96 numbered rules, decisions with their alternatives, a traceability appendix, and a worked example (Lisa B). **The source of truth.** |
 | **[`PLAN.md`](PLAN.md)** | Why the design is what it is, and what is deliberately structural |
+| **[`docs/tehniline-ulevaade.md`](docs/tehniline-ulevaade.md)** | How the system works — architecture, data, round lifecycle, identity, mail, evidence, personal data, configuration. Estonian, English summary first |
+| **[`docs/juurutamine.md`](docs/juurutamine.md)** | Deployment guide for the buyer's own infrastructure — topology for a private/hybrid cloud, SMTP wiring, first boot, operations, security, go-live checklist. Estonian, English summary first |
+| **[`docs/uuendused-2026-09-13.md`](docs/uuendused-2026-09-13.md)** | What changed after the first play-through (v2.5 → v2.7), as a changelog for the review team. Estonian |
 | **`src/`** | The application: buyer and partner screens, the round engine, the framework and round imports, the protocol |
 | **[`demo/`](demo/)** | The v1 single-file HTML demo of the *sequential* cascade — still useful, no server needed |
 | **[kaskaadhankija.fly.dev](https://kaskaadhankija.fly.dev)** | The accepted v2 test environment — the persona picker, kept as the specialists reviewed it |
@@ -238,7 +241,7 @@ to see the diagnostics.
 
 ```bash
 pnpm typecheck
-pnpm test                       # 456 domain, engine and protocol tests, named after spec rules
+pnpm test                       # 591 domain, engine and protocol tests, named after spec rules
 pnpm build
 
 node scripts/e2e.mjs            # upload → publish → answer → close → review → confirm → protocol; a partner's own view; an empty environment set up by hand
@@ -277,6 +280,15 @@ have gone another way live in section **L** with their alternatives — includin
 the six recorded while this was built.
 
 ## Deployment
+
+**For the buyer's own infrastructure** — a private or hybrid cloud, the state cloud —
+read [`docs/juurutamine.md`](docs/juurutamine.md): the requirements on one page, a
+recommended topology (exactly one instance, one persistent disk, TLS at the proxy,
+outbound SMTP only), the production configuration, step-by-step mail-server wiring,
+the first boot, operations and a go-live checklist. Two switches exist for that
+deployment and nothing else: `SEED_SAMPLE_DATA=0` starts an empty database instead
+of loading the fictional sample data, and `SMTP_REQUIRE_TLS=1` refuses a relay that
+does not offer STARTTLS. The rest of this section is about the **test environments**.
 
 One container, one SQLite file on a mounted volume, no outside services. See
 [`PLAN.md`](PLAN.md) for the reasoning and `fly.toml` for the Fly.io specifics —
@@ -351,7 +363,8 @@ signs the codes and sessions, is generated once by the workflow.
 
 Any SMTP relay works — the test phase uses a public one with a verified sender
 address; the Riigikantselei server later is the same variables with different
-values. The e-mails' copy lives in `src/domain/round-templates.ts`, and the
+values, plus `SMTP_REQUIRE_TLS=1` so a relay without STARTTLS is refused rather than
+spoken to in plain text. The e-mails' copy lives in `src/domain/round-templates.ts`, and the
 `/api/health` endpoint reports `mail: smtp | dev | off`.
 
 ## Before go-live
