@@ -161,5 +161,5 @@ Kõik keskkonnamuutujad loetakse ühes kohas (`src/lib/env.ts`); vigane väärtu
 - **E-posti kood tuvastab postkasti**, mitte allkirjaõigust [L-08]; tugevam tuvastamine on ühe liidese vahetus.
 - **Otsus ja tellimus on väljaspool rakendust** [L-25]; rakendus annab protokolli.
 - Õiguslikku või erialast otsust ootavad reeglid: **L-01, L-05, L-07, L-10, L-12** (spetsifikatsiooni päis).
-- Kujundus on ainult tume (Tailwind v4 tõstab `@theme` meediapäringust välja) — kosmeetiline.
+- Kujundus on ainult hele; värvid on riigi ühtse visuaalse identiteedi veebidisainisüsteemi (Veera / CVI) paletist (Black Coral, Sapphire Blue, Sea Green, Dark Tangerine, Jasper), tekstivärvid WCAG AA kontrastiga. Tumedat režiimi ei ole, nagu ei ole seda riigi e-teenustel.
 - Kataloogid `demo/` ja `src/demo/` on v1 järjestikuse kaskaadi eraldi näidis, mitte rakenduse osa.

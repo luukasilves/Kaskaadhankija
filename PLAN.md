@@ -84,7 +84,7 @@ One container, one SQLite file, no outside services.
 | Framework | Next.js 15 App Router, React 19, TypeScript strict, server actions |
 | Database | SQLite via `better-sqlite3` + `drizzle-orm`, WAL, on a mounted volume |
 | Transactions | every mutation is one `BEGIN IMMEDIATE` transaction that re-checks status inside; SQLite serializes writers globally, which is exactly the guarantee a cascade needs |
-| Styling | Tailwind v4 design tokens, light and dark, print stylesheet for orders |
+| Styling | Tailwind v4 design tokens in the Estonian state's common visual identity palette (Veera / CVI: Black Coral, Sapphire Blue, Sea Green, Dark Tangerine, Jasper), light only, print stylesheet for the documents |
 | Time | real time, behind one `currentTimeMs()` seam; the domain never reads a clock at all — every instant is injected [L-23] |
 | Scheduling | in-process timer started on the first request, plus a lazy check on every round page load — idempotent from both |
 | Email | one `sendMail` over configurable SMTP, below the notification log; one delivery row per recipient with retries and a manual re-send [D-10]; a recipient must be one the framework data knows, or on the configured list [L-19] |

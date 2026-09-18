@@ -3,66 +3,49 @@
 /**
  * Design tokens for Kaskaadhankija.
  *
- * A restrained, government-adjacent palette: this tool sits alongside the
- * Estonian public procurement register, and procurement officers read dense
- * tables in it all day. Light and dark are both first-class.
+ * The colours are the Estonian state's common visual identity as its web design
+ * system (Veera / CVI, `e-gov/cvi`) defines them, so this tool reads like the
+ * other government services its users open in the same afternoon: Black Coral
+ * greys for text, surfaces and borders; Sapphire Blue for the one action on a
+ * screen and for links; Sea Green, Dark Tangerine and Jasper for status. Each
+ * value below names the step of that palette it is taken from.
+ *
+ * Light only, deliberately. State services do not ship a dark theme, and the
+ * earlier attempt at one was never seen in light: Tailwind v4 hoists `@theme`
+ * out of a media query, so the dark values applied to everybody. Text colours
+ * are chosen for WCAG AA on their grounds — white on the primary blue is 7:1.
  */
 
 @theme {
-  --color-bg: #f4f6f9;
+  --color-bg: #f0f0f2; /* black-coral-0 — the page */
   --color-surface: #ffffff;
-  --color-surface-alt: #f9fafc;
-  --color-border: #dde3ea;
-  --color-border-strong: #c3ccd7;
-  --color-text: #1b2430;
-  --color-muted: #5d6875;
-  --color-brand: #14507d;
-  --color-brand-hover: #0f3f63;
-  --color-brand-soft: #e7f0f7;
-  --color-success: #1a6f47;
-  --color-success-soft: #e3f3ea;
-  --color-warning: #96560a;
-  --color-warning-soft: #fbeedc;
-  --color-danger: #a52a21;
-  --color-danger-soft: #fbe8e6;
-  --color-neutral: #5d6875;
-  --color-neutral-soft: #eef1f5;
-  --color-demo: #7a3ea3;
-  --color-demo-soft: #f3e9fa;
+  --color-surface-alt: #f7f7f9; /* between white and black-coral-0 */
+  --color-border: #d2d3d8; /* black-coral-2 */
+  --color-border-strong: #a6a8b1; /* black-coral-5 — form borders */
+  --color-text: #1a1b1f; /* black-coral-18 */
+  --color-muted: #5d6071; /* black-coral-10 */
+  --color-brand: #005aa3; /* sapphire-blue-10 — buttons, links, focus */
+  --color-brand-hover: #004277; /* sapphire-blue-13 */
+  --color-brand-soft: #e7f0f6; /* sapphire-blue-0 */
+  --color-success: #286e44; /* sea-green-12 */
+  --color-success-soft: #d9e9df; /* sea-green-1 */
+  --color-warning: #8c630a; /* dark-tangerine-15 — readable as text */
+  --color-warning-soft: #fff1d3; /* dark-tangerine-1 */
+  --color-danger: #b03333; /* jasper-12 — readable as text */
+  --color-danger-soft: #f7dbdb; /* jasper-1 */
+  --color-neutral: #5d6071; /* black-coral-10 */
+  --color-neutral-soft: #e1e2e5; /* black-coral-1 */
+  --color-demo: #a35200; /* orange-14 — the test-environment strip */
+  --color-demo-soft: #fff3e7; /* orange-0 */
 
   --radius-card: 10px;
   --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
     sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  @theme {
-    --color-bg: #10151c;
-    --color-surface: #171e27;
-    --color-surface-alt: #1d2531;
-    --color-border: #2b3542;
-    --color-border-strong: #3b4757;
-    --color-text: #e7ecf2;
-    --color-muted: #9aa6b4;
-    --color-brand: #6aa9d8;
-    --color-brand-hover: #8bbde4;
-    --color-brand-soft: #1a2b3a;
-    --color-success: #6cc79b;
-    --color-success-soft: #16301f;
-    --color-warning: #e0a763;
-    --color-warning-soft: #33260f;
-    --color-danger: #ef8177;
-    --color-danger-soft: #35191a;
-    --color-neutral: #9aa6b4;
-    --color-neutral-soft: #222b37;
-    --color-demo: #c295e0;
-    --color-demo-soft: #2a1c36;
-  }
-}
-
 @layer base {
   html {
-    color-scheme: light dark;
+    color-scheme: light;
   }
 
   body {
@@ -96,6 +79,17 @@
   :where(input, select, textarea, button):focus-visible {
     outline: 2px solid var(--color-brand);
     outline-offset: -1px;
+  }
+
+  /* A link is told apart by more than its colour: underlined in content, not
+     in navigation and not where it is styled as a button. */
+  main a:not(.kh-btn):not([role='tab']) {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    text-decoration-color: color-mix(in srgb, currentColor 55%, transparent);
+  }
+  main a:not(.kh-btn):not([role='tab']):hover {
+    text-decoration-color: currentColor;
   }
 }
 
@@ -257,7 +251,7 @@
     --color-border-strong: #8b95a1;
     --color-text: #000000;
     --color-muted: #3f4854;
-    --color-brand: #0f3f63;
+    --color-brand: #004277;
     --color-brand-soft: #ffffff;
     --color-success: #14573a;
     --color-success-soft: #ffffff;
