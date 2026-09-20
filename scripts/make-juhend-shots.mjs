@@ -112,13 +112,10 @@ async function main() {
   const browser = await chromium.launch({ executablePath: CHROMIUM });
   // 2× so a reader can zoom a table figure to legible text on a phone.
   //
-  // No `colorScheme` here on purpose: it would have no effect. `globals.css`
-  // declares a light and a dark palette, but the dark one sits in
-  // `@media (prefers-color-scheme: dark) { @theme { … } }`, and Tailwind v4
-  // hoists `@theme` out of the media query — so the built CSS carries no
-  // colour-scheme query at all and every screen is dark for everyone. The
-  // figures therefore match the application as it actually renders, which is
-  // what a guide needs; if the palette is ever fixed, re-run this script.
+  // No `colorScheme` here: the application is light only, in the state's
+  // common visual identity palette (`globals.css`), so the figures show the
+  // one rendering every reader gets. Re-run this script whenever the palette
+  // or a screen it illustrates changes.
   const context = await browser.newContext({
     viewport: { width: 1280, height: 900 },
     deviceScaleFactor: 2,
