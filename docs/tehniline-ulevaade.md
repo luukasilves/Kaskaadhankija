@@ -150,7 +150,7 @@ Kõik keskkonnamuutujad loetakse ühes kohas (`src/lib/env.ts`); vigane väärtu
 
 ## 11. Kvaliteedikontroll
 
-- **591 üksuse- ja mootoritesti** (`pnpm test`, vitest), nimetatud reeglite järgi (`describe('[J-04] …')`); Lisa B näide lahter-lahtri haaval; migratsioonid täidetud andmebaasi peal; protokolli determinism ja räsi.
+- **594 üksuse- ja mootoritesti** (`pnpm test`, vitest), nimetatud reeglite järgi (`describe('[J-04] …')`); Lisa B näide lahter-lahtri haaval; migratsioonid täidetud andmebaasi peal; protokolli determinism ja räsi.
 - **Brauseritestid** (Playwright, päris server ja andmebaas): `scripts/e2e.mjs` (üleslaadimine → avaldamine → vastamine → tähtaeg → ülevaatus → kinnitamine → protokoll; partneri nähtavus; klastrivoor; tühi keskkond käsitsi), `verify-auth.mjs` (sisselogimine, rollid, toodangu hoiak), `verify-admin.mjs` (raamhanke ringkäik, muudatuste logi), `verify-protocol.mjs`, `verify-container.mjs` (taaskäivitus püsikettal ilma uuesti seemendamata, standalone-kuvand, `DEMO_MODE` maas).
 - **CI** (`.github/workflows/ci.yml`): typecheck, testid, build ja kontroll, et standalone-väljundis on natiivne SQLite, migratsioonid, näidisandmed ja PDF-fontide meetrika; sama kontrollib `Dockerfile` kuvandi ehitamisel.
 

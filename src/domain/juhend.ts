@@ -66,7 +66,15 @@ export type Block =
   /** A boxed aside. `warning` is for the two things that cost a partner work. */
   | { kind: 'note'; tone: 'warning' | 'info'; title: string; text: string }
   | { kind: 'figure'; id: FigureId; caption: string }
-  | { kind: 'diagram'; id: 'kaskaad' | 'ajatelg' };
+  | { kind: 'diagram'; id: DiagramId };
+
+/**
+ * The drawn diagrams. `kaskaad` and `ajatelg` are laid out in HTML in the page;
+ * the other three are inline SVG in `src/app/juhend/diagrams.tsx`, with every
+ * word they show taken from the `JOONIS_*` constants below, so the words are
+ * reviewable here and swept by `juhend.test.ts` like the prose.
+ */
+export type DiagramId = 'kaskaad' | 'ajatelg' | 'raamleping' | 'kaks-mudelit' | 'jaotus-samm';
 
 export interface Section {
   /** the anchor, and the contents-list key */
@@ -257,13 +265,86 @@ export const AJATELG: readonly { samm: string; kes: 'tellija' | 'teie' | 'sustee
 ];
 
 /* ------------------------------------------------------------------ *
+ * diagrams 3–5 — what a cascade is, in the introduction
+ * ------------------------------------------------------------------ *
+ *
+ * Words only; the geometry is in `src/app/juhend/diagrams.tsx`. Ranks are
+ * „koht 1/2/3“ and never company names [N-04]. `selgitus` is the figcaption
+ * and carries the meaning, so the drawing stays droppable.
+ */
+
+export const JOONIS_RAAMLEPING = {
+  pealkiri: 'Raamleping, hankeosad ja järjestus',
+  selgitus:
+    'Üks raamleping, mitu hankeosa. Igas hankeosas on partnerid järjestatud ja koht 1 on eesõigusega. Sama ettevõte võib eri hankeosades olla eri kohal.',
+  raamleping: ['Raamleping', '„Eesti.ai koolitajate tellimine“'],
+  hankeosad: ['Hankeosa 1', 'Hankeosa 2', 'Hankeosa 3', 'Hankeosa 4'],
+  kohad: ['koht 1', 'koht 2', 'koht 3', '…'],
+  legend: 'koht 1 — eesõigus: temalt küsitakse esimesena',
+} as const;
+
+export const JOONIS_KAKS_MUDELIT = {
+  pealkiri: 'Kaks viisi tellimust jagada',
+  selgitus:
+    'Klassikaline kaskaad küsib partneritelt ükshaaval ja ootab iga vastust. Paralleelne kaskaad küsib korraga kõigilt ja otsustab tähtajal järjestuse alusel — seda kasutab see keskkond.',
+  klassikaline: {
+    pealkiri: 'Klassikaline kaskaad — ükshaaval',
+    tellija: 'Tellija',
+    kohad: ['Koht 1', 'Koht 2', 'Koht 3'],
+    nooled: ['küsib', 'loobub', 'loobub'],
+    tulemus: 'võtab vastu',
+    markus: [
+      'Iga samm ootab eelmise vastust — kohalt 2 küsitakse alles siis,',
+      'kui koht 1 on loobunud või vaikinud. Paljude koolitustega on see aeglane.',
+    ],
+  },
+  paralleelne: {
+    pealkiri: 'Paralleelne kaskaad — korraga kõigile (see keskkond)',
+    tellija: ['Tellija', 'avaldab vooru'],
+    kohad: ['Koht 1', 'Koht 2', 'Koht 3'],
+    aken: 'vastavad sama aja jooksul',
+    tahtaeg: 'tähtaeg',
+    tulemus: ['Jaotus', 'järjestuse alusel'],
+    markus: [
+      'Kõik partnerid näevad sama koolituste loendit ühel ajal',
+      'ja märgivad, mida nad teha saavad. Tähtajal jaotatakse koolitused',
+      'järjestuse alusel — vastamise kiirus ei loe.',
+    ],
+  },
+} as const;
+
+export const JOONIS_JAOTUS_SAMM = {
+  pealkiri: 'Kuidas üks koolitus oma partneri leiab',
+  selgitus:
+    'Sama küsimus käib iga koolituse kohta järjestust mööda alla, kuni keegi selle võtab. Tellija võib ülevaatusel partneri põhjendusega vahele jätta või piirata — siis liigub koolitus samuti järgmisele.',
+  algus: 'Üks vooru koolitus',
+  jargmine: ['Võta järjestusest järgmine partner', '(alustades kohast 1)'],
+  kysimus1: ['Kas ta kinnitas', 'sellele märke?'],
+  kysimus2: ['Kas tema ülempiiris', 'on veel ruumi?'],
+  jah: 'jah',
+  ei: 'ei',
+  tagasi: 'järgmine koht',
+  otsas: 'partnereid ei ole enam',
+  tulemus: ['Koolitus määratakse', 'sellele partnerile'],
+  jaak: ['Kui järjestus sai läbi ja keegi ei võtnud:', 'koolitus jääb jaotamata ja tellija otsustab, mis edasi.'],
+} as const;
+
+/** Every string the three drawn diagrams show, for the test's sweeps. */
+export const JOONISTE_TEKST: readonly string[] = (function korja(value: unknown): string[] {
+  if (typeof value === 'string') return [value];
+  if (Array.isArray(value)) return value.flatMap(korja);
+  if (value && typeof value === 'object') return Object.values(value).flatMap(korja);
+  return [];
+})([JOONIS_RAAMLEPING, JOONIS_KAKS_MUDELIT, JOONIS_JAOTUS_SAMM]);
+
+/* ------------------------------------------------------------------ *
  * the guide
  * ------------------------------------------------------------------ */
 
 export const PEALKIRI = 'Juhend koolitajale';
 
 /** The date the guide was last brought into line with the application. */
-export const JUHENDI_SEIS = '14.09.2026';
+export const JUHENDI_SEIS = '22.09.2026';
 
 export const SISSEJUHATUS =
   'Kuidas vastata koolitustellimuste voorule raamlepingu „Eesti.ai koolitajate tellimine“ (RHR 10567384) alusel.';
@@ -287,7 +368,55 @@ export const SECTIONS: readonly Section[] = [
       {
         kind: 'para',
         text:
-          'Juhend on mõeldud inimesele, kes teie ettevõttes voorudele vastab: raamlepingu kontaktisikule või esindajale, kelle aadress on tellija juures kirjas.',
+          'Juhend on mõeldud inimesele, kes teie ettevõttes voorudele vastab: raamlepingu kontaktisikule või esindajale, kelle aadress on tellija juures kirjas. Kui kaskaad on teile uus mõiste, alustage järgmisest osast.',
+      },
+    ],
+  },
+
+  {
+    id: 'kaskaad',
+    title: 'Mis on kaskaadhange ja kuidas see siin käib',
+    rules: ['V-01', 'V-08', 'K-01', 'K-05', 'K-06', 'J-04', 'J-06', 'J-07', 'L-06', 'T-02', 'T-04', 'L-25'],
+    blocks: [
+      {
+        kind: 'para',
+        text:
+          '**Raamleping** on hankega sõlmitud kokkulepe, mille alusel tellija saab koolitusi tellida ilma iga korra jaoks uut hanget korraldamata. Raamlepingu „Eesti.ai koolitajate tellimine“ igas **hankeosas** on mitu partnerit ja nad on hanke hindamistulemuste alusel **järjestatud**: koht 1, koht 2 ja nii edasi. Igal hankeosal on oma järjestus, ja sama ettevõte võib eri hankeosades olla eri kohal. Hind osaleja kohta on igal partneril raamlepingus fikseeritud — voorus hinda ei pakuta ega võrrelda.',
+      },
+      { kind: 'diagram', id: 'raamleping' },
+      {
+        kind: 'para',
+        text:
+          '**Kaskaad** on reegel selle kohta, kes tellimuse saab: esimesena on õigus kohal 1; kui tema ei võta, läheb võimalus kohale 2, sealt kohale 3 ja nii edasi järjestust mööda alla — nagu vesi astmelisel kosel, sellest ka nimi. Otsustab järjestus, mitte see, kes esimesena vastab.',
+      },
+      {
+        kind: 'para',
+        text:
+          'Klassikaline kaskaad käib **ükshaaval**: tellija pöördub koha 1 poole ja ootab vastust; alles loobumise või vaikimise järel pöördub ta koha 2 poole. Kui tellida on palju koolitusi ja partnereid on palju, on see aeglane. Seepärast lubab raamleping ka teist viisi: küsida **korraga kõigilt** ja otsustada tulemus järjestuse alusel. Seda kasutab see keskkond ja seda nimetatakse siin **paralleelseks kaskaadiks**. Ükshaaval küsimine on jäänud üksiku kiireloomulise koolituse jaoks.',
+      },
+      { kind: 'diagram', id: 'kaks-mudelit' },
+      {
+        kind: 'para',
+        text:
+          'Paralleelne kaskaad käib **voorudena**. Voor on ühe hankeosa koolituste komplekt koos vastamistähtajaga, ja see läheb ühel hetkel kõigile selle hankeosa partneritele — osa partnereid välja jätta ei saa. Voor käib nii:',
+      },
+      {
+        kind: 'steps',
+        items: [
+          '**Tellija avaldab vooru.** Kõik hankeosa partnerid saavad teate ja näevad sama koolituste loendit.',
+          '**Te märgite, mida olete valmis läbi viima**, seate soovi korral ülempiiri ja kinnitate. Kuni tähtajani saate valikut muuta; kehtib viimane kinnitus. Vahepeal näete teist eespool olevate partnerite kinnituste mõju — mitte seda, kes nad on.',
+          '**Tähtajal jaotab süsteem koolitused.** Iga koolitus läheb järjestuses kõige eespool olevale partnerile, kes on sellele märke kinnitanud ja kelle ülempiiris on veel ruumi. Kui kedagi sellist ei ole, jääb koolitus jaotamata ja tellija otsustab, mis edasi.',
+          '**Tellija vaatab jaotuse üle ja kinnitab.** Ta võib põhjendusega partneri vahele jätta või tema koolituste arvu piirata — see on raamlepingust tulenev õigus, mida süsteem ise kunagi ei rakenda. Kinnitatud jaotus ei muutu enam.',
+          '**Tellimus vormistatakse väljaspool keskkonda.** Vooru sulgumisel saate kokkuvõtte oma esialgsest tulemusest; tellimuse asjus võtab tellija teiega eraldi ühendust.',
+        ],
+      },
+      { kind: 'diagram', id: 'jaotus-samm' },
+      {
+        kind: 'note',
+        tone: 'info',
+        title: 'Kolm asja, mis kaskaadis alati kehtivad',
+        text:
+          '**Järjestus otsustab, mitte kiirus** — esimesena vastamine ei anna eelist ega võta seda ära. **Märkimine on õigus, mitte kohustus** — võite loobuda ja see ei mõjuta teie kohta, aga kinnitatud märge on siduv. **Teisi partnereid te ei näe** — ainult nende kinnituste mõju teie prognoosile.',
       },
     ],
   },

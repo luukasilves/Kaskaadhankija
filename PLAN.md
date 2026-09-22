@@ -188,7 +188,7 @@ with the rank-3 partner holding an unconfirmed draft — which is where the
 
 | Suite | What it holds to account |
 |---|---|
-| `pnpm test` — 591 tests | one `describe` per rule ID; Lisa B.1–B.4 exactly; the append-only triggers; the seed *is* Lisa B; migrations against a populated database; the protocol's determinism and its hash |
+| `pnpm test` — 594 tests | one `describe` per rule ID; Lisa B.1–B.4 exactly; the append-only triggers; the seed *is* Lisa B; migrations against a populated database; the protocol's determinism and its hash |
 | `node scripts/e2e.mjs` | the real flow: sign in, act-as, a round from an uploaded workbook, published with a window of about a minute, answered by two partners through act-as and one with their own code, closed by the deadline passing, reviewed, capped, confirmed, and its protocol downloaded — then what a partner may and may not see on the seeded Lisa B round, and finally an **empty** database set up by hand from the sample workbooks |
 | `node scripts/verify-auth.mjs` | sign-in by e-mail code with the code read from the server log — wrong code, lock after five, unknown address, rate limit — the landing rules per role, that switching keeps the session, and the production posture |
 | `node scripts/verify-admin.mjs` | the framework round trip: download the workbook, change one contact with exceljs, upload it, then sign in with that new address as that partner; the admin forms for identity, rank, contact and representative, **each followed by its row in „Muudatuste logi“**; a legacy `.xls` refused; representatives and the buyer team |
