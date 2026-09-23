@@ -20,6 +20,10 @@ import { FINAL_SUMMARY_WINDOW_MS } from '@/server/rounds/engine';
 import { LISA_B1_EXPECTED, LISA_B2_EXPECTED } from './__fixtures__/lisa-b';
 import {
   FIGURE_IDS,
+  JOONIS_JAOTUS_SAMM,
+  JOONIS_KAKS_MUDELIT,
+  JOONIS_RAAMLEPING,
+  JOONISTE_TEKST,
   KASKAAD,
   KOODI_KEHTIVUS_MIN,
   LOPPKOKKUVOTE_TUNDE,
@@ -39,9 +43,9 @@ const read = (relative: string) => readFileSync(join(ROOT, relative), 'utf8');
 /** Every block of every section, pilot-only included. */
 const blocks: Block[] = SECTIONS.flatMap((section) => [...section.blocks]);
 
-/** All the guide's prose in one string, for the sweeps below. */
-const proosa = blocks
-  .map((block) => {
+/** All the guide's prose in one string, for the sweeps below — the drawn diagrams' words included. */
+const proosa = [
+  ...blocks.map((block) => {
     switch (block.kind) {
       case 'para':
         return block.text;
@@ -55,8 +59,9 @@ const proosa = blocks
       default:
         return '';
     }
-  })
-  .join('\n');
+  }),
+  ...JOONISTE_TEKST,
+].join('\n');
 
 describe('the guide quotes an interface that still says that', () => {
   it.each(QUOTED.map((q) => [q.tekst, q.fail] as const))(
@@ -171,6 +176,30 @@ describe('the cascade diagram is the specification’s own worked example', () =
     for (const row of KASKAAD) {
       expect(row.kohad.filter((k) => k.sai), `${row.kood} goes to exactly one rank`).toHaveLength(1);
     }
+  });
+});
+
+describe('the drawn diagrams are droppable and say what the prose says', () => {
+  const diagramsUsed = blocks.filter((b): b is Block & { kind: 'diagram' } => b.kind === 'diagram').map((b) => b.id);
+
+  it('uses each drawn diagram exactly once, in the introduction', () => {
+    const drawn = ['raamleping', 'kaks-mudelit', 'jaotus-samm'] as const;
+    for (const id of drawn) expect(diagramsUsed.filter((d) => d === id)).toHaveLength(1);
+    const intro = SECTIONS.find((s) => s.id === 'kaskaad');
+    expect(intro?.blocks.filter((b) => b.kind === 'diagram').map((b) => (b.kind === 'diagram' ? b.id : ''))).toEqual([...drawn]);
+  });
+
+  it('captions every drawn diagram with a sentence that carries the meaning', () => {
+    for (const joonis of [JOONIS_RAAMLEPING, JOONIS_KAKS_MUDELIT, JOONIS_JAOTUS_SAMM]) {
+      expect(joonis.pealkiri.length).toBeGreaterThan(10);
+      expect(joonis.selgitus.length, joonis.pealkiri).toBeGreaterThan(60);
+    }
+  });
+
+  it('names ranks, never partners [N-04]', () => {
+    // A company name in a diagram invites the reader to take it for real data.
+    expect(JOONISTE_TEKST.join(' ')).not.toMatch(/\b(OÜ|AS|MTÜ)\b/);
+    expect(JOONISTE_TEKST.join(' ')).toMatch(/[Kk]oht 1/);
   });
 });
 

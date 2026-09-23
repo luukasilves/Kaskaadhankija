@@ -242,7 +242,7 @@ to see the diagnostics.
 
 ```bash
 pnpm typecheck
-pnpm test                       # 591 domain, engine and protocol tests, named after spec rules
+pnpm test                       # 594 domain, engine and protocol tests, named after spec rules
 pnpm build
 
 node scripts/e2e.mjs            # upload → publish → answer → close → review → confirm → protocol; a partner's own view; an empty environment set up by hand

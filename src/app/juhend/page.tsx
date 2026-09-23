@@ -29,6 +29,7 @@ import {
   SISSEJUHATUS,
   type Block,
 } from '@/domain/juhend';
+import { JaotusSammJoonis, KaksMudelitJoonis, RaamlepingJoonis } from './diagrams';
 import { FIGURES } from './figures';
 
 export const dynamic = 'force-dynamic';
@@ -252,7 +253,18 @@ function Plokk({ block }: { block: Block }) {
     }
 
     case 'diagram':
-      return block.id === 'kaskaad' ? <Kaskaad /> : <Ajatelg />;
+      switch (block.id) {
+        case 'kaskaad':
+          return <Kaskaad />;
+        case 'ajatelg':
+          return <Ajatelg />;
+        case 'raamleping':
+          return <RaamlepingJoonis />;
+        case 'kaks-mudelit':
+          return <KaksMudelitJoonis />;
+        case 'jaotus-samm':
+          return <JaotusSammJoonis />;
+      }
   }
 }
 
